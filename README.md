@@ -33,6 +33,8 @@ python -m s03_permission.code
 python -m s03_permission.code --mode read-only
 # 运行第四章：工具调用 Hooks
 python -m s04_hooks.code
+# 第四章只读分析：经权限 Hook 接入 s03 的只读策略
+python -m s04_hooks.code --mode read-only
 # 运行第五章：会话系统 · 持久化
 python -m s05_session_persistence.code
 # 加载已有的第五章会话

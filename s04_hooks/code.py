@@ -10,9 +10,11 @@ Hooks 让权限、日志和结果处理可以作为函数注入，而不必继�
 
 from __future__ import annotations
 
+# 来自 s03：保持；启动参数由入口解析，Hook 和核心循环不解析运行模式。
+import argparse
 import os
 import sys
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -79,6 +81,7 @@ class Hooks:
 
 # ===== s04 新增：Hook 执行器 =====
 
+
 def run_before_hooks(
     name: str,
     arguments: dict[str, Any],
@@ -128,6 +131,7 @@ def run_after_hooks(
 # ===== s04 修改：把 s03 权限策略接入 before hook =====
 # 权限仍由 s03 的规则决定；s04 只改变它进入工具生命周期的方式。
 
+
 def make_permission_hook(
     permission: PermissionCheck = previous.check_permission,
     confirm: PermissionConfirm = previous.confirm_permission,
@@ -144,9 +148,8 @@ def make_permission_hook(
         decision = permission(name, arguments)
         if decision.status is previous.PermissionStatus.DENY:
             return f"Permission denied: {decision.reason}"
-        if (
-            decision.status is previous.PermissionStatus.ASK
-            and not confirm(name, arguments, decision.reason)
+        if decision.status is previous.PermissionStatus.ASK and not confirm(
+            name, arguments, decision.reason
         ):
             return "Permission denied: user did not approve this tool call"
         return None
@@ -155,6 +158,7 @@ def make_permission_hook(
 
 
 # ===== s04 修改：工具执行入口 =====
+
 
 def execute_tool(
     name: str,
@@ -185,6 +189,7 @@ def execute_tool(
 
 # ===== 来自 s03：响应读取辅助（保持） =====
 
+
 def _get(block: Any, name: str) -> Any:
     """兼容读取 SDK 对象和测试替身中的字段。"""
     if isinstance(block, dict):
@@ -194,6 +199,7 @@ def _get(block: Any, name: str) -> Any:
 
 # ===== s04 修改：核心循环注入 Hooks =====
 # s03 注入 permission/confirm；s04 将这两个依赖组合进 Hooks，循环只关心生命周期。
+
 
 def agent_loop(
     messages: list[Message],
@@ -214,20 +220,18 @@ def agent_loop(
     流程：请求模型 → 提取工具调用 → 运行前置 Hook → 执行工具 → 运行后置 Hook
     → 追加结果 → 再次请求模型。多个工具调用仍按模型返回的顺序处理。
     """
+    # 来自 s03：保持；只有 None 使用默认工具，显式空列表不能恢复全部能力。
+    active_tools = TOOLS if tools is None else tools
     while True:
         response = create_message(
             system=system,
             messages=messages,
-            tools=tools or TOOLS,
+            tools=active_tools,
             max_tokens=max_tokens,
         )
         messages.append({"role": "assistant", "content": response.content})
 
-        tool_calls = [
-            block
-            for block in response.content
-            if _get(block, "type") == "tool_use"
-        ]
+        tool_calls = [block for block in response.content if _get(block, "type") == "tool_use"]
         if not tool_calls:
             return messages
 
@@ -257,6 +261,7 @@ def agent_loop(
 
 # ===== 来自 s03：终端输出和交互入口；s04 修改 Hook 配置 =====
 
+
 def _text_from_content(content: Any) -> str:
     """提取模型响应中的文本块，用于终端展示。"""
     if isinstance(content, str):
@@ -269,13 +274,20 @@ def _text_from_content(content: Any) -> str:
     )
 
 
-def main() -> None:
+def main(arguments: Sequence[str] | None = None) -> None:
     """启动第四章的 Hooks Agent。
 
     作用：加载模型配置，创建带权限 Hook 的运行时，并处理终端交互。
-    输入：用户在终端输入的自然语言任务。
+    输入：可选 --mode default/read-only 启动参数，以及用户的自然语言任务。
     输出：工具调用、权限确认、Hook 处理后的工具结果和模型最终回答。
+    流程：解析模式 → 创建模型依赖 → 选择 s03 工具和权限 → 注册权限 Hook → 交互。
+    边界：权限规则属于 s03；本章只将所选函数适配成前置 Hook，不新增模式判断规则。
     """
+    # ===== 来自 s03：启动选项与基础依赖（保持） =====
+    # 来自 s03：保持；模式只能在启动时由用户选择，不由模型自行切换。
+    parser = argparse.ArgumentParser(description="运行 s04 的工具 Hooks Agent")
+    parser.add_argument("--mode", choices=("default", "read-only"), default="default")
+    options = parser.parse_args(arguments)
     load_dotenv(override=True)
     model = os.getenv("MODEL_ID")
     if not model:
@@ -296,9 +308,22 @@ def main() -> None:
     # s04 修改：复用公共模型请求组件，main() 只展示 Hooks 的依赖组装。
     requester = ModelRequester(client, model, timeout_seconds)
 
-    # s04 新增：把 s03 的权限策略注册为 before hook。
-    hooks = Hooks(before_tool_call=[make_permission_hook()])
+    # ===== s04 修改：所选权限策略经 Hook 组装 =====
+    # 来自 s03：保持；工具组合和只读检查直接复用，不在 Hooks 章节复制权限规则。
+    active_tools = previous.READ_ONLY_TOOLS if options.mode == "read-only" else TOOLS
+    permission = (
+        previous.check_read_only_permission
+        if options.mode == "read-only"
+        else previous.check_permission
+    )
+    # s04 修改：相对 s03 的直接注入，将选好的权限函数适配为现有前置 Hook。
+    permission_hook = make_permission_hook(permission=permission)
+    hooks = Hooks(before_tool_call=[permission_hook])
+
+    # ===== 来自 s03：终端交互（保持） =====
     print("s04：工具调用 Hooks")
+    # 来自 s03：保持；展示实际开放能力，确认工具列表与所选模式一致。
+    print(f"工具模式：{options.mode}；可用工具：{', '.join(tool['name'] for tool in active_tools)}")
     print("输入任务，输入 q 退出。\n")
 
     history: list[Message] = []
@@ -320,6 +345,8 @@ def main() -> None:
                 dispatch=dispatch_tool,
                 system=SYSTEM,
                 hooks=hooks,
+                # 来自 s03：保持；筛选后的工具直接传给模型，执行门禁由权限 Hook 负责。
+                tools=active_tools,
             )
         except RuntimeError as error:
             print(f"\n{format_error(str(error))}", file=sys.stderr)
