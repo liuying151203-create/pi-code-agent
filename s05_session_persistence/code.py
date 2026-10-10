@@ -252,34 +252,38 @@ def _create_new_session_path(root: Path) -> Path:
     return path
 
 
-def session_path_from_cli(
-    arguments: Sequence[str] | None = None,
+# s05 新增：共用启动参数解析，不封装各章的 Provider、Hooks 和核心组件组装。
+def parse_session_args(arguments: Sequence[str] | None = None) -> argparse.Namespace:
+    """解析会话 Agent 共用的启动选项，不创建文件或模型客户端。
+
+    输入：命令行参数，支持 --session 与 --mode default/read-only。
+    输出：Namespace，session 是可选 Path，mode 是已校验的模式字符串。
+    流程：注册两个选项 → argparse 校验 → 返回；无效选项或 --help 在这里退出。
+    边界：只解析用户选择，工具筛选和权限 Hook 仍由各章 main 显式组装。
+    """
+    parser = argparse.ArgumentParser(description="运行会话 Agent")
+    parser.add_argument("--mode", choices=("default", "read-only"), default="default")
+    parser.add_argument("--session", type=Path, metavar="PATH", help="加载已有的 JSONL 会话文件")
+    return parser.parse_args(arguments)
+
+
+# s05 修改：路径选择独立于参数解析，各章使用已解析的 session 值，不重新拼装命令行。
+def select_session_path(
+    history_path: Path | None,
     *,
     session_root: Path = DEFAULT_SESSION_ROOT,
 ) -> Path:
-    """根据启动参数创建新会话，或加载指定的历史会话。
+    """选择唯一会话文件，不改变会话格式或当前工具权限。
 
-    作用：把会话选择限制在程序启动阶段，避免终端输入循环承担会话管理职责。
-    输入：可选的命令行参数；支持 `--session <路径>`。未传入该参数时在
-    `session_root`（默认 `.sessions/s05/`）创建新的时间戳 JSONL 文件。
-    输出：当前运行唯一使用的会话文件路径；指定路径不存在时抛出 `ValueError`。
-    流程：解析命令行参数 → 校验指定历史文件，或创建新文件 → 返回会话路径。
+    输入：可选历史文件及本章默认目录；输出：存在的历史文件或新建的唯一 JSONL 路径。
+    流程：没有历史路径时创建新文件；有路径时校验文件存在，原样返回。
+    边界：只选择存储位置，不加载消息、不恢复授权，也不创建模型客户端。
     """
-    parser = argparse.ArgumentParser(description="运行 s05 的线性会话 Agent")
-    parser.add_argument(
-        "--session",
-        type=Path,
-        metavar="PATH",
-        help="加载已有的 JSONL 会话文件",
-    )
-    options = parser.parse_args(arguments)
-    if options.session is None:
-        # s05 新增：没有指定历史文件时，每次启动创建独立会话，避免默认串联上下文。
+    if history_path is None:
         return _create_new_session_path(session_root)
-    if not options.session.is_file():
-        raise ValueError(f"会话文件不存在：{options.session}")
-    # s05 新增：仅在显式传入 --session 时恢复历史，选择行为不进入自然语言循环。
-    return options.session
+    if not history_path.is_file():
+        raise ValueError(f"会话文件不存在：{history_path}")
+    return history_path
 
 
 SessionSaver = Callable[[Message], None]
@@ -397,13 +401,8 @@ def main(arguments: Sequence[str] | None = None) -> None:
     流程：解析启动参数 → 创建模型依赖 → 恢复会话 → 组装权限 Hook → 交互并保存消息。
     边界：会话只恢复消息，不保存或恢复工具授权；只读模式仍允许 Harness 保存运行记录。
     """
-    # ===== s05 修改：启动参数组合会话与既有模式 =====
-    # 来自 s04：保持；模式由用户启动时选择，循环和会话存储不判断权限模式。
-    parser = argparse.ArgumentParser(description="运行 s05 的线性会话 Agent")
-    parser.add_argument("--mode", choices=("default", "read-only"), default="default")
-    # s05 新增：会话参数与模式同时解析，明确历史文件和当前运行权限是独立选项。
-    parser.add_argument("--session", type=Path, metavar="PATH", help="加载已有的 JSONL 会话文件")
-    options = parser.parse_args(arguments)
+    # s05 修改：共用解析方法只处理启动选项，main 仍显式组装运行时依赖。
+    options = parse_session_args(arguments)
 
     # ===== 来自 s04：基础模型依赖（保持） =====
     load_dotenv(override=True)
@@ -427,9 +426,8 @@ def main(arguments: Sequence[str] | None = None) -> None:
     requester = ModelRequester(client, model, timeout_seconds)
 
     # ===== s05 修改：会话组件组装 =====
-    # s05 修改：只转交会话参数；保留共享函数的原接口，避免后续章节忽略模式却误接受它。
-    session_arguments = [] if options.session is None else ["--session", str(options.session)]
-    session_path = session_path_from_cli(session_arguments)
+    # s05 修改：直接使用已解析路径，省去命令行重组和二次解析。
+    session_path = select_session_path(options.session)
     # s05 新增：通过 SessionManager 隔离终端入口与 JSONL 存储实现。
     session = SessionManager.open(session_path)
     # s05 新增：启动时恢复历史消息，并将其作为模型请求上下文。

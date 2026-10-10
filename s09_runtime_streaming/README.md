@@ -74,6 +74,12 @@ model_request
 
 `TerminalEventSink` 记住本轮是否已经输出过 delta。收到完整消息时，已经流式显示过就只结束当前行；没有 delta 时则回退为一次性打印完整文本，避免回答重复或消失。
 
+## 启动模式（复用 s03–s05）
+
+`s05.parse_session_args()` 与 `s05.select_session_path()` 分别解析选项、选择本章会话文件；工具与权限 Hook 仍在本章 `main()` 显式组装。共用方法关系见 [s05](../s05_session_persistence/README.md#组件关系与调用链)，本章核心机制不变。
+
+`--mode read-only` 只开放 glob、grep、read_file，并通过 s03 检查和 s04 Hook 拒绝 shell、写入及受限读取，不请求批准。可与 `--session` 组合；历史不恢复授权，会话记录仍保存。它不是沙箱，也不保证模型一定完成任务。
+
 ## 运行
 
 本章复用 [s07 的模型窗口预算](../s07_session_compaction/README.md#运行)，入口显式传入窗口、预留、近期 Token 和摘要额度；流式显示不会另设压缩阈值。旧字符参数不再读取，先填写实际 `MODEL_CONTEXT_WINDOW_TOKENS`。
@@ -81,6 +87,12 @@ model_request
 ```powershell
 # 创建 s09 专属会话并流式显示正常回答
 python -m s09_runtime_streaming.code
+
+# 只读分析；不会开放 bash 或请求工具审批
+python -m s09_runtime_streaming.code --mode read-only
+
+# 离线验证本章入口、会话恢复与权限门禁
+python -m pytest tests/test_read_only_runtime.py -k s09
 
 # 加载已有的 s09 会话
 python -m s09_runtime_streaming.code --session .sessions\s09\session-20260922-120000.jsonl

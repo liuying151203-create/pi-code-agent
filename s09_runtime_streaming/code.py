@@ -21,6 +21,8 @@ from typing import Any, Literal
 from anthropic import Anthropic
 from dotenv import load_dotenv
 
+# 来自 s03：保持；直接复用工具模式权限，不在本章新增检查规则。
+from s03_permission import code as permissions
 from s05_session_persistence import code as s05
 from s08_runtime_events import code as previous
 from zero2pi.ui import (
@@ -289,12 +291,14 @@ def agent_loop(
     流程：请求器流式展示并返回最终响应 → 保存完整 assistant 消息 → 执行完整 tool_use
     → 保存 tool_result → 继续请求；无工具调用时发出 agent_end。
     """
+    # 来自 s08：保持；只有 None 回退默认工具，显式空列表不扩大能力。
+    active_tools = TOOLS if tools is None else tools
     while True:
         # s09 修改：调用期间可以产生多个 delta，但返回值始终是 SDK 组装的完整响应。
         response = create_message(
             system=system,
             messages=messages,
-            tools=tools or TOOLS,
+            tools=active_tools,
             max_tokens=max_tokens,
         )
         assistant_message = {
@@ -355,11 +359,13 @@ def main(arguments: Sequence[str] | None = None) -> None:
     """启动使用文本增量事件展示回答的 Agent。
 
     作用：显式分离内部摘要请求和用户可见的流式回答请求，再组装 s09 运行时。
-    输入：s05 保持的 --session 参数，以及终端中的自然语言任务。
+    输入：s05 的 --session 与 --mode 启动选项，以及终端中的自然语言任务。
     输出：模型文本逐段显示；完整消息、工具结果和压缩记录正常写入会话。
     流程：加载配置 → 创建终端消费者 → 组装阻塞摘要请求 → 组装流式回答请求
     → 注入压缩层和 agent_loop → 持续读取用户任务。
     """
+    # 来自 s05：保持；共用启动解析只处理参数，各章组件仍在 main 显式组装。
+    options = s05.parse_session_args(arguments)
     load_dotenv(override=True)
     model = os.getenv("MODEL_ID")
     if not model:
@@ -385,7 +391,8 @@ def main(arguments: Sequence[str] | None = None) -> None:
     assistant_requester = StreamingModelRequester(client, model, timeout_seconds, terminal)
 
     # s09 修改：复用 s07/s08 会话格式与压缩算法，但使用 s09 专属默认目录。
-    session_path = s05.session_path_from_cli(arguments, session_root=SESSION_ROOT)
+    # 来自 s05：保持；直接选择已解析的会话路径，不二次解析或恢复历史授权。
+    session_path = s05.select_session_path(options.session, session_root=SESSION_ROOT)
     session = SessionManager.open(session_path)
     policy = CompactionPolicy(
         # 来自 s07：保持；模型窗口、预留和近期预算分别组装，不再读取旧字符阈值。
@@ -410,10 +417,20 @@ def main(arguments: Sequence[str] | None = None) -> None:
         emit=terminal,
     )
     # 来自 s08：保持；Hooks 继续干预工具行为，流式事件只负责观察和展示。
-    hooks = Hooks(before_tool_call=[make_permission_hook()])
+    # 来自 s03/s04：保持；工具筛选和执行门禁同时接入，不改变本章核心机制。
+    active_tools = permissions.READ_ONLY_TOOLS if options.mode == "read-only" else TOOLS
+    permission = (
+        permissions.check_read_only_permission
+        if options.mode == "read-only"
+        else permissions.check_permission
+    )
+    permission_hook = make_permission_hook(permission=permission)
+    hooks = Hooks(before_tool_call=[permission_hook])
 
     print("s09：运行时系统 · 流式响应")
     print(f"会话文件：{session.path}")
+    # 来自 s04：保持；显示当前开放能力，不将模型文本当作授权。
+    print(f"工具模式：{options.mode}；可用工具：{', '.join(tool['name'] for tool in active_tools)}")
     print("输入任务，输入 q 退出。\n")
 
     while True:
@@ -437,6 +454,8 @@ def main(arguments: Sequence[str] | None = None) -> None:
                 dispatch=dispatch_tool,
                 system=SYSTEM,
                 hooks=hooks,
+                # 来自 s08：保持；只传所选工具，实际权限仍由已有 Hook 负责。
+                tools=active_tools,
                 emit=terminal,
                 save_message=session.append_message,
             )

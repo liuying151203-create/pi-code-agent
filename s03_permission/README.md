@@ -113,7 +113,7 @@ python -m pytest tests/test_s03_permission.py
 
 只读模式建议输入：`解释 s03_permission/code.py 中 check_read_only_permission 的输入、输出和执行流程`。启动应显示 `工具模式：read-only`，可用工具只有 `grep, read_file, glob`。
 
-s03 仍使用原有 Anthropic 接口配置（`MODEL_ID`、`ANTHROPIC_API_KEY`、可选 `ANTHROPIC_BASE_URL`），不读取 s10 的 Provider 配置。不要为了这次权限功能把 Provider 实现移入 s03。s04/s05 已通过权限 Hook 接入相同的 `--mode`；s06–s12 尚未同步此启动选项。
+s03 仍使用原有 Anthropic 接口配置（`MODEL_ID`、`ANTHROPIC_API_KEY`、可选 `ANTHROPIC_BASE_URL`），不读取 s10 的 Provider 配置。不要为了这次权限功能把 Provider 实现移入 s03。s04–s12 均已通过权限 Hook 接入相同的 `--mode`，直接复用本章工具集合与检查函数。
 
 ## 参考与差异
 

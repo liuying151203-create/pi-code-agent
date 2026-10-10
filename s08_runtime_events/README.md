@@ -127,6 +127,12 @@ s08：agent_loop → emit(event) → print_event
 
 真正的 token 增量流式输出不在本章实现，将在 s09 基于同一 EventSink 增加；s08 只验证运行和展示已经分离。
 
+## 启动模式（复用 s03–s05）
+
+`s05.parse_session_args()` 与 `s05.select_session_path()` 分别解析选项、选择本章会话文件；工具与权限 Hook 仍在本章 `main()` 显式组装。共用方法关系见 [s05](../s05_session_persistence/README.md#组件关系与调用链)，本章核心机制不变。
+
+`--mode read-only` 只开放 glob、grep、read_file，并通过 s03 检查和 s04 Hook 拒绝 shell、写入及受限读取，不请求批准。可与 `--session` 组合；历史不恢复授权，会话记录仍保存。它不是沙箱，也不保证模型一定完成任务。
+
 ## 运行
 
 本章复用 [s07 的模型窗口预算](../s07_session_compaction/README.md#运行)，入口显式传入窗口、预留、近期 Token 和摘要额度；没有事件层专用阈值。旧字符参数不再读取，先填写实际 `MODEL_CONTEXT_WINDOW_TOKENS`。
@@ -134,6 +140,12 @@ s08：agent_loop → emit(event) → print_event
 ```powershell
 # 创建 s08 专属会话并使用终端事件消费者
 python -m s08_runtime_events.code
+
+# 只读分析；不会开放 bash 或请求工具审批
+python -m s08_runtime_events.code --mode read-only
+
+# 离线验证本章入口、会话恢复与权限门禁
+python -m pytest tests/test_read_only_runtime.py -k s08
 
 # 加载已有的 s08 会话
 python -m s08_runtime_events.code --session .sessions\s08\session-20260922-120000.jsonl

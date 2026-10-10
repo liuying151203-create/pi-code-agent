@@ -89,13 +89,25 @@ flowchart TB
 | `SessionContextRequester` | 新增 | 在模型请求边界注入最新上下文。 |
 | `main()` | 修改 | 使用 `active_context` 与 `SessionContextRequester`。 |
 | `agent_loop()` | 来自 s05：展开保持 | 行为不变，但在 s06 文件中完整展示请求、工具调用和消息保存流程。 |
-| `session_path_from_cli()`、`SYSTEM`、工具分发 | 来自 s05：保持 | 会话投影不改变启动、提示词或工具职责。 |
+| `parse_session_args()`、`select_session_path()`、`SYSTEM`、工具分发 | 来自 s05：保持 | 会话投影不改变启动选择、提示词或工具职责。 |
+
+## 启动模式（复用 s03–s05）
+
+`previous.parse_session_args()` 与 `previous.select_session_path()` 分别解析选项、选择本章会话文件；工具与权限 Hook 仍在本章 `main()` 显式组装。共用方法关系见 [s05](../s05_session_persistence/README.md#组件关系与调用链)，本章核心机制不变。
+
+`--mode read-only` 只开放 glob、grep、read_file，并通过 s03 检查和 s04 Hook 拒绝 shell、写入及受限读取，不请求批准。可与 `--session` 组合；历史不恢复授权，会话记录仍保存。它不是沙箱，也不保证模型一定完成任务。
 
 ## 运行
 
 ```powershell
 # 创建新会话；启动后会打印实际文件路径
 python -m s06_session_context.code
+
+# 只读分析；不会开放 bash 或请求工具审批
+python -m s06_session_context.code --mode read-only
+
+# 离线验证本章入口、会话恢复与权限门禁
+python -m pytest tests/test_read_only_runtime.py -k s06
 
 # 加载已有的 s06 会话
 python -m s06_session_context.code --session .sessions\s06\session-20260919-120000.jsonl

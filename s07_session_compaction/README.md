@@ -71,11 +71,23 @@ flowchart TB
 
 正常请求顺序为：`prepare_compaction()` 生成压缩计划 → `compact_if_needed()` 按计划生成并保存摘要 → `session.build_context()` 重建上下文 → 替换本次请求的 `messages` → 请求模型。摘要生成直接调用底层请求器，避免再次触发压缩。投影函数从日志末尾向前寻找最新压缩点，再依次追加摘要、保留尾部和新消息。
 
+## 启动模式（复用 s03–s05）
+
+`s05.parse_session_args()` 与 `s05.select_session_path()` 分别解析选项、选择本章会话文件；工具与权限 Hook 仍在本章 `main()` 显式组装。共用方法关系见 [s05](../s05_session_persistence/README.md#组件关系与调用链)，本章核心机制不变。
+
+`--mode read-only` 只开放 glob、grep、read_file，并通过 s03 检查和 s04 Hook 拒绝 shell、写入及受限读取，不请求批准。可与 `--session` 组合；历史不恢复授权，会话记录仍保存。它不是沙箱，也不保证模型一定完成任务。
+
 ## 运行
 
 ```powershell
 # 创建 s07 专属会话；需先填写实际模型窗口
 python -m s07_session_compaction.code
+
+# 只读分析；不会开放 bash 或请求工具审批
+python -m s07_session_compaction.code --mode read-only
+
+# 离线验证本章入口、会话恢复与权限门禁
+python -m pytest tests/test_read_only_runtime.py -k s07
 
 # 加载已有 s07 会话
 python -m s07_session_compaction.code --session .sessions\s07\session-20260919-120000.jsonl

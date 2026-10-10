@@ -22,6 +22,8 @@ from typing import Any
 from anthropic import Anthropic
 from dotenv import load_dotenv
 
+# 来自 s03：保持；直接复用工具模式权限，不在本章新增检查规则。
+from s03_permission import code as permissions
 from s04_hooks import code as s04
 from s05_session_persistence import code as previous
 from zero2pi.model import ModelRequester
@@ -55,6 +57,7 @@ make_permission_hook = s04.make_permission_hook
 
 
 # ===== s06 新增：追加式会话 Entry =====
+
 
 def _normalize_message(message: Message) -> Message:
     """将消息标准化为可写入 JSON 的 role/content 字典。"""
@@ -127,6 +130,7 @@ def entry_from_record(record: object) -> MessageEntry:
 # ===== 来自 s05：JSONL 存储层（修改） =====
 # s05 的 Store 读写 SessionMessage；s06 保持追加式 I/O，但改为读写 MessageEntry 日志。
 
+
 class JsonlSessionStore:
     """以追加式 JSONL 保存和读取完整 MessageEntry 日志。
 
@@ -180,6 +184,7 @@ def build_session_context(entries: Sequence[MessageEntry]) -> list[Message]:
 
 # ===== 来自 s05：SessionManager（修改） =====
 # s05 的 Manager 直接返回完整 Message 历史；s06 先读取 MessageEntry 日志，再显式构建上下文。
+
 
 class SessionManager:
     """协调 MessageEntry 日志、上下文投影和 Agent 的消息保存。
@@ -256,6 +261,7 @@ class SessionContextRequester:
 # ===== 来自 s05：核心循环（展开保持） =====
 # s06 保留 s05 的消息与工具循环，并在当前文件完整展示；模型请求由上方组件重新投影上下文。
 
+
 def _get(block: Any, name: str) -> Any:
     """兼容读取 SDK 对象和测试替身中的字段。"""
     if isinstance(block, dict):
@@ -283,12 +289,14 @@ def agent_loop(
     流程：投影上下文并请求模型 → 追加并保存 assistant → 执行工具 → 追加并保存 tool_result
     → 使用最新日志再次请求模型。
     """
+    # 来自 s05：保持；只有 None 回退默认工具，显式空列表不扩大能力。
+    active_tools = TOOLS if tools is None else tools
     while True:
         # s06 修改：调用请求组件时，会在模型请求边界从完整日志重新投影上下文。
         response = create_message(
             system=system,
             messages=messages,
-            tools=tools or TOOLS,
+            tools=active_tools,
             max_tokens=max_tokens,
         )
         assistant_message = {
@@ -300,9 +308,7 @@ def agent_loop(
             save_message(assistant_message)
 
         tool_calls = [
-            block
-            for block in assistant_message["content"]
-            if _get(block, "type") == "tool_use"
+            block for block in assistant_message["content"] if _get(block, "type") == "tool_use"
         ]
         if not tool_calls:
             return messages
@@ -330,6 +336,7 @@ def agent_loop(
 
 # ===== 来自 s05：终端入口（修改） =====
 
+
 def _text_from_content(content: Any) -> str:
     """提取模型响应中的文本块，用于终端展示。"""
     return previous._text_from_content(content)
@@ -339,10 +346,12 @@ def main(arguments: Sequence[str] | None = None) -> None:
     """启动使用 Session Entry 上下文投影的 Agent。
 
     作用：选择会话文件，追加完整 Entry 日志，并在每次模型请求前构建活跃上下文。
-    输入：s05 保持的 `--session <路径>` 启动参数，以及终端中的自然语言任务。
+    输入：s05 的 --session 与 --mode 启动选项，以及终端中的自然语言任务。
     输出：会话文件提示、工具调用、工具结果和模型回答；空行、`q` 或 `exit` 退出。
     流程：打开会话 → 创建 ModelRequester → 组装 SessionContextRequester → 运行本章 agent_loop。
     """
+    # 来自 s05：保持；共用启动解析只处理参数，各章组件仍在 main 显式组装。
+    options = previous.parse_session_args(arguments)
     load_dotenv(override=True)
     model = os.getenv("MODEL_ID")
     if not model:
@@ -362,8 +371,9 @@ def main(arguments: Sequence[str] | None = None) -> None:
     # s06 修改：复用公共模型请求组件，main() 只组装会话上下文依赖。
     requester = ModelRequester(client, model, timeout_seconds)
 
-    # s06 修改：复用 s05 的启动参数解析，但指定 s06 专属默认目录以隔离存储格式。
-    session_path = previous.session_path_from_cli(arguments, session_root=SESSION_ROOT)
+    # s06 修改：指定 s06 专属默认目录，避免与 s05 的存储格式混用。
+    # 来自 s05：保持；直接选择已解析的会话路径，不二次解析或恢复历史授权。
+    session_path = previous.select_session_path(options.session, session_root=SESSION_ROOT)
     session = SessionManager.open(session_path)
     # s06 修改：模型不直接加载全部记录，而是从 Entry 日志投影活跃上下文。
     initial_context = session.build_context()
@@ -373,10 +383,20 @@ def main(arguments: Sequence[str] | None = None) -> None:
         build_context=session.build_context,
     )
     # 来自 s04：保持；会话投影不改变工具权限 Hook 的职责。
-    hooks = Hooks(before_tool_call=[make_permission_hook()])
+    # 来自 s03/s04：保持；工具筛选和执行门禁同时接入，不改变本章核心机制。
+    active_tools = permissions.READ_ONLY_TOOLS if options.mode == "read-only" else TOOLS
+    permission = (
+        permissions.check_read_only_permission
+        if options.mode == "read-only"
+        else permissions.check_permission
+    )
+    permission_hook = make_permission_hook(permission=permission)
+    hooks = Hooks(before_tool_call=[permission_hook])
 
     print("s06：会话系统 · 记录与上下文投影")
     print(f"会话文件：{session.path}")
+    # 来自 s04：保持；显示当前开放能力，不将模型文本当作授权。
+    print(f"工具模式：{options.mode}；可用工具：{', '.join(tool['name'] for tool in active_tools)}")
     print(f"初始模型上下文：{len(initial_context)} 条消息。")
     print("输入任务，输入 q 退出。\n")
 
@@ -402,6 +422,8 @@ def main(arguments: Sequence[str] | None = None) -> None:
                 dispatch=dispatch_tool,
                 system=SYSTEM,
                 hooks=hooks,
+                # 来自 s05：保持；只传所选工具，实际权限仍由已有 Hook 负责。
+                tools=active_tools,
                 # 来自 s05：保持；循环产生的助手和工具消息仍追加到完整会话日志。
                 save_message=session.append_message,
             )

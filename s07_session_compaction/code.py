@@ -22,6 +22,8 @@ from typing import Any, Literal
 from anthropic import Anthropic
 from dotenv import load_dotenv
 
+# 来自 s03：保持；直接复用工具模式权限，不在本章新增检查规则。
+from s03_permission import code as permissions
 from s05_session_persistence import code as s05
 from s06_session_context import code as previous
 from zero2pi.model import ModelRequester
@@ -773,12 +775,14 @@ def agent_loop(
     流程：按需压缩并请求模型 → 追加并保存 assistant → 执行工具 → 追加并保存 tool_result
     → 使用最新压缩边界再次请求模型。
     """
+    # 来自 s06：保持；只有 None 回退默认工具，显式空列表不扩大能力。
+    active_tools = TOOLS if tools is None else tools
     while True:
         # s07 修改：请求组件先检查压缩，再把最新投影作为本次模型上下文。
         response = create_message(
             system=system,
             messages=messages,
-            tools=tools or TOOLS,
+            tools=active_tools,
             max_tokens=max_tokens,
         )
         assistant_message = {
@@ -834,10 +838,12 @@ def main(arguments: Sequence[str] | None = None) -> None:
     """启动带自动上下文压缩的 Agent。
 
     作用：选择 s07 会话、创建摘要模型调用，并在每次正常模型请求前自动压缩过长上下文。
-    输入：s05 保持的 --session 参数，以及终端中的自然语言任务。
+    输入：s05 的 --session 与 --mode 启动选项，以及终端中的自然语言任务。
     输出：会话文件提示、压缩提示、工具调用、工具结果和模型回答；空行、q 或 exit 退出。
     流程：加载配置 → 打开会话 → 组装 ModelRequester、ContextCompactor 和请求组件 → 运行既有 Agent loop。
     """
+    # 来自 s05：保持；共用启动解析只处理参数，各章组件仍在 main 显式组装。
+    options = s05.parse_session_args(arguments)
     load_dotenv(override=True)
     model = os.getenv("MODEL_ID")
     if not model:
@@ -858,8 +864,9 @@ def main(arguments: Sequence[str] | None = None) -> None:
     # s07 修改：正常请求与摘要请求都通过公共模型组件，避免 main() 嵌套请求函数。
     requester = ModelRequester(client, model, timeout_seconds)
 
-    # s07 修改：复用 s05 的启动参数解析，但使用 s07 专属默认目录。
-    session_path = s05.session_path_from_cli(arguments, session_root=SESSION_ROOT)
+    # s07 修改：使用 s07 专属默认目录，隔离带压缩记录的会话。
+    # 来自 s05：保持；直接选择已解析的会话路径，不二次解析或恢复历史授权。
+    session_path = s05.select_session_path(options.session, session_root=SESSION_ROOT)
     session = SessionManager.open(session_path)
     # s07 修改：窗口须由配置明确提供；预留和近期预算参考 Pi，旧字符参数不再读取。
     policy = CompactionPolicy(
@@ -884,10 +891,20 @@ def main(arguments: Sequence[str] | None = None) -> None:
         compactor=compactor,
     )
     # 来自 s06：保持；压缩不改变工具权限 Hook 的职责。
-    hooks = Hooks(before_tool_call=[make_permission_hook()])
+    # 来自 s03/s04：保持；工具筛选和执行门禁同时接入，不改变本章核心机制。
+    active_tools = permissions.READ_ONLY_TOOLS if options.mode == "read-only" else TOOLS
+    permission = (
+        permissions.check_read_only_permission
+        if options.mode == "read-only"
+        else permissions.check_permission
+    )
+    permission_hook = make_permission_hook(permission=permission)
+    hooks = Hooks(before_tool_call=[permission_hook])
 
     print("s07：会话系统 · 上下文压缩")
     print(f"会话文件：{session.path}")
+    # 来自 s04：保持；显示当前开放能力，不将模型文本当作授权。
+    print(f"工具模式：{options.mode}；可用工具：{', '.join(tool['name'] for tool in active_tools)}")
     print(
         # s07 修改：显示配置中的 Token 预算，字符数只在压缩结果中作观察指标。
         f"压缩触发点：{policy.trigger_tokens} Token，"
@@ -916,6 +933,8 @@ def main(arguments: Sequence[str] | None = None) -> None:
                 dispatch=dispatch_tool,
                 system=SYSTEM,
                 hooks=hooks,
+                # 来自 s06：保持；只传所选工具，实际权限仍由已有 Hook 负责。
+                tools=active_tools,
                 # 来自 s06：保持；循环产生的助手和工具结果继续追加完整会话日志。
                 save_message=session.append_message,
             )

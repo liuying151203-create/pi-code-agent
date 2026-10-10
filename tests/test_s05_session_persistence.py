@@ -50,9 +50,9 @@ def test_store_reports_corrupted_line_number(tmp_path) -> None:
         chapter.JsonlSessionStore(path).read_all()
 
 
-def test_session_path_from_cli_creates_distinct_new_sessions(tmp_path) -> None:
-    first = chapter.session_path_from_cli([], session_root=tmp_path)
-    second = chapter.session_path_from_cli([], session_root=tmp_path)
+def test_select_session_path_creates_distinct_new_sessions(tmp_path) -> None:
+    first = chapter.select_session_path(None, session_root=tmp_path)
+    second = chapter.select_session_path(None, session_root=tmp_path)
 
     assert first.is_file()
     assert second.is_file()
@@ -60,14 +60,14 @@ def test_session_path_from_cli_creates_distinct_new_sessions(tmp_path) -> None:
     assert first.parent == tmp_path
 
 
-def test_session_path_from_cli_loads_explicit_history(tmp_path) -> None:
+def test_select_session_path_loads_explicit_history(tmp_path) -> None:
     history_path = tmp_path / "history.jsonl"
     history_path.write_text(
         '{"type":"message","role":"user","content":"继续"}\n',
         encoding="utf-8",
     )
 
-    selected = chapter.session_path_from_cli(["--session", str(history_path)])
+    selected = chapter.select_session_path(history_path)
 
     assert selected == history_path
     assert chapter.SessionManager.open(selected).load_messages() == [
@@ -75,11 +75,11 @@ def test_session_path_from_cli_loads_explicit_history(tmp_path) -> None:
     ]
 
 
-def test_session_path_from_cli_rejects_missing_history(tmp_path) -> None:
+def test_select_session_path_rejects_missing_history(tmp_path) -> None:
     missing_path = tmp_path / "missing.jsonl"
 
     with pytest.raises(ValueError, match="会话文件不存在"):
-        chapter.session_path_from_cli(["--session", str(missing_path)])
+        chapter.select_session_path(missing_path)
 
 
 def test_agent_loop_persists_assistant_and_tool_messages() -> None:
@@ -301,8 +301,12 @@ def test_invalid_mode_fails_before_model_or_session_creation(tmp_path, monkeypat
     assert not (tmp_path / ".sessions").exists()
 
 
-def test_shared_session_parser_does_not_silently_accept_unsynchronized_mode(tmp_path):
-    with pytest.raises(SystemExit) as error:
-        chapter.session_path_from_cli(["--mode", "read-only"], session_root=tmp_path / "sessions")
-    assert error.value.code == 2
-    assert not (tmp_path / "sessions").exists()
+@pytest.mark.parametrize("arguments", [[], ["--mode", "read-only", "--session", "history.jsonl"]])
+def test_shared_parser_only_returns_options_without_creating_files(
+    tmp_path, monkeypatch, arguments
+):
+    monkeypatch.chdir(tmp_path)
+    options = chapter.parse_session_args(arguments)
+    assert options.mode == ("read-only" if arguments else "default")
+    assert options.session == (Path("history.jsonl") if arguments else None)
+    assert list(tmp_path.iterdir()) == []

@@ -88,6 +88,12 @@ flowchart TB
 5. 运行组件：request_with_context + hooks → agent_loop
 ```
 
+## 启动模式（复用 s03–s05）
+
+`s05.parse_session_args()` 与 `s05.select_session_path()` 分别解析选项、选择本章会话文件；工具与权限 Hook 仍在本章 `main()` 显式组装。共用方法关系见 [s05](../s05_session_persistence/README.md#组件关系与调用链)，本章核心机制不变。
+
+`--mode read-only` 只开放 glob、grep、read_file，并通过 s03 检查和 s04 Hook 拒绝 shell、写入及受限读取，不请求批准。可与 `--session` 组合；历史不恢复授权，会话记录仍保存。它不是沙箱，也不保证模型一定完成任务。
+
 ## 配置与运行
 
 Anthropic：
@@ -110,6 +116,12 @@ MODEL_ID=your-model
 ```powershell
 # 使用 .env 中选定的 Provider 新建 s10 会话
 python -m s10_model_provider.code
+
+# 只读分析；不会开放 bash 或请求工具审批
+python -m s10_model_provider.code --mode read-only
+
+# 离线验证本章入口、会话恢复与权限门禁
+python -m pytest tests/test_read_only_runtime.py -k s10
 
 # 使用当前 Provider 加载已有 s10 会话
 python -m s10_model_provider.code --session .sessions\s10\session-20260922-120000.jsonl

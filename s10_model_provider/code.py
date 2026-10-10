@@ -21,6 +21,8 @@ from typing import Any, Protocol
 from anthropic import Anthropic
 from dotenv import load_dotenv
 
+# 来自 s03：保持；直接复用工具模式权限，不在本章新增检查规则。
+from s03_permission import code as permissions
 from s05_session_persistence import code as s05
 from s09_runtime_streaming import code as previous
 from zero2pi.ui import (
@@ -716,12 +718,14 @@ def agent_loop(
     流程：请求 Provider → 保存统一 content → 执行 tool_use → 保存 tool_result
     → 继续请求；没有工具调用时发出 agent_end。
     """
+    # 来自 s09：保持；只有 None 回退默认工具，显式空列表不扩大能力。
+    active_tools = TOOLS if tools is None else tools
     while True:
         # s10 修改：create_message 无论来自哪个 Provider，都返回同一种 ModelResponse。
         response = create_message(
             system=system,
             messages=messages,
-            tools=tools or TOOLS,
+            tools=active_tools,
             max_tokens=max_tokens,
         )
         assistant_message = {
@@ -778,11 +782,13 @@ def main(arguments: Sequence[str] | None = None) -> None:
     """启动可切换模型 Provider 的流式 Agent。
 
     作用：根据环境选择 Provider，再把统一请求器接入已有会话、压缩和 Agent loop。
-    输入：`.env` Provider 配置、s05 保持的 `--session` 参数和终端自然语言任务。
+    输入：`.env` Provider 配置、s05 的 --session 与 --mode 选项和终端自然语言任务。
     输出：与 s09 一致的流式回答、工具状态和会话文件。
     流程：加载配置 → 创建 Provider → 组装阻塞/流式请求器 → 组装会话与压缩
     → 注入 agent_loop → 持续读取用户任务。
     """
+    # 来自 s05：保持；共用启动解析只处理参数，各章组件仍在 main 显式组装。
+    options = s05.parse_session_args(arguments)
     load_dotenv(override=True)
     timeout_seconds = float(os.getenv("MODEL_TIMEOUT_SECONDS", "60"))
     max_retries = int(os.getenv("MODEL_MAX_RETRIES", "0"))
@@ -797,7 +803,8 @@ def main(arguments: Sequence[str] | None = None) -> None:
     assistant_requester = StreamingModelRequester(provider, timeout_seconds, terminal)
 
     # 来自 s09：保持；会话、压缩和权限组件不因 Provider 切换而改变。
-    session_path = s05.session_path_from_cli(arguments, session_root=SESSION_ROOT)
+    # 来自 s05：保持；直接选择已解析的会话路径，不二次解析或恢复历史授权。
+    session_path = s05.select_session_path(options.session, session_root=SESSION_ROOT)
     session = SessionManager.open(session_path)
     policy = CompactionPolicy(
         # 来自 s07：保持；模型窗口、预留和近期预算分别组装，不再读取旧字符阈值。
@@ -825,12 +832,22 @@ def main(arguments: Sequence[str] | None = None) -> None:
         compactor=compactor,
         emit=terminal,
     )
-    hooks = Hooks(before_tool_call=[make_permission_hook()])
+    # 来自 s03/s04：保持；工具筛选和执行门禁同时接入，不改变本章核心机制。
+    active_tools = permissions.READ_ONLY_TOOLS if options.mode == "read-only" else TOOLS
+    permission = (
+        permissions.check_read_only_permission
+        if options.mode == "read-only"
+        else permissions.check_permission
+    )
+    permission_hook = make_permission_hook(permission=permission)
+    hooks = Hooks(before_tool_call=[permission_hook])
 
     print("s10：模型系统 · Provider 边界")
     print(f"Provider：{os.getenv('MODEL_PROVIDER', 'anthropic')}")
     print(f"模型：{provider.model}")
     print(f"会话文件：{session.path}")
+    # 来自 s04：保持；显示当前开放能力，不将模型文本当作授权。
+    print(f"工具模式：{options.mode}；可用工具：{', '.join(tool['name'] for tool in active_tools)}")
     print("输入任务，输入 q 退出。\n")
 
     while True:
@@ -853,6 +870,8 @@ def main(arguments: Sequence[str] | None = None) -> None:
                 dispatch=dispatch_tool,
                 system=SYSTEM,
                 hooks=hooks,
+                # 来自 s09：保持；只传所选工具，实际权限仍由已有 Hook 负责。
+                tools=active_tools,
                 emit=terminal,
                 save_message=session.append_message,
             )

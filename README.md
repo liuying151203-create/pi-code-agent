@@ -63,6 +63,8 @@ python -m s10_model_provider.code
 python -m s11_runtime_observability.code
 # 运行第十二章：能力系统 · Skills 按需加载
 python -m s12_skill_loading.code
+# 只读审查：s03–s12 均支持此模式，仅开放 glob、grep、read_file
+python -m s12_skill_loading.code --mode read-only
 # 运行测试
 python -m pytest
 # 检查代码规范

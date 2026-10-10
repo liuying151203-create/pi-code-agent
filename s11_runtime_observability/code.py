@@ -25,6 +25,8 @@ from typing import Any, Literal
 
 from dotenv import load_dotenv
 
+# 来自 s03：保持；直接复用工具模式权限，不在本章新增检查规则。
+from s03_permission import code as permissions
 from s05_session_persistence import code as s05
 from s07_session_compaction import code as s07
 from s10_model_provider import code as previous
@@ -1185,6 +1187,8 @@ def agent_loop(
     # s11 修改：参考 Pi/lcc，默认随工具调用继续；轮数上限只是可选运行保护。
     if max_rounds is not None and max_rounds < 1:
         raise ValueError("max_rounds 必须为正整数")
+    # 来自 s10：保持；只有 None 回退默认工具，显式空列表不扩大能力。
+    active_tools = TOOLS if tools is None else tools
     emit(AgentEvent(type="agent_start", data={"message_count": len(messages)}))
 
     # s11 修改：显式统计回答请求，None 时持续工具循环，有限上限时按实际轮数停止。
@@ -1196,7 +1200,7 @@ def agent_loop(
             response = create_message(
                 system=system,
                 messages=messages,
-                tools=tools or TOOLS,
+                tools=active_tools,
                 max_tokens=max_tokens,
             )
         except (RuntimeError, ValueError):
@@ -1298,11 +1302,13 @@ def main(arguments: Sequence[str] | None = None) -> None:
     """启动带 Trace 和用量统计的流式 Agent。
 
     作用：组装会话记录、终端、Trace 和本轮统计，再组装模型与压缩流程。
-    输入：s05 保持的 `--session` 参数，以及终端中的自然语言任务。
+    输入：s05 的 --session 与 --mode 启动选项，以及终端中的自然语言任务。
     输出：流式回答、本轮与会话累计统计、会话 JSONL 和紧凑 Trace JSONL。
     流程：加载配置 → 打开会话 → 组装观察层与模型层 → 组装压缩层
     → 注入 agent_loop → 从会话记录重新计算累计用量。
     """
+    # 来自 s05：保持；共用启动解析只处理参数，各章组件仍在 main 显式组装。
+    options = s05.parse_session_args(arguments)
     load_dotenv(override=True)
     timeout_seconds = float(os.getenv("MODEL_TIMEOUT_SECONDS", "60"))
     max_retries = int(os.getenv("MODEL_MAX_RETRIES", "0"))
@@ -1314,7 +1320,8 @@ def main(arguments: Sequence[str] | None = None) -> None:
     )
 
     # s11 修改：失败记录必须绑定当前会话，先打开 Session 再组装观察层。
-    session_path = s05.session_path_from_cli(arguments, session_root=SESSION_ROOT)
+    # 来自 s05：保持；直接选择已解析的会话路径，不二次解析或恢复历史授权。
+    session_path = s05.select_session_path(options.session, session_root=SESSION_ROOT)
     session = SessionManager.open(session_path)
 
     # s11 修改：事件消费者并列；失败调用直接写会话，正常回答在 agent_loop 落盘。
@@ -1373,7 +1380,15 @@ def main(arguments: Sequence[str] | None = None) -> None:
         emit=events.emit,
     )
     # 来自 s10：保持；Hook 干预行为，Event 只观察已经发生的事实。
-    hooks = Hooks(before_tool_call=[make_permission_hook()])
+    # 来自 s03/s04：保持；工具筛选和执行门禁同时接入，不改变本章核心机制。
+    active_tools = permissions.READ_ONLY_TOOLS if options.mode == "read-only" else TOOLS
+    permission = (
+        permissions.check_read_only_permission
+        if options.mode == "read-only"
+        else permissions.check_permission
+    )
+    permission_hook = make_permission_hook(permission=permission)
+    hooks = Hooks(before_tool_call=[permission_hook])
     # s11 修改：可选保护显式组装并注入，不在循环里隐藏固定的 12 轮限制。
     round_limit = model_round_limit_from_env()
 
@@ -1381,6 +1396,8 @@ def main(arguments: Sequence[str] | None = None) -> None:
     print(f"Provider：{os.getenv('MODEL_PROVIDER', 'anthropic')}")
     print(f"模型：{provider.model}")
     print(f"会话文件：{session.path}")
+    # 来自 s04：保持；显示当前开放能力，不将模型文本当作授权。
+    print(f"工具模式：{options.mode}；可用工具：{', '.join(tool['name'] for tool in active_tools)}")
     print(f"Trace 文件：{trace_path}")
     # s11 修改：显示实际读入的配置，避免把旧 .env 字符参数误认为仍在生效。
     print(
@@ -1409,6 +1426,8 @@ def main(arguments: Sequence[str] | None = None) -> None:
                 dispatch=dispatch_tool,
                 system=SYSTEM,
                 hooks=hooks,
+                # 来自 s10：保持；只传所选工具，实际权限仍由已有 Hook 负责。
+                tools=active_tools,
                 emit=events.emit,
                 save_message=session.append_message,
                 save_assistant=session.append_assistant,

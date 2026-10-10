@@ -34,6 +34,10 @@ Message → SessionMessage → JsonlSessionStore → SessionManager → agent_lo
 
 ```mermaid
 flowchart TB
+    O[parse_session_args] -->|options.session| S[select_session_path]
+    S -->|session_path: open 的参数| B[SessionManager]
+    O -->|options.mode: 选择策略| P[s03 所选权限函数]
+    O -->|options.mode: 筛选工具| T[s03 所选工具列表]
     A[JsonlSessionStore] -->|store| B[SessionManager]
     B -->|load_messages 返回的 history| C["agent_loop()"]
     B -->|append_message 作为 save_message| C
@@ -52,11 +56,18 @@ flowchart TB
 | 消息模型 | `SessionMessage` | 在 Agent 消息与 JSONL 记录间转换 |
 | 存储层 | `JsonlSessionStore` | 只负责按行追加和顺序读取文件 |
 | 管理层 | `SessionManager` | 对外提供打开、加载和追加消息的接口 |
-| 启动选择 | `session_path_from_cli()` | 默认创建新文件；只在 `--session` 存在时选择历史文件 |
+| 参数解析 | `parse_session_args()` | 只解析 `--mode` 和 `--session`，不创建文件或客户端 |
+| 路径选择 | `select_session_path()` | 接收已解析的历史路径；没有路径时在指定章节目录新建文件 |
 
-`main()` 先通过 `session_path_from_cli()` 选择文件，再用 `SessionManager.open()` 创建管理器、`load_messages()` 加载历史，并将 `session.append_message` 作为 `save_message` 传入 `agent_loop()`。
+`main()` 先解析参数、选择文件，再用 `SessionManager.open()` 创建管理器、`load_messages()` 加载历史，并将 `session.append_message` 作为 `save_message` 传入 `agent_loop()`。
 
-启动选项在 `main()` 一起解析，随后只把 `session_arguments` 交给 `session_path_from_cli()`；这个共享函数仍只接受 `--session`，创建与加载规则不变。s06–s12 尚未同步模式时，不会因为调用这个函数而接受一个实际上没有生效的 `--mode`。
+共用方法只处理启动选择，不包装整个 `main()`。s06–s12 复用这两个方法，并传入各自的 `SESSION_ROOT`；工具、权限 Hook 和本章组件仍在各章显式组装。旧 `session_path_from_cli()` 的解析和选择职责已拆开，不再重组参数或二次解析：
+
+```python
+options = parse_session_args(arguments)
+session_path = select_session_path(options.session)
+# main 根据 options.mode 选择 active_tools 和 permission，再组装权限 Hook。
+```
 
 每条新消息的处理直接写在产生消息的位置：先用 `messages.append(message)` 更新模型使用的内存历史，再用 `save_message(message)` 写入 JSONL。`save_message` 是保存函数；实际运行时指向 `session.append_message`，传入 `None` 时只更新内存。用户输入在 `main()` 中同样先追加到 `history`，再调用 `session.append_message` 保存。
 
@@ -93,7 +104,7 @@ python -m pytest tests/test_s05_session_persistence.py
 
 只读模式可以输入：`解释 s05_session_persistence/code.py 中 append_message 怎样保存消息`。启动应显示 `工具模式：read-only`；退出后使用终端显示的路径加载，仍能看到历史，但不会自动执行历史中的工具调用。
 
-s05 仍使用 `MODEL_ID`、`ANTHROPIC_API_KEY` 和可选 `ANTHROPIC_BASE_URL`，不读取 s10 的 Provider 配置。当前模式入口已同步到 s05，s06–s12 尚未同步。
+s05 仍使用 `MODEL_ID`、`ANTHROPIC_API_KEY` 和可选 `ANTHROPIC_BASE_URL`，不读取 s10 的 Provider 配置。s05–s12 均支持组合使用 `--mode` 与 `--session`，各章默认会话目录保持隔离。
 
 ## 参考与差异
 
