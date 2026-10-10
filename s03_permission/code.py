@@ -11,12 +11,13 @@
 
 from __future__ import annotations
 
+import argparse
 import glob as glob_module
 import os
 import re
 import subprocess
 import sys
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
@@ -287,6 +288,8 @@ PermissionConfirm = Callable[[str, dict[str, Any], str], bool]
 
 # s03 修改：内容搜索是专用只读工具，不能放宽任意 shell 命令的权限。
 _READ_ONLY_TOOLS = {"read_file", "glob", "grep"}
+# s03 新增：参考 Pi 的只读工具组合，只向模型开放无需 shell 的读取能力。
+READ_ONLY_TOOLS = [tool for tool in TOOLS if tool["name"] in _READ_ONLY_TOOLS]
 _WRITE_TOOLS = {"write_file", "edit_file"}
 _HARD_DENY_PATTERNS = (
     re.compile(r"\b(?:format|diskpart|mkfs)\b", re.IGNORECASE),
@@ -347,6 +350,39 @@ def check_permission(name: str, arguments: dict[str, Any]) -> PermissionDecision
     if name == "bash":
         return _bash_permission(str(arguments.get("command", "")))
     return PermissionDecision(PermissionStatus.DENY, "工具没有配置权限策略")
+
+
+# s03 新增：只读模式在执行前再次检查，不能只依赖模型看到的工具列表。
+def check_read_only_permission(name: str, arguments: dict[str, Any]) -> PermissionDecision:
+    """限制模型只读工作区，不执行 shell，也不请求用户放宽权限。
+
+    输入：模型返回的工具名称及参数；输出：允许或拒绝的 PermissionDecision。
+    流程：拒绝非只读工具 → 校验读取路径及常见凭证位置 → 复用普通路径权限检查。
+    边界：只控制经工具入口发起的操作，不是操作系统沙箱，也不识别任意文件中的秘密。
+    main 将本方法注入 execute_tool 使用的 permission 参数，核心循环不识别模式。
+    """
+    if name not in _READ_ONLY_TOOLS:
+        return PermissionDecision(
+            PermissionStatus.DENY,
+            "只读模式只允许 glob、grep、read_file；无法验证时说明缺少的证据，不重试其他命令",
+        )
+    # s03 新增：只读仍可能泄露凭证，按解析后的路径拦截常见敏感文件及目录。
+    if name in {"read_file", "grep"}:
+        try:
+            parts = safe_path(str(arguments.get("path", ""))).relative_to(WORKDIR).parts
+        except ValueError:
+            return PermissionDecision(PermissionStatus.DENY, "路径超出工作区范围")
+        for part in parts:
+            lowered = part.lower()
+            if (
+                lowered in {".aws", ".ssh", ".git"}
+                or lowered == ".env"
+                or (lowered.startswith(".env.") and lowered != ".env.example")
+            ):
+                return PermissionDecision(
+                    PermissionStatus.DENY, "只读模式不读取常见凭证或 Git 内部文件"
+                )
+    return check_permission(name, arguments)
 
 
 def confirm_permission(name: str, arguments: dict[str, Any], reason: str) -> bool:
@@ -452,11 +488,13 @@ def agent_loop(
     流程：请求模型 → 提取工具调用 → 展示调用 → 权限检查/确认 → 执行或返回拒绝结果
     → 追加 tool_result → 再次请求模型。权限拒绝不会直接打断循环。
     """
+    # s03 修改：None 才使用默认工具，空列表必须保留，不能意外恢复全部能力。
+    active_tools = TOOLS if tools is None else tools
     while True:
         response = create_message(
             system=system,
             messages=messages,
-            tools=tools or TOOLS,
+            tools=active_tools,
             max_tokens=max_tokens,
         )
         messages.append({"role": "assistant", "content": response.content})
@@ -506,13 +544,18 @@ def _text_from_content(content: Any) -> str:
     )
 
 
-def main() -> None:
+def main(arguments: Sequence[str] | None = None) -> None:
     """启动第三章的权限控制 Agent。
 
     作用：加载模型配置，创建客户端，并把交互输入交给带权限门禁的核心循环。
-    输入：用户在终端输入的自然语言任务。
+    输入：可选 --mode default/read-only 启动参数，以及用户的自然语言任务。
     输出：工具调用、权限确认、工具结果和模型最终回答；空行、`q` 或 `exit` 退出。
+    流程：解析模式 → 创建模型依赖 → 选择工具和权限策略 → 启动完整核心循环。
     """
+    # s03 新增：权限模式由用户启动时选择，不由模型或任务关键词决定。
+    parser = argparse.ArgumentParser(description="运行 s03 的工具权限 Agent")
+    parser.add_argument("--mode", choices=("default", "read-only"), default="default")
+    options = parser.parse_args(arguments)
     load_dotenv(override=True)
     model = os.getenv("MODEL_ID")
     if not model:
@@ -533,7 +576,11 @@ def main() -> None:
     # s03 修改：复用公共模型请求组件，让 main() 突出权限运行时组装。
     requester = ModelRequester(client, model, timeout_seconds)
 
+    # s03 新增：工具定义与执行策略一起切换；默认模式保留已有审批行为。
+    active_tools = READ_ONLY_TOOLS if options.mode == "read-only" else TOOLS
+    permission = check_read_only_permission if options.mode == "read-only" else check_permission
     print("s03：工具权限")
+    print(f"工具模式：{options.mode}；可用工具：{', '.join(tool['name'] for tool in active_tools)}")
     print("输入任务，输入 q 退出。\n")
 
     history: list[Message] = []
@@ -554,6 +601,9 @@ def main() -> None:
                 create_message=requester,
                 dispatch=dispatch_tool,
                 system=SYSTEM,
+                # s03 新增：显式注入所选工具和权限，核心循环不解析运行模式。
+                tools=active_tools,
+                permission=permission,
             )
         except RuntimeError as error:
             print(f"\n{format_error(str(error))}", file=sys.stderr)

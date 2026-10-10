@@ -29,6 +29,8 @@ python -m s01_agent_loop.code
 python -m s02_tool_use.code
 # 运行第三章：工具权限
 python -m s03_permission.code
+# 第三章只读分析：仅开放查找、搜索和读取工具
+python -m s03_permission.code --mode read-only
 # 运行第四章：工具调用 Hooks
 python -m s04_hooks.code
 # 运行第五章：会话系统 · 持久化
