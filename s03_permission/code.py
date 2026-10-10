@@ -175,8 +175,20 @@ def run_glob(pattern: str) -> str:
 # ===== 来自 s02：工具定义和注册表（保持） =====
 
 TOOLS = [
-    # 来自 s02：保持；搜索定义无需在权限章节重新描述。
-    next(tool for tool in tools_chapter.TOOLS if tool["name"] == "grep"),
+    # 来自 s02：保持；显式展示 grep 定义，让六种工具就地可读，协议和行为不变。
+    {
+        "name": "grep",
+        "description": "在指定 UTF-8 文件搜索字面文本，返回路径与行号；最多 100 个匹配，每行最多 500 字符。定位后用 read_file 补读，不递归目录。",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string"},
+                "pattern": {"type": "string", "minLength": 1},
+                "limit": {"type": "integer", "minimum": 1},
+            },
+            "required": ["path", "pattern"],
+        },
+    },
     {
         "name": "bash",
         # 来自 s02：保持；描述与实际输出预算对应，不在权限层引入新预算。

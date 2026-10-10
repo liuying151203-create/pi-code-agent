@@ -5,6 +5,20 @@ import pytest
 import s03_permission.code as chapter
 
 
+def test_explicit_tool_definitions_preserve_registry_and_grep_schema() -> None:
+    """显式展开后仍有六种工具，grep 协议与 s02 一致。"""
+    definitions = {tool["name"]: tool for tool in chapter.TOOLS}
+    previous_definitions = {tool["name"]: tool for tool in chapter.tools_chapter.TOOLS}
+
+    assert len(chapter.TOOLS) == len(definitions) == 6
+    assert (
+        set(definitions)
+        == set(chapter.TOOL_HANDLERS)
+        == {"bash", "read_file", "grep", "write_file", "edit_file", "glob"}
+    )
+    assert definitions["grep"] == previous_definitions["grep"]
+
+
 def test_read_only_tools_are_allowed(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(chapter, "WORKDIR", tmp_path)
 
