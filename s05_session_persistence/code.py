@@ -23,6 +23,8 @@ from typing import Any
 from anthropic import Anthropic
 from dotenv import load_dotenv
 
+# 来自 s03：保持；权限直接引用所属章节，不从历史会话中恢复授权。
+from s03_permission import code as permissions
 from s04_hooks import code as previous
 from zero2pi.model import ModelRequester
 from zero2pi.ui import (
@@ -59,6 +61,7 @@ SYSTEM = (
 
 # ===== s05 新增：消息模型 =====
 
+
 def _to_jsonable(value: Any) -> Any:
     """把 SDK 对象递归转换为可写入 JSON 的基础值。"""
     if value is None or isinstance(value, (str, int, float, bool)):
@@ -92,9 +95,7 @@ class SessionMessage:
 
     role: str
     content: Any
-    timestamp: str = field(
-        default_factory=lambda: datetime.now(UTC).isoformat()
-    )
+    timestamp: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
 
     @classmethod
     def from_message(cls, message: Message) -> SessionMessage:
@@ -140,6 +141,7 @@ class SessionMessage:
 
 # ===== s05 新增：JSONL 存储层 =====
 
+
 class JsonlSessionStore:
     """负责会话 JSONL 文件的追加写入和顺序读取。
 
@@ -183,11 +185,14 @@ class JsonlSessionStore:
                     raise ValueError("record type must be message")
                 messages.append(SessionMessage.from_record(record))
             except (json.JSONDecodeError, TypeError, ValueError) as error:
-                raise ValueError(f"Invalid session record at line {line_number}: {error}") from error
+                raise ValueError(
+                    f"Invalid session record at line {line_number}: {error}"
+                ) from error
         return messages
 
 
 # ===== s05 新增：会话管理层 =====
+
 
 class SessionManager:
     """协调消息模型与 JSONL 存储，向 Agent 提供加载和追加接口。
@@ -232,6 +237,7 @@ class SessionManager:
 
 
 # ===== s05 新增：启动时选择线性会话 =====
+
 
 def _create_new_session_path(root: Path) -> Path:
     """创建带时间戳且不覆盖已有文件的新会话路径。"""
@@ -282,6 +288,7 @@ SessionSaver = Callable[[Message], None]
 # ===== s05 修改：核心循环接入会话保存 =====
 # s04 通过 Hooks 扩展工具生命周期；s05 只在消息产生时追加持久化回调。
 
+
 def _get(block: Any, name: str) -> Any:
     """兼容读取 SDK 对象和测试替身中的字段。"""
     if isinstance(block, dict):
@@ -311,11 +318,13 @@ def agent_loop(
     流程：请求模型 → 标准化并保存 assistant 消息 → 运行 Hooks 和工具 → 保存 tool_result
     → 再次请求模型。保存函数是可选的，因此测试和临时运行仍可只使用内存历史。
     """
+    # 来自 s04：保持；显式空列表不恢复全部工具，权限仍通过既有 Hooks 执行。
+    active_tools = TOOLS if tools is None else tools
     while True:
         response = create_message(
             system=system,
             messages=messages,
-            tools=tools or TOOLS,
+            tools=active_tools,
             max_tokens=max_tokens,
         )
         # s05 修改：相对 s04，先将 SDK 响应转为普通消息，便于写入 JSONL。
@@ -329,9 +338,7 @@ def agent_loop(
             save_message(assistant_message)
 
         tool_calls = [
-            block
-            for block in assistant_message["content"]
-            if _get(block, "type") == "tool_use"
+            block for block in assistant_message["content"] if _get(block, "type") == "tool_use"
         ]
         if not tool_calls:
             return messages
@@ -365,6 +372,7 @@ def agent_loop(
 
 # ===== 来自 s04：终端输出辅助（保持） =====
 
+
 def _text_from_content(content: Any) -> str:
     """提取模型响应中的文本块，用于终端展示。"""
     if isinstance(content, str):
@@ -379,14 +387,25 @@ def _text_from_content(content: Any) -> str:
 
 # ===== s05 修改：终端入口接入会话管理 =====
 
+
 def main(arguments: Sequence[str] | None = None) -> None:
     """启动带线性会话持久化的 Agent。
 
     作用：加载模型配置，创建新会话或恢复 `--session` 指定的会话，并把新消息持续写入 JSONL。
-    输入：命令行可选参数 `--session <路径>`，以及终端中的自然语言任务；空行、`q` 或 `exit` 退出。
-    输出：会话文件提示、恢复提示、工具调用、工具结果和模型回答。
-    流程：解析启动参数 → 选择唯一会话文件 → 恢复历史 → 处理自然语言任务并持续追加记录。
+    输入：可选 --session 与 --mode 参数，以及自然语言任务；空行、`q` 或 `exit` 退出。
+    输出：会话文件、恢复和模式提示、工具结果与模型回答；新消息持续写入 JSONL。
+    流程：解析启动参数 → 创建模型依赖 → 恢复会话 → 组装权限 Hook → 交互并保存消息。
+    边界：会话只恢复消息，不保存或恢复工具授权；只读模式仍允许 Harness 保存运行记录。
     """
+    # ===== s05 修改：启动参数组合会话与既有模式 =====
+    # 来自 s04：保持；模式由用户启动时选择，循环和会话存储不判断权限模式。
+    parser = argparse.ArgumentParser(description="运行 s05 的线性会话 Agent")
+    parser.add_argument("--mode", choices=("default", "read-only"), default="default")
+    # s05 新增：会话参数与模式同时解析，明确历史文件和当前运行权限是独立选项。
+    parser.add_argument("--session", type=Path, metavar="PATH", help="加载已有的 JSONL 会话文件")
+    options = parser.parse_args(arguments)
+
+    # ===== 来自 s04：基础模型依赖（保持） =====
     load_dotenv(override=True)
     model = os.getenv("MODEL_ID")
     if not model:
@@ -407,19 +426,34 @@ def main(arguments: Sequence[str] | None = None) -> None:
     # s05 修改：复用公共模型请求组件，main() 只负责会话和 Agent 依赖组装。
     requester = ModelRequester(client, model, timeout_seconds)
 
-    # s05 修改：会话只在启动阶段由 --session 选择；未指定时创建新的独立记录。
-    session_path = session_path_from_cli(arguments)
+    # ===== s05 修改：会话组件组装 =====
+    # s05 修改：只转交会话参数；保留共享函数的原接口，避免后续章节忽略模式却误接受它。
+    session_arguments = [] if options.session is None else ["--session", str(options.session)]
+    session_path = session_path_from_cli(session_arguments)
     # s05 新增：通过 SessionManager 隔离终端入口与 JSONL 存储实现。
     session = SessionManager.open(session_path)
     # s05 新增：启动时恢复历史消息，并将其作为模型请求上下文。
     history = session.load_messages()
-    # 来自 s04：保持；s05 复用 s04 的权限 Hook，不在会话章节重复实现。
-    hooks = Hooks(before_tool_call=[previous.make_permission_hook()])
 
+    # ===== 来自 s04：工具与权限 Hook 组装（保持） =====
+    # 来自 s03：保持；只复用工具列表和权限函数，不在会话章节复制判断规则。
+    active_tools = permissions.READ_ONLY_TOOLS if options.mode == "read-only" else TOOLS
+    permission = (
+        permissions.check_read_only_permission
+        if options.mode == "read-only"
+        else permissions.check_permission
+    )
+    # 来自 s04：保持；所选权限函数注册到相同前置 Hook，不新增执行链。
+    permission_hook = previous.make_permission_hook(permission=permission)
+    hooks = Hooks(before_tool_call=[permission_hook])
+
+    # ===== 来自 s04：终端交互；s05 保持消息保存 =====
     print("s05：会话系统 · 持久化")
     print(f"会话文件：{session.path}")
     if history:
         print(f"已恢复 {len(history)} 条消息。")
+    # 来自 s04：保持；展示当前启动模式，而非历史对话中的授权描述。
+    print(f"工具模式：{options.mode}；可用工具：{', '.join(tool['name'] for tool in active_tools)}")
     print("输入任务，输入 q 退出。\n")
 
     while True:
@@ -443,6 +477,8 @@ def main(arguments: Sequence[str] | None = None) -> None:
                 dispatch=dispatch_tool,
                 system=SYSTEM,
                 hooks=hooks,
+                # 来自 s04：保持；模型仅看到所选工具，执行门禁仍由权限 Hook 检查。
+                tools=active_tools,
                 # s05 修改：相对 s04，将 SessionManager 的追加方法注入核心循环。
                 save_message=session.append_message,
             )

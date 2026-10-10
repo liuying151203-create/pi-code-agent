@@ -37,6 +37,8 @@ python -m s04_hooks.code
 python -m s04_hooks.code --mode read-only
 # 运行第五章：会话系统 · 持久化
 python -m s05_session_persistence.code
+# 第五章只读对话：限制模型工具，继续保存会话记录
+python -m s05_session_persistence.code --mode read-only
 # 加载已有的第五章会话
 python -m s05_session_persistence.code --session .sessions\s05\session-20260919-120000.jsonl
 # 运行第六章：会话系统 · 记录与上下文投影
