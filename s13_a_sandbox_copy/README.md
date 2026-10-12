@@ -169,7 +169,7 @@ flowchart LR
 git --version
 docker version
 
-# 按 Dockerfile 制作运行环境；首次可能下载基础镜像和项目依赖
+# 首次使用或需要更新镜像时执行，不必每次启动都执行；首次可能下载镜像和依赖
 docker build -f s13_a_sandbox_copy/Dockerfile -t zero2pi-sandbox:s13-a .
 
 # 无模型冒烟：验证容器工具，不加载模型配置、不回写原仓库
@@ -179,7 +179,13 @@ python -m s13_a_sandbox_copy.code --smoke
 python -m s13_a_sandbox_copy.code
 ```
 
-镜像是可以重复使用的环境模板；每次启动程序才创建本次容器。配方或镜像内工具变化时需要重建；旧 `zero2pi-sandbox:s13` 镜像不能替代 A 镜像。构建可联网，任务容器禁网，不会临时补装项目依赖。
+**镜像首次构建一次即可，不必每次启动都构建。** 项目副本在每次启动时重新复制，容器也由程序自动创建。
+
+- **需要重建：** 镜像被删除，或修改了 Dockerfile、其 ignore 清单、`pyproject.toml`、`src/zero2pi/*.py`、`s02_tool_use/code.py`，以及 s13-A 的 `__init__.py`、`snapshot.py`、`tool_worker.py`；需要增加镜像内测试依赖时也要重建。
+- **无需重建：** 新对话、修改 `.env`、README、普通项目文件或测试代码，以及宿主入口 `code.py`、交付组件 `workspace_sync.py`；上述镜像内文件除外。
+- **重建后重新启动 Agent：** 已运行的容器不会自动更新。旧 `zero2pi-sandbox:s13` 镜像不能替代 A 镜像。
+
+构建可联网，任务容器禁网，不会临时补装项目依赖。
 
 模型配置仍来自宿主 `.env`，需填写 `MODEL_CONTEXT_WINDOW_TOKENS`。下面各行是在 Agent 交互入口输入，不是 PowerShell 命令：
 
