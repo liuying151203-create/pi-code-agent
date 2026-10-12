@@ -1,126 +1,187 @@
 # s13-A：执行沙箱 · 隔离副本
 
-s13-A 在 s12 的完整 Agent 循环之外增加两层边界：工具只操作 Docker 项目副本；宿主用户确认后才把预览过的修改应用到原仓库。任务结束即可查看和应用，不需要退出对话。
+这一章只抓住一个区别：**模型修改容器里的项目副本；你确认后，程序才把修改写回原仓库。** 宿主指你的电脑，容器的项目目录是 `/work`，两边不是同一份文件。
 
-## 工作边界
+建议先读下面的例子，再找对应方法，最后看组装。模型请求、会话、压缩和事件沿用 s12，不在这一章重新展开。
 
-- 六种工具统一在容器 `/work` 执行，不逐条审批；不挂载宿主目录、不暴露 Docker API。
-- 本地可信 Linux 镜像固定到 image ID，`--pull never`；启动失败不下载、不回退宿主。
-- 非 root（UID/GID 65534）、只读根文件系统、删除 capabilities、禁止提权、禁用网络。
-- CPU 1 核、内存/交换总额度 1 GiB、最多 64 个进程；`/work` 和 `/tmp` 分别限制为 512/128 MiB，shell 命令超时 120 秒。
-- 复制时排除 `.env`、`.env.*`（保留 `.env.example`）、`.git`、依赖、运行目录和常见凭证；不复制符号链接、junction、硬链接或特殊文件。快照最多 4000 文件 / 12 MiB。
-- 模型密钥、会话和 Trace 留在宿主；模型没有回写工具，不能替用户批准 `/apply`。
+## 1. 用“创建文件并测试”走一遍
 
-容器不是绝对安全，文件名排除也不是通用脱敏；仍应只选择可以交给模型的源码。[Docker 安全说明](https://docs.docker.com/engine/security/)、[容器运行参数](https://docs.docker.com/reference/cli/docker/container/run/)。
+假设原仓库还没有 `sandbox_demo.py`。如果已经有这个文件，请在下面的任务中换一个未使用的名字，不要覆盖已有内容。
 
-## 组件和方法的关系
+启动后输入：
 
-| 组件 | 职责与调用关系 |
-| --- | --- |
-| `WorkspaceSnapshot` | `capture()` 获取启动文件基线；`write_tar()` 准备输入和回写前内容备份；`diff()` 比较普通文件内容 |
-| `SandboxExecutor` | `start()` 创建容器和副本；`dispatch()` 执行六种工具；`capture_workspace()` 返回校验过的容器快照；`close()` 清理本次容器 |
-| `tool_worker.py` | 启动时接收 tar，运行时接收 JSON；从只读镜像加载 s02 文件工具，并将 bash 替换为 Linux `/bin/sh` |
-| `WorkspaceSync` | `preview()` 固定待确认版本并保存 Diff；`apply()` 检查并交付该版本，成功后更新比较基线 |
-| 本章 `agent_loop()` | 保留 s12 的完整模型/工具流程；只增加隔离失败时补齐工具结果并停止，不处理回写 |
-| `main()` | 组装组件、处理宿主 `/diff` 和 `/apply`、获取用户确认；普通任务才进入会话和模型 |
+```text
+在副本中新建 sandbox_demo.py，定义 add(a, b)，再用 Python 断言 add(2, 3) == 5。完成后说明改了什么。
+```
 
-`WorkspaceSync` 是宿主交付组件，不是工具 handler、Hook 或模型请求器。其底层辅助函数只负责固定 Git argv、宿主路径检查和读取；上层 `apply()` 就地展开交付顺序。
+一次正常完成的过程是：
 
-### preview 与 apply
+1. **准备副本。** 程序读取当前项目中允许复制的文件，记住这些文件的内容，再创建容器并复制到 `/work`。你不需要手动创建容器。
+2. **模型决定怎么做。** 宿主 Python 把任务发送给模型。模型可能选择 `write_file` 创建文件，再选择 `bash` 执行 Python 断言；具体工具次序由模型决定。
+3. **工具修改副本。** 六种工具都在容器执行；创建的是 `/work/sandbox_demo.py`。工具结果返回宿主，再交给模型决定是否继续。
+4. **完成后预览。** 模型结束工具调用后，程序比较副本和记住的文件内容，保存 `changes.diff`。这时原仓库仍没有新文件。
+5. **你确认写回。** 输入 `/diff` 查看差异，再输入 `/apply`，确认时输入 `y`。检查通过后，原仓库立即获得新文件，容器仍然保留。
+6. **退出。** 输入 `q`，程序保存剩余未应用的差异并清理容器，不会偷偷应用修改。没有剩余变化时提示“没有未应用修改”。
 
-`preview()`：读取容器当前快照 → 与当前基线比较 → 保存 `changes.diff` → 缓存这份版本和补丁。只预览，不修改原仓库；不支持的文件变化也不会被悄悄藏起来。
+先记住：**副本里测试通过，不代表修改已经进入原仓库；看到“已应用”才表示写回完成。**
 
-`apply()`：确认容器仍是已预览版本 → 检查路径和文本类型 → 检查宿主目标与基线一致 → `git apply --check` → 保存补丁和内容备份 → 再检查宿主目标 → 应用 → 核对结果 → 更新基线。
+## 2. 在代码里，这几步分别找谁？
 
-补丁通过 stdin 传给固定 Git argv，不执行宿主 shell，不从可被手动编辑的 `changes.diff` 读取应用指令。不使用 `--index`、`--cached`、`--reject`、`--unsafe-paths`，也不自动创建提交。`--check` 不写文件；补丁片段不能应用时，Git 默认拒绝整份补丁。[Git apply 官方说明](https://git-scm.com/docs/git-apply)
+### 准备副本：`snapshot` 和 `executor.start()`
 
-## 运行流程
+`main()` 先调用 `WorkspaceSnapshot.capture(source_root)`，得到变量 `snapshot`。它保存允许复制的文件路径和内容，不是容器，也不是对话历史。
+
+接着，`main()` 调用 `executor.start(snapshot, run_root)`：执行器创建容器，把快照保存为 `source.tar` 并送入容器，由 Worker 解压到 `/work`。
+
+“基线”就是**计算差异时用来对照的那份文件内容**。刚启动时，交付组件以 `snapshot` 为基线；应用成功后，它会更新为刚交付的版本。
+
+对应文件：[sandbox.py](sandbox.py)、[snapshot.py](snapshot.py)。
+
+### 修改和测试：`agent_loop()` → `executor.dispatch()` → Worker
+
+`main()` 把 `executor.dispatch` 传给 `agent_loop()`。模型返回工具名称和参数时，循环通过已有 `execute_tool()` 调用它。
+
+例如模型返回：
+
+```text
+工具：write_file
+参数：{"path": "sandbox_demo.py", "content": "..."}
+```
+
+`executor.dispatch()` 将参数编码为 JSON，通过固定的 `docker exec` 交给容器中的 `tool_worker.py`。Worker 找到处理函数，执行后把结果返回循环，循环再请求模型。读取、搜索、写入、编辑、文件查找和 shell 都走这条路。
+
+`hooks = Hooks()` 不注册逐条审批 Hook，因此不反复询问是否允许工具；保护来自容器执行边界，不是提示词。Docker 或 Worker 致命失败时停止，不回退到宿主执行。
+
+对应文件：[code.py](code.py) 中的 `agent_loop()`、[tool_worker.py](tool_worker.py)。
+
+### 查看和写回：`main()` → `workspace_sync`
+
+`WorkspaceSync` 不在 Agent Loop 里面，也不是模型工具。它由宿主 `main()` 持有：
+
+- 任务结束后，`main()` 调用 `workspace_sync.preview()`；输入 `/diff` 也会调用它。它通过 `executor.capture_workspace()` 取得容器当前文件，与基线比较，保存 Diff，并记住这次预览的版本。原仓库不变。
+- 输入 `/apply` 后，`main()` 先展示文件列表并获取确认；只有输入 `y` 才调用 `workspace_sync.apply()`。回车或其他回答都取消。
+
+`apply()` 的检查可以理解为三个问题：
+
+1. 容器现在还是你预览过的那个版本吗？
+2. 原仓库中要写入的目标有没有被你另外修改，路径和文件类型是否允许？
+3. 补丁能否应用？
+
+检查通过后，先备份，再用 Git 应用补丁，核对结果，最后更新基线。这里不自动暂存或提交；实际写入阶段失败会禁用本次运行的后续回写，需要人工检查备份和文件。
+
+对应文件：[workspace_sync.py](workspace_sync.py)。`/diff` 和 `/apply` 由入口识别，不发送给模型，模型不能替你确认。
+
+## 3. 运行流程图：只看先后顺序
+
+这张图只画“任务正常完成后，用户确认交付”的路线。取消确认或检查失败时，原仓库不应用这批修改，回到输入入口；`q` 随时走退出收尾。
 
 ```mermaid
 flowchart TD
-    A[过滤源码 准备启动基线] --> B[创建容器副本 组装请求链和 WorkspaceSync]
-    B --> C[宿主交互入口]
-    C -- 普通任务 --> D[完整 agent_loop 容器内修改和测试]
-    D --> E[preview 保存并提示待应用修改]
-    E --> C
-    C -- /diff --> F[preview 刷新并显示 Diff]
-    F --> C
-    C -- /apply --> G{宿主用户确认}
-    G -- 否 --> C
-    G -- 是 --> H[apply 检查版本 路径 冲突和补丁]
-    H -- 检查失败 --> I[整批未应用 保留修改和报告]
-    I --> C
-    H -- 检查通过 --> J[备份并应用 核对结果 更新基线]
-    J --> C
-    C -- q --> K[保存未应用 Diff 清理容器]
+    A["启动：准备并复制项目"] --> B["main：接收任务"]
+    B --> C["agent_loop：请求模型"]
+    C -->|需要工具| D["容器 Worker：修改或测试"]
+    D -->|工具结果| C
+    C -->|任务结束| E["main：preview 保存差异"]
+    E --> F["用户：/diff 查看，/apply 确认"]
+    F -->|确认且检查通过| G["apply：备份并写回原仓库"]
+    G --> B
 ```
 
-Docker/Worker 致命失败直接终止入口，不再继续工具调用或回写；最后一次成功预览仍在宿主。实际写入阶段失败或结果不一致时，禁用本次运行的后续回写，保留备份供人工检查；不会伪装成成功或自动强制恢复。
+工具结果返回模型的循环，和用户确认写回的流程，是两件事。测试命令成功也不会绕过用户确认。
 
-## 组装结构
+## 4. 组装结构：只看“谁提供给谁”
 
-箭头统一表示“左侧向右侧提供依赖或数据”，不是调用顺序；只展示本章新增组件及直接关联对象。
+组装不是运行步骤。它是 `main()` 提前告诉组件：**请求模型找谁、执行工具找谁、比较文件用哪份基线。**
+
+下面是 `main()` 中关键连线的摘录，省略路径检查、s12 请求链组装、交互与收尾，不能单独运行：
+
+```python
+source_root = Path.cwd().resolve()
+snapshot = WorkspaceSnapshot.capture(source_root)
+executor = SandboxExecutor(image=options.image)
+run_root = SANDBOX_ROOT / executor.name
+diff_path = run_root / "changes.diff"
+
+workspace_sync = WorkspaceSync(
+    source_root=source_root,    # 写回的原仓库
+    executor=executor,          # 从这个容器取得文件
+    baseline=snapshot,          # 刚启动时的比较基线
+    report_path=diff_path,      # Diff 保存位置
+)
+executor.start(snapshot, run_root)
+
+# 中间沿用 s12，组装模型、会话、事件及 request_with_context。
+
+# 普通任务进入循环；/diff、/apply 由 main 单独处理。
+agent_loop(
+    active_context,
+    create_message=request_with_context,  # 请求模型仍走 s12 请求链
+    dispatch=executor.dispatch,            # 工具执行改走容器
+    # 其他参数省略……
+)
+```
+
+结构图的箭头统一表示**左侧向右侧提供依赖或数据**，线上标出真实参数名；不表示调用先后。
 
 ```mermaid
 flowchart LR
-    S[WorkspaceSnapshot: snapshot] -->|snapshot: start 参数| X[SandboxExecutor: executor]
-    I[options.image] -->|image| X
-    X -->|dispatch| L[本章 agent_loop]
-    R[s12 请求链: request_with_context] -->|create_message| L
-    X -->|executor| W[WorkspaceSync: workspace_sync]
+    S["snapshot：文件内容"] -->|snapshot：start 参数| X["executor：SandboxExecutor"]
+    X -->|dispatch：executor.dispatch| L["agent_loop"]
+    R["request_with_context：s12 请求链"] -->|create_message| L
+    X -->|executor| W["workspace_sync：WorkspaceSync"]
     S -->|baseline| W
-    P[source_root] -->|source_root| W
-    F[diff_path] -->|report_path| W
-    W -->|审查和应用记录| O[宿主报告目录]
-    W -->|确认后的文件修改| H[原仓库]
+    P["source_root：原仓库路径"] -->|source_root| W
+    F["diff_path：报告路径"] -->|report_path| W
 ```
 
-`main()` 先声明 `snapshot`、`executor`、`run_root`、`diff_path`、`workspace_sync`，再组装既有模型和上下文组件。`/diff`、`/apply` 在保存用户消息之前处理，不进入模型上下文、不计模型请求；系统提示词无需解释这套宿主机制。
+**传给循环的是执行工具的方法，不是把整套交付组件塞进循环。** `main()` 另行调用 `workspace_sync.preview()/apply()`，因此核心循环不用理解 Git 补丁和确认交付。
 
-## 两轮修改：为什么需要更新基线
+## 5. 再做一轮，为什么不会重复写回？
+
+第一轮创建文件并应用成功后，让模型继续：
 
 ```text
-启动：原仓库与容器都没有 sandbox_demo.py；基线也没有。
-
-第一轮：容器新增 add(a, b)，原仓库仍无该文件。
-preview：显示“新增 sandbox_demo.py”。
-/apply + y：原仓库获得该文件，基线更新为这个已交付版本。
-
-第二轮：继续让模型给 add 增加类型注解，容器仍然存活。
-preview：只显示相对刚交付版本新增的类型注解。
-/apply + y：原仓库获得注解，基线再次更新。
-
-再次 /diff：无待应用修改；q 退出也不会重复导出已应用的内容。
+给 sandbox_demo.py 中的 add 增加 int 类型注解，再运行原断言。
 ```
 
-更新的是 `workspace_sync.baseline`，启动时的 `source.tar` 保持不变。只检查本批目标文件：已有文件的宿主内容必须与基线完全一致；新增文件必须尚不存在。任何一个目标冲突都整批拒绝，无关宿主修改不会被覆盖。
+同一个容器仍然存活，所以模型可以直接修改那个文件。此时比较的是：
 
-这一版不把宿主外部编辑反向同步到容器。如果外部编辑影响后续任务，应先处理改动，再重新启动获取新的副本。
+```text
+第一轮：启动时的文件 → 创建 add 后的文件
+应用成功：基线更新为“创建 add 后的文件”
 
-## 准备与运行
+第二轮：创建 add 后的文件 → 加上类型注解后的文件
+应用成功：基线再次更新
+```
 
-在项目根目录、已有 Python 虚拟环境中执行。以下步骤由你手动执行，程序不会安装依赖、构建镜像或启动 Docker 服务。
+所以第二次 Diff 只展示新增注解，不会重复交付第一轮内容。更新的是 `workspace_sync.baseline`，启动归档 `source.tar` 不会被改写。
+
+如果你在编辑器里同时改了本批目标文件，程序会拒绝整批应用，不强行覆盖；无关文件的修改不会被覆盖。**宿主的外部编辑也不会自动反向同步到容器。**
+
+## 6. 怎么运行和观察？
+
+在项目根目录、已有虚拟环境中执行。当前目标是启动目录，没有 `--workspace` 参数。
+
+先手动启动 Docker Desktop 的 Linux 引擎，再准备镜像：
 
 ```powershell
-# 确认宿主 Git 可用，以及 Docker Desktop 的 Linux 服务已启动
+# 检查宿主 Git 和 Docker 服务
 git --version
 docker version
 
-# 构建 A 版本镜像：会按需下载基础镜像和项目依赖
+# 按 Dockerfile 制作运行环境；首次可能下载基础镜像和项目依赖
 docker build -f s13_a_sandbox_copy/Dockerfile -t zero2pi-sandbox:s13-a .
 
-# 无模型冒烟：只验证副本工具，退出时保存报告，不回写原仓库
+# 无模型冒烟：验证容器工具，不加载模型配置、不回写原仓库
 python -m s13_a_sandbox_copy.code --smoke
 
-# 模型交互：容器内自动执行；回写需要 /apply 单独确认
-python -m s13_a_sandbox_copy.code --mode sandbox
+# 正式交互：默认就是 sandbox，不用手动创建容器
+python -m s13_a_sandbox_copy.code
 ```
 
-包和 Worker 路径已改名，旧 `zero2pi-sandbox:s13` 镜像不能替代 A 镜像，需要按上面的命令构建一次。Dockerfile 专属 ignore 清单不包含 `.env` 或宿主交付组件；固定工具从只读镜像加载，不受 `/work` 的 `PYTHONPATH` 替换。项目复制只走 tar stdin，由非 root Worker 解压，避免 root 属主造成副本不可写。
+镜像是可以重复使用的环境模板；每次启动程序才创建本次容器。配方或镜像内工具变化时需要重建；旧 `zero2pi-sandbox:s13` 镜像不能替代 A 镜像。构建可联网，任务容器禁网，不会临时补装项目依赖。
 
-模型仍使用宿主 `.env`，需配置 s07 的实际窗口预算。其他项目的依赖需要你准备对应可信镜像，容器运行时不联网补装。
-
-### 不退出即可交付的测试
+模型配置仍来自宿主 `.env`，需填写 `MODEL_CONTEXT_WINDOW_TOKENS`。下面各行是在 Agent 交互入口输入，不是 PowerShell 命令：
 
 ```text
 在副本中新建 sandbox_demo.py，定义 add(a, b)，再用 Python 断言 add(2, 3) == 5。完成后说明改了什么。
@@ -134,38 +195,42 @@ y
 q
 ```
 
-第一次确认前，宿主没有 `sandbox_demo.py`；确认后立即出现。第二次 Diff 只含新增注解。工具不逐条审批，回写每批确认一次，默认回车或输入非 `y` 都取消。
+观察：第一次确认前，原仓库没有新文件；确认后立即出现。第二次只交付注解。全部应用后退出，应提示“没有未应用修改”和“容器已清理”；仍有变化时才提示未应用 Diff 保存路径。导出或清理失败仍报错。
 
-## 验证、产物和限制
+## 7. 记录保存在哪里？退出会失去什么？
+
+所有记录留在宿主，不复制到容器：
+
+- `.sessions/s13-a/*.jsonl`：对话、工具调用及实际返回结果、压缩记录和已知模型用量，供继续对话。
+- `.traces/s13-a/*.jsonl`：请求、工具、错误和耗时等事件的精简记录，不重复保存完整大型正文或逐段流式文本。
+- `.sandboxes/s13-a/<容器名称>/`：`source.tar` 是启动副本；`changes.diff` 是最近预览的未应用修改，全部应用后为空；`apply-001.diff` 和 `before-001.tar` 保存回写尝试的补丁及原文件内容，失败尝试也可能留下，不能仅凭文件名认定成功。
+
+`/diff`、`/apply` 不进入对话或 Agent 事件 Trace；交付凭据在报告目录。
+
+正常退出会删除容器：已应用的文件仍在原仓库，未应用内容保留为 Diff，不自动回写。用 `--session <历史会话路径>` 只能恢复消息和累计用量；它仍从当前原仓库创建新副本，不恢复旧容器或未应用文件。强制关闭终端或 Docker 失联可能残留容器，需按具体名称处理。
+
+## 8. 边界与验证
+
+- 全部六种工具在同一容器执行；无宿主挂载、无 Docker API、非 root、禁网、只读根文件系统，`/work` 和 `/tmp` 可写。资源限制为 CPU 1 核、内存/交换总额度 1 GiB、64 个进程、`/work` 512 MiB、`/tmp` 128 MiB，shell 超时 120 秒。
+- 复制排除 `.env`、`.env.*`（保留 `.env.example`）、`.git`、依赖、运行目录和常见凭证；不复制链接或特殊文件。快照最多 4000 文件 / 12 MiB。文件名过滤不是通用脱敏，容器也不是绝对安全。
+- 回写只支持普通非空 UTF-8 文本的新增、修改、删除；二进制/空文件变化、文件目录互换、大小写重命名和不适用于 Windows 的文件名整批拒绝，不交付链接或权限。
+- 备份只保存内容，不承诺并发编辑或磁盘故障下的自动回滚。应用时不要同时编辑目标文件。
+- 沙箱不保证模型收敛；需要限制消费时，显式配置 s11 的 `AGENT_MAX_ROUNDS`。
 
 ```powershell
-# 离线回归：真实 Git 只修改临时测试目录，无模型、无 Docker
+# 离线测试：使用 Docker 替身和临时目录中的真实 Git，无模型调用
 python -m pytest tests/test_s13_a_sandbox_copy.py tests/test_s13_a_workspace_sync.py
 
-# 镜像和 Docker 准备好后，显式验证真实隔离与两轮交付
+# 仅在 Docker 和本地镜像准备好后，验证真实隔离与两轮交付
 $env:SANDBOX_INTEGRATION = "1"
 python -m pytest tests/test_s13_a_sandbox_copy.py -k real_docker
 Remove-Item Env:SANDBOX_INTEGRATION
 ```
 
-离线测试覆盖固定 Docker 参数、stdin、冲突整批拒绝、两轮应用、取消确认、命令不进模型、换行保留、危险路径拒绝和失败收尾；它不证明 OS 隔离。真实 Docker 测试检查非 root、只读根、禁网、无宿主挂载，以及不关闭容器的两轮应用。
-
-运行目录分别是 `.sessions/s13-a/`、`.traces/s13-a/`、`.sandboxes/s13-a/<名称>/`，全部忽略 Git。报告目录包含：
-
-- `source.tar`：不可变启动副本。
-- `changes.diff`：最近预览或退出时的未应用修改；全部应用后为空。
-- `apply-001.diff`、`before-001.tar`：每次实际回写尝试的补丁与原文件内容备份；失败尝试也保留，不能仅凭文件名认定已成功。
-
-退出时，没有剩余变化就提示“没有未应用修改”；仍有变化才提示未应用 Diff 的保存路径。容器清理成功后单独提示“容器已清理”；导出或清理失败仍明确报错。
-
-当前交付仅支持普通非空 UTF-8 文本文件的新增、修改、删除。二进制（含 NUL）、空文件变化、文件/目录互换、大小写重命名和不适用于 Windows 的文件名整批拒绝；不交付链接或权限元数据。备份只保存文件内容，不是 ACL/权限或整个文件系统的事务备份。
-
-回写前后复核能检测常见冲突，但不会锁住编辑器或后台进程，也不承诺磁盘故障下的自动回滚；应用期间不要并发编辑目标。`--session` 只恢复消息和用量，不恢复旧容器内容。超长 shell 全文只在容器存活时可补读。强制关闭终端或 Docker 失联可能残留容器，按具体名称手动清理，不批量删除其他容器。
-
-沙箱不保证模型收敛；需保护消费时显式配置 s11 的 `AGENT_MAX_ROUNDS`。
+离线测试验证接线、取消确认、冲突与失败收尾，不证明 OS 隔离；Docker 集成测试才检查实际非 root、禁网、只读根、无挂载及两轮交付。程序不会替你安装依赖、构建镜像或启动服务。
 
 ## 参考与差异
 
-- Pi 通过执行后端注入限制命令，本章保留这条放权思路，但把全部六种工具放进同一个容器副本；本章离线和 Docker 测试分别验证接入与真实隔离。隔离失败必须停止，不采用本地 Pi 示例的普通 bash 回退。
-- Pi 的本地示例在实际工作区包装 bash，而本章保护原仓库不被模型工具直接写入，因此增加宿主确认交付；s13-B 的共享工作区、s13-C 的原生隔离将比较另一种边界，当前不提前创建代码。
-- lcc 的 worktree 隔离用于避免任务改动互相污染，不提供 OS 安全边界；本章不引入任务板或 worktree，通过内容基线保护用户同期修改，本章冲突测试验证这一取舍。
+- **Pi：注入执行后端。** 保留“循环不关心工具执行位置”的思路，但本章把六种工具统一放入容器副本，并在隔离失败时停止；不是只包装 bash，也不采用本地示例的普通 bash 回退。本章离线与 Docker 测试分别验证接入和隔离。
+- **Pi：直接操作实际工作区。** 本章为保护原仓库，改为先预览、后确认交付。s13-B 的共享工作区、s13-C 的原生隔离将比较直接写入的边界，目前没有实现代码。
+- **lcc：worktree 隔离任务改动。** 本章不引入任务板或 worktree，而用容器限制执行环境、用文件基线检查交付冲突；任务改动分离不等于 OS 安全隔离。本章冲突测试验证用户已有内容不会被强行覆盖。
