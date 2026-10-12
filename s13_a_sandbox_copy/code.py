@@ -432,13 +432,20 @@ def main(arguments: Sequence[str] | None = None) -> None:
             if run_root.exists():
                 # s13-A 修改：退出只保存相对最近交付基线的未应用修改，不重复导出已交付内容。
                 workspace_sync.preview()
-                print(f"未应用 Diff 已保存：{diff_path}（退出不会自动回写）")
+                # s13-A 修改：按实际剩余变化提示，空 Diff 不再误导为仍有修改未交付。
+                if workspace_sync.changed_files:
+                    print(f"未应用 Diff 已保存：{diff_path}（退出不会自动回写）")
+                else:
+                    print("修改  没有未应用修改。")
         except (SandboxError, ValueError, OSError) as error:
             final_error = SandboxError(f"未导出最终修改：{error}")
             print(format_error(str(final_error)), file=sys.stderr)
         finally:
             try:
                 executor.close()
+                # s13-A 修改：清理成功后才报告完成；启动前失败不声称清理了容器。
+                if run_root.exists():
+                    print("沙箱  容器已清理。")
             except SandboxError as error:
                 final_error = SandboxError(f"容器清理失败；需手动清理 {executor.name}：{error}")
                 print(

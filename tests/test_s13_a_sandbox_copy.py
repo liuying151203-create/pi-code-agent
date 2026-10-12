@@ -422,7 +422,9 @@ def test_main_automatically_uses_copy_persists_history_and_exports_diff(tmp_path
 
 
 @pytest.mark.parametrize("answer", ["", "n", "y"])
-def test_main_host_commands_confirm_apply_without_model_requests(tmp_path, monkeypatch, answer):
+def test_main_host_commands_confirm_apply_without_model_requests(
+    tmp_path, monkeypatch, capsys, answer
+):
     monkeypatch.chdir(tmp_path)
     (tmp_path / "README.md").write_bytes(b"original\n")
     docker = DockerStub()
@@ -487,6 +489,14 @@ def test_main_host_commands_confirm_apply_without_model_requests(tmp_path, monke
     assert (report.read_bytes() == b"") is (answer == "y")
     assert len(list(chapter.SANDBOX_ROOT.glob("*/apply-*.diff"))) == (2 if answer == "y" else 0)
     assert docker.calls[-1][0][1:3] == ["rm", "--force"]
+    output = capsys.readouterr().out
+    assert output.endswith("沙箱  容器已清理。\n")
+    if answer == "y":
+        assert "修改  没有未应用修改。" in output
+        assert "未应用 Diff 已保存" not in output
+    else:
+        assert "未应用 Diff 已保存" in output
+        assert "修改  没有未应用修改。" not in output
 
 
 @pytest.mark.parametrize("arguments, code", [(["--help"], 0), (["--mode", "trusted"], 2)])
@@ -544,7 +554,7 @@ def test_main_cleanup_runs_after_model_failure(tmp_path, monkeypatch):
 
 @pytest.mark.parametrize("failure_stage", ["export", "cleanup"])
 def test_main_reports_export_or_cleanup_failure_instead_of_success(
-    tmp_path, monkeypatch, failure_stage
+    tmp_path, monkeypatch, capsys, failure_stage
 ):
     monkeypatch.chdir(tmp_path)
     docker = DockerStub()
@@ -567,6 +577,14 @@ def test_main_reports_export_or_cleanup_failure_instead_of_success(
     assert not (tmp_path.parent / "host.txt").exists()
     if failure_stage == "export":
         assert docker.calls[-1][0][1:3] == ["rm", "--force"]
+    output = capsys.readouterr()
+    if failure_stage == "cleanup":
+        assert "容器已清理" not in output.out
+        assert "容器清理失败" in output.err
+    else:
+        assert "没有未应用修改" not in output.out
+        assert "未应用 Diff 已保存" not in output.out
+        assert "未导出最终修改" in output.err
 
 
 @pytest.mark.skipif(
