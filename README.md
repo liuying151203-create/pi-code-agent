@@ -18,7 +18,9 @@ Copy-Item .env.example .env
 
 在 `.env` 中填写模型密钥。若 PowerShell 不允许激活虚拟环境，可直接使用 `.venv\Scripts\python.exe`。
 
-s07–s12 还需填写实际 `MODEL_CONTEXT_WINDOW_TOKENS`；预算迁移与示例见 [s07 配置](s07_session_compaction/README.md#运行)，不要直接复制未经服务确认的模型容量。
+s07–s13 的模型交互还需填写实际 `MODEL_CONTEXT_WINDOW_TOKENS`；预算迁移与示例见 [s07 配置](s07_session_compaction/README.md#运行)，不要直接复制未经服务确认的模型容量。
+
+s13-A 另需手动准备 Docker Linux 服务和本地镜像，命令见 [Sandbox 教程](s13_a_sandbox_copy/README.md#准备与运行)；程序不自动拉取镜像或安装依赖。
 
 ## 常用命令
 
@@ -65,8 +67,12 @@ python -m s11_runtime_observability.code
 python -m s12_skill_loading.code
 # 只读审查：s03–s12 均支持此模式，仅开放 glob、grep、read_file
 python -m s12_skill_loading.code --mode read-only
+# 第十三章 A：隔离副本；/diff 预览，/apply 确认回写
+python -m s13_a_sandbox_copy.code --mode sandbox
+# 不调用模型，验证第十三章 A 的容器与工具链路
+python -m s13_a_sandbox_copy.code --smoke
 # 运行测试
 python -m pytest
 # 检查代码规范
-ruff check s01_agent_loop s02_tool_use s03_permission s04_hooks s05_session_persistence s06_session_context s07_session_compaction s08_runtime_events s09_runtime_streaming s10_model_provider s11_runtime_observability s12_skill_loading src tests
+ruff check s01_agent_loop s02_tool_use s03_permission s04_hooks s05_session_persistence s06_session_context s07_session_compaction s08_runtime_events s09_runtime_streaming s10_model_provider s11_runtime_observability s12_skill_loading s13_a_sandbox_copy src tests
 ```

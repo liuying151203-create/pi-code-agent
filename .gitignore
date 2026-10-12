@@ -21,6 +21,9 @@ dist/
 # Runtime trace data
 .traces/
 
+# Sandbox input snapshots and review reports
+.sandboxes/
+
 # IDE and OS files
 .idea/
 .vscode/
