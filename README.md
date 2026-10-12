@@ -20,7 +20,7 @@ Copy-Item .env.example .env
 
 s07–s13 的模型交互还需填写实际 `MODEL_CONTEXT_WINDOW_TOKENS`；预算迁移与示例见 [s07 配置](s07_session_compaction/README.md#运行)，不要直接复制未经服务确认的模型容量。
 
-s13-A 另需手动准备 Docker Linux 服务和本地镜像，命令见 [Sandbox 教程](s13_a_sandbox_copy/README.md#准备与运行)；程序不自动拉取镜像或安装依赖。
+s13-A 另需手动准备 Docker Linux 服务和本地镜像，命令见 [Sandbox 教程](s13_a_sandbox_copy/README.md#6-怎么运行和观察)；程序不自动拉取镜像或安装依赖。
 
 ## 常用命令
 
@@ -69,6 +69,8 @@ python -m s12_skill_loading.code
 python -m s12_skill_loading.code --mode read-only
 # 第十三章 A：隔离副本；/diff 预览，/apply 确认回写
 python -m s13_a_sandbox_copy.code --mode sandbox
+# 第十三章 A：指定其他项目；配置和按项目分组的记录仍留在 zero2pi
+python -m s13_a_sandbox_copy.code --workspace "D:\dev\my-app"
 # 不调用模型，验证第十三章 A 的容器与工具链路
 python -m s13_a_sandbox_copy.code --smoke
 # 运行测试

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import sys
 from collections.abc import Callable, Sequence
 from copy import deepcopy
@@ -16,6 +17,7 @@ from pathlib import Path
 from time import perf_counter
 from typing import Any
 
+import yaml
 from dotenv import load_dotenv
 
 from s05_session_persistence import code as s05
@@ -23,6 +25,7 @@ from s11_runtime_observability import code as runtime
 from s12_skill_loading import code as previous
 from s13_a_sandbox_copy.sandbox import DEFAULT_IMAGE, SandboxError, SandboxExecutor
 from s13_a_sandbox_copy.snapshot import WorkspaceSnapshot
+from s13_a_sandbox_copy.workspace import WorkspaceLayout
 from s13_a_sandbox_copy.workspace_sync import WorkspaceSync, WorkspaceSyncError
 from zero2pi.ui import format_error, format_user_prompt
 
@@ -69,10 +72,8 @@ SYSTEM = (
 TOOLS = deepcopy(previous.TOOLS)
 # s13-A 修改：不让 Windows cmd.exe 描述误导容器内的命令生成。
 TOOLS[0]["description"] = "在容器 /work 执行 Linux /bin/sh 命令；最多返回末尾 2000 行 / 50 KiB。"
-# s13-A 修改：独立保存会话、Trace 和审查报告，模型看不到这些宿主运行目录。
-SESSION_ROOT = Path(".sessions/s13-a")
-TRACE_ROOT = Path(".traces/s13-a")
-SANDBOX_ROOT = Path(".sandboxes/s13-a")
+# s13-A 修改：配置与记录固定在 Harness，目标项目不再决定 .env 或记录位置。
+HARNESS_ROOT = Path(__file__).resolve().parent.parent
 
 
 # ===== 来自 s12：完整核心循环（保持）；s13-A 新增失败收尾 =====
@@ -239,13 +240,59 @@ def smoke_test(executor: SandboxExecutor) -> None:
     print(result)
 
 
-# ===== s13-A 修改：显式组装隔离入口，不包装 main =====
+# ===== s13-A 新增：目标项目技能与宿主入口 =====
+
+
+# s13-A 新增：读取已复制的技能头部，避免复用 s12 的 cwd 扫描而扫错目标项目。
+def load_container_skills(snapshot: WorkspaceSnapshot) -> previous.SkillCatalog:
+    """从本次源码快照生成容器可读取的技能目录，不切换宿主工作目录。
+
+    输入：已过滤的项目快照；输出：使用 /work 路径的 s12 SkillCatalog。
+    流程：找目标项目 s12_skill_loading/skills/<名称>/SKILL.md → 解析并校验头部 →
+    复用 s12 Skill 和提示词组装；没有该目录时返回空目录，不复制 Harness 技能。
+    边界：头部来自将送入容器的同一份内容，正文仍由模型用 read_file 按需读取。
+    """
+    skills = []
+    for name, content in sorted(snapshot.files.items()):
+        path = Path(name)
+        if (
+            path.parts[:2] != ("s12_skill_loading", "skills")
+            or len(path.parts) != 4
+            or path.name != "SKILL.md"
+        ):
+            continue
+        lines = content.decode("utf-8-sig").splitlines()
+        if not lines or lines[0].strip() != "---":
+            raise ValueError(f"技能缺少 YAML 头部：{name}")
+        try:
+            end = next(index for index in range(1, len(lines)) if lines[index].strip() == "---")
+        except StopIteration as error:
+            raise ValueError(f"技能 YAML 头部未闭合：{name}") from error
+        try:
+            metadata = yaml.safe_load("\n".join(lines[1:end]))
+        except yaml.YAMLError as error:
+            raise ValueError(f"技能 YAML 无效：{name}") from error
+        if not isinstance(metadata, dict):
+            raise TypeError(f"技能 YAML 必须是对象：{name}")
+        skill_name = metadata.get("name")
+        description = metadata.get("description")
+        if (
+            not isinstance(skill_name, str)
+            or not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", skill_name)
+            or len(skill_name) > 64
+            or skill_name != path.parent.name
+        ):
+            raise ValueError(f"技能名称须与目录一致，使用小写字母、数字和连字符：{name}")
+        if not isinstance(description, str) or not description.strip():
+            raise ValueError(f"技能缺少非空 description：{name}")
+        skills.append(previous.Skill(skill_name, description.strip(), Path("/work") / path))
+    return previous.SkillCatalog(skills=tuple(skills))
 
 
 def main(arguments: Sequence[str] | None = None) -> None:
     """启动在隔离副本中自动执行工具的 Agent。
 
-    输入：明确的 sandbox 模式、本地镜像、可选历史会话及终端任务；--smoke 无需模型。
+    输入：目标工作区、sandbox 模式、本地镜像、可选历史会话；--smoke 无需模型。
     输出：回答、用量、会话、Diff 和用户确认后的宿主修改。
     流程：准备副本 → 组装请求链与交付组件 → 任务后预览 → 确认回写 → 退出清理。
     边界：仅接受 sandbox；Docker 失败停止，不自动拉取、安装、联网或宿主回退。
@@ -253,19 +300,31 @@ def main(arguments: Sequence[str] | None = None) -> None:
     # s13-A 修改：不扩展旧章节的模式；此入口只负责新增执行边界。
     parser = argparse.ArgumentParser(description="s13-A：Linux 容器副本中自动执行工具")
     parser.add_argument("--mode", choices=("sandbox",), default="sandbox")
+    # s13-A 新增：启动时选定目标；整次运行的复制、冲突检查和回写都绑定此目录。
+    parser.add_argument("--workspace", type=Path, default=Path.cwd(), help="目标项目，默认当前目录")
     parser.add_argument("--image", default=DEFAULT_IMAGE, help="已手动构建的可信本地镜像")
     parser.add_argument("--session", type=Path, help="恢复消息历史，不恢复旧容器修改")
     parser.add_argument("--smoke", action="store_true", help="仅验证容器，不调用模型")
     options = parser.parse_args(arguments)
 
     # ===== s13-A 新增：基础依赖与执行组件 =====
-    source_root = Path.cwd().resolve()
+    # s13-A 修改：目录布局负责规范化和分组，核心循环仍不感知目标路径。
+    workspace = WorkspaceLayout.for_path(options.workspace, HARNESS_ROOT)
+    source_root = workspace.source_root
+    # s13-A 新增：恢复前先核对归属；冒烟不创建会话，也不接受恢复选项。
+    if options.smoke and options.session is not None:
+        parser.error("--smoke 不能与 --session 同时使用")
+    session_path = None
+    if options.session is not None:
+        session_path = workspace.select_session_path(options.session)
     snapshot = WorkspaceSnapshot.capture(source_root)
+    # s13-A 修改：只发现目标快照内的技能，不能让 Harness 的技能路径落入别的项目。
+    container_catalog = load_container_skills(snapshot) if not options.smoke else None
     executor = SandboxExecutor(image=options.image)
-    run_root = SANDBOX_ROOT / executor.name
-    # s13-A 新增：宿主报告目录也不能通过预置链接逃出当前项目。
-    if not run_root.resolve().is_relative_to(source_root):
-        raise ValueError("Sandbox 报告目录超出当前项目")
+    run_root = workspace.sandbox_root / executor.name
+    # s13-A 修改：报告留在 Harness，而不是要求落在目标项目；预置链接仍不能重定向。
+    if run_root.resolve() != run_root or not run_root.is_relative_to(HARNESS_ROOT.resolve()):
+        raise ValueError("Sandbox 报告目录超出 Harness 或被重定向")
     diff_path = run_root / "changes.diff"
     # s13-A 新增：交付组件只归宿主入口持有，模型仍只能调用容器内六种工具。
     workspace_sync = WorkspaceSync(
@@ -278,6 +337,8 @@ def main(arguments: Sequence[str] | None = None) -> None:
         # s13-A 新增：先验证 Docker，再初始化模型；副本不包含宿主会话与常见凭证。
         executor.start(snapshot, run_root)
         print("s13-A：执行沙箱 · 隔离副本")
+        # s13-A 新增：用户就地确认本次操作对象及记录分组，避免把 Harness 当成目标。
+        print(f"目标项目：{source_root}；记录分组：{workspace.workspace_id}")
         print(f"容器：{executor.name}；工作区：/work；网络：禁用；工具：自动执行")
         print(f"输入快照：{len(snapshot.files)} 个普通文件；Diff：{diff_path}")
         if options.smoke:
@@ -285,27 +346,21 @@ def main(arguments: Sequence[str] | None = None) -> None:
             return
 
         # ===== 来自 s12：基础模型依赖与会话（保持） =====
-        load_dotenv(override=True)
+        # s13-A 修改：明确加载 Harness 配置，不读取目标项目 .env，也不搜索其他目录。
+        load_dotenv(dotenv_path=HARNESS_ROOT / ".env", override=True)
         timeout_seconds = float(os.getenv("MODEL_TIMEOUT_SECONDS", "60"))
         max_retries = int(os.getenv("MODEL_MAX_RETRIES", "0"))
         provider = create_model_provider(timeout_seconds=timeout_seconds, max_retries=max_retries)
-        session_path = s05.select_session_path(options.session, session_root=SESSION_ROOT)
+        # s13-A 新增：新会话写入目标分组并保存绑定；恢复路径已在创建容器前校验。
+        if session_path is None:
+            session_path = workspace.select_session_path(None)
         session = SessionManager.open(session_path)
 
         # ===== 来自 s12：技能、观察层与模型层（保持） =====
-        skill_catalog = previous.SkillCatalog.scan(previous.SKILLS_ROOT)
-        # s13-A 修改：只提供已复制的技能，路径改为容器路径，不暴露宿主绝对路径。
-        copied_skills = tuple(
-            previous.Skill(
-                skill.name, skill.description, Path("/work") / skill.path.relative_to(source_root)
-            )
-            for skill in skill_catalog.skills
-            if skill.path.relative_to(source_root).as_posix() in snapshot.files
-        )
-        container_catalog = previous.SkillCatalog(skills=copied_skills)
         system_prompt = previous.build_system_prompt(SYSTEM, container_catalog)
         terminal = TerminalEventSink()
-        trace_path = runtime.new_trace_path(TRACE_ROOT)
+        # s13-A 修改：每次运行新建 Trace，但不同项目不再混在同一个章节目录。
+        trace_path = runtime.new_trace_path(workspace.trace_root)
         trace_recorder = JsonlTraceRecorder(trace_path)
         usage_tracker = UsageTracker()
         error_recorder = SessionErrorRecorder(session)
@@ -347,7 +402,7 @@ def main(arguments: Sequence[str] | None = None) -> None:
         hooks = Hooks()
         # 来自 s12：保持；轮数预算仍由显式配置控制，不等同于容器隔离。
         round_limit = model_round_limit_from_env()
-        print(f"模型：{provider.model}；可用技能：{len(copied_skills)}")
+        print(f"模型：{provider.model}；可用技能：{len(container_catalog.skills)}")
         print(f"会话：{session.path}；Trace：{trace_path}")
         if options.session is not None:
             print("已恢复消息；执行工作区仍是原仓库的新副本，不恢复上次容器修改。")
@@ -460,6 +515,7 @@ def main(arguments: Sequence[str] | None = None) -> None:
 if __name__ == "__main__":
     try:
         main()
-    except (RuntimeError, ValueError, KeyboardInterrupt) as error:
+    # s13-A 修改：目标路径或技能元数据无效时给出错误，不自动启动其他执行方式。
+    except (RuntimeError, ValueError, TypeError, OSError, KeyboardInterrupt) as error:
         print(format_error(str(error) or "用户中断"), file=sys.stderr)
         raise SystemExit(1) from error

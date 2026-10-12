@@ -7,6 +7,7 @@ import os
 import subprocess
 import sys
 import tarfile
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -15,7 +16,14 @@ from s02_tool_use import code as base_tools
 from s10_model_provider.code import ModelResponse, ModelUsage
 from s13_a_sandbox_copy import code as chapter
 from s13_a_sandbox_copy import sandbox, snapshot, tool_worker
+from s13_a_sandbox_copy.workspace import WorkspaceLayout
 from s13_a_sandbox_copy.workspace_sync import WorkspaceSync
+
+
+@pytest.fixture(autouse=True)
+def isolate_harness_records(tmp_path, monkeypatch):
+    """离线入口使用临时 Harness，不能加载真实密钥或写入用户的运行记录。"""
+    monkeypatch.setattr(chapter, "HARNESS_ROOT", tmp_path)
 
 
 class DockerStub:
@@ -413,9 +421,10 @@ def test_main_automatically_uses_copy_persists_history_and_exports_diff(tmp_path
     assert len(requests) == 2
     assert ".env" not in docker.files
     assert (tmp_path / "README.md").read_text(encoding="utf-8") == "original"
-    diff_path = next(chapter.SANDBOX_ROOT.glob("*/changes.diff"))
+    workspace = WorkspaceLayout.for_path(tmp_path, tmp_path)
+    diff_path = next(workspace.sandbox_root.glob("*/changes.diff"))
     assert "+changed" in diff_path.read_text(encoding="utf-8")
-    session = chapter.SessionManager.open(next(chapter.SESSION_ROOT.glob("*.jsonl")))
+    session = chapter.SessionManager.open(next(workspace.session_root.glob("*.jsonl")))
     assert session.build_context()[-1]["content"][0]["text"] == "副本已修改"
     assert session.session_stats().tool_calls == 2
     assert docker.calls[-1][0][1:3] == ["rm", "--force"]
@@ -478,16 +487,17 @@ def test_main_host_commands_confirm_apply_without_model_requests(
     monkeypatch.setattr("builtins.input", user_input)
     chapter.main([])
     assert len(requests) == (4 if answer == "y" else 2)
-    session = chapter.SessionManager.open(next(chapter.SESSION_ROOT.glob("*.jsonl")))
+    workspace = WorkspaceLayout.for_path(tmp_path, tmp_path)
+    session = chapter.SessionManager.open(next(workspace.session_root.glob("*.jsonl")))
     user_texts = [
         message["content"]
         for message in session.build_context()
         if message["role"] == "user" and isinstance(message["content"], str)
     ]
     assert user_texts == (["first task", "second task"] if answer == "y" else ["first task"])
-    report = next(chapter.SANDBOX_ROOT.glob("*/changes.diff"))
+    report = next(workspace.sandbox_root.glob("*/changes.diff"))
     assert (report.read_bytes() == b"") is (answer == "y")
-    assert len(list(chapter.SANDBOX_ROOT.glob("*/apply-*.diff"))) == (2 if answer == "y" else 0)
+    assert len(list(workspace.sandbox_root.glob("*/apply-*.diff"))) == (2 if answer == "y" else 0)
     assert docker.calls[-1][0][1:3] == ["rm", "--force"]
     output = capsys.readouterr().out
     assert output.endswith("沙箱  容器已清理。\n")
@@ -506,6 +516,167 @@ def test_cli_exits_before_creating_components(tmp_path, monkeypatch, arguments, 
         chapter.main(arguments)
     assert error.value.code == code
     assert list(tmp_path.iterdir()) == []
+
+
+def test_main_targets_external_projects_separates_records_and_resumes_matching_history(
+    tmp_path, monkeypatch
+):
+    """真实 main 与 Git 验证目标写回；Docker 和模型出口替换为离线实现。"""
+    harness = tmp_path / "harness"
+    launcher = tmp_path / "launcher"
+    targets = [tmp_path / "one/my app", tmp_path / "two/my app"]
+    for directory in (harness, launcher, *targets):
+        directory.mkdir(parents=True)
+    (harness / ".env").write_text("WORKSPACE_TEST_KEY=harness\n", encoding="utf-8")
+    (harness / "harness_marker.py").write_text("not part of target", encoding="utf-8")
+    harness_skill = harness / "s12_skill_loading/skills/harness-only/SKILL.md"
+    harness_skill.parent.mkdir(parents=True)
+    harness_skill.write_text(
+        "---\nname: harness-only\ndescription: 不应加载\n---\n正文", encoding="utf-8"
+    )
+    for target in targets:
+        (target / "README.md").write_text("original\n", encoding="utf-8")
+        (target / ".env").write_text("WORKSPACE_TEST_KEY=wrong-target\n", encoding="utf-8")
+    target_skill = targets[0] / "s12_skill_loading/skills/review/SKILL.md"
+    target_skill.parent.mkdir(parents=True)
+    target_skill.write_text("---\nname: review\ndescription: 项目审查\n---\n正文", encoding="utf-8")
+    monkeypatch.chdir(launcher)
+    monkeypatch.setattr(chapter, "HARNESS_ROOT", harness)
+    monkeypatch.setenv("MODEL_CONTEXT_WINDOW_TOKENS", "128000")
+    monkeypatch.setenv("AGENT_MAX_ROUNDS", "0")
+    monkeypatch.setenv("WORKSPACE_TEST_KEY", "before")
+    config_paths = []
+    original_loader = chapter.load_dotenv
+
+    def load_config(**kwargs):
+        config_paths.append(kwargs["dotenv_path"])
+        return original_loader(**kwargs)
+
+    monkeypatch.setattr(chapter, "load_dotenv", load_config)
+    sessions = []
+    docker_instances = []
+    for index, target in enumerate([*targets, targets[0]]):
+        docker = DockerStub()
+        docker_instances.append(docker)
+        monkeypatch.setattr(
+            chapter,
+            "SandboxExecutor",
+            lambda runner=docker, **kwargs: sandbox.SandboxExecutor(runner=runner, **kwargs),
+        )
+
+        class Provider:
+            model = "offline-workspace"
+
+            def __init__(self, index, target):
+                self.index = index
+                self.target = target
+                self.requests = []
+
+            def stream(self, *, on_text, **kwargs):
+                assert os.environ["WORKSPACE_TEST_KEY"] == "harness"
+                assert "harness-only" not in kwargs["system"]
+                assert ("项目审查" in kwargs["system"]) is (self.target == targets[0])
+                self.requests.append(kwargs)
+                if self.index < 2 and len(self.requests) == 1:
+                    return ModelResponse(
+                        [
+                            {
+                                "type": "tool_use",
+                                "id": "write",
+                                "name": "write_file",
+                                "input": {
+                                    "path": "README.md",
+                                    "content": f"project {self.index}\n",
+                                },
+                            }
+                        ],
+                        self.model,
+                        "tool_use",
+                        ModelUsage(10, 10),
+                    )
+                return ModelResponse(
+                    [{"type": "text", "text": "done"}], self.model, "end_turn", ModelUsage(10, 10)
+                )
+
+        provider = Provider(index, target)
+        monkeypatch.setattr(
+            chapter, "create_model_provider", lambda provider=provider, **kwargs: provider
+        )
+        commands = ["continue", "q"] if index == 2 else ["modify", "/diff", "/apply", "y", "q"]
+        inputs = iter(commands)
+
+        def user_input(prompt, *, target=target, index=index, inputs=inputs):
+            assert Path.cwd() == launcher
+            command = next(inputs)
+            if command == "/apply":
+                assert (target / "README.md").read_text(encoding="utf-8") == "original\n"
+            if command == "q":
+                expected_index = 0 if index == 2 else index
+                assert (target / "README.md").read_text(
+                    encoding="utf-8"
+                ) == f"project {expected_index}\n"
+            return command
+
+        monkeypatch.setattr("builtins.input", user_input)
+        # 相对工作区路径也按启动目录解析，而不是按 Harness 目录解析。
+        arguments = ["--workspace", str(Path("..") / target.relative_to(tmp_path))]
+        if index == 2:
+            arguments += ["--session", str(sessions[0])]
+        chapter.main(arguments)
+        layout = WorkspaceLayout.for_path(target, harness)
+        histories = list(layout.session_root.glob("*.jsonl"))
+        assert len(histories) == 1
+        sessions.append(histories[0])
+        assert ".env" not in docker.files
+        assert "harness_marker.py" not in docker.files
+        assert list(layout.sandbox_root.glob("*/changes.diff"))
+        assert len(list(layout.trace_root.glob("*.jsonl"))) == (2 if index == 2 else 1)
+        assert not (target / ".sessions").exists()
+        assert not (target / ".sandboxes").exists()
+        assert len(provider.requests) == (1 if index == 2 else 2)
+        if index == 2:
+            assert len(provider.requests[0]["messages"]) > 1
+            assert chapter.SessionManager.open(histories[0]).session_stats().model_requests == 3
+    assert sessions[0] != sessions[1]
+    assert sessions[2] == sessions[0]
+    assert config_paths == [harness / ".env"] * 3
+    assert list(launcher.iterdir()) == []
+    assert all(instance.calls[-1][0][1:3] == ["rm", "--force"] for instance in docker_instances)
+
+
+def test_main_rejects_wrong_workspace_history_before_docker_or_configuration(tmp_path, monkeypatch):
+    targets = [tmp_path / "one", tmp_path / "two"]
+    for target in targets:
+        target.mkdir()
+    history = WorkspaceLayout.for_path(targets[0], tmp_path).select_session_path(None)
+    monkeypatch.setattr(chapter, "SandboxExecutor", lambda **kwargs: pytest.fail("不能创建容器"))
+    monkeypatch.setattr(chapter, "load_dotenv", lambda **kwargs: pytest.fail("不能加载配置"))
+    with pytest.raises(ValueError, match="跨项目"):
+        chapter.main(["--workspace", str(targets[1]), "--session", str(history)])
+    assert history.read_bytes() == b""
+
+
+def test_external_smoke_only_copies_target_and_never_creates_session(tmp_path, monkeypatch):
+    harness = tmp_path / "harness"
+    target = tmp_path / "target"
+    harness.mkdir()
+    target.mkdir()
+    (target / "README.md").write_text("source", encoding="utf-8")
+    monkeypatch.setattr(chapter, "HARNESS_ROOT", harness)
+    docker = DockerStub()
+    monkeypatch.setattr(
+        chapter,
+        "SandboxExecutor",
+        lambda **kwargs: sandbox.SandboxExecutor(runner=docker, **kwargs),
+    )
+    monkeypatch.setattr(chapter, "load_dotenv", lambda **kwargs: pytest.fail("冒烟不加载配置"))
+    monkeypatch.setattr(chapter, "smoke_test", lambda executor: None)
+    chapter.main(["--workspace", str(target), "--smoke"])
+    assert docker.files == {"README.md": b"source"}
+    assert not (harness / ".sessions").exists()
+    assert not (target / ".sandboxes").exists()
+    with pytest.raises(SystemExit):
+        chapter.main(["--workspace", str(target), "--smoke", "--session", "anything.jsonl"])
 
 
 def test_smoke_mode_never_initializes_model_or_loads_configuration(tmp_path, monkeypatch):
@@ -529,8 +700,9 @@ def test_smoke_mode_never_initializes_model_or_loads_configuration(tmp_path, mon
     )
     chapter.main(["--smoke"])
     assert not (tmp_path / "smoke.txt").exists()
-    assert next(chapter.SANDBOX_ROOT.glob("*/changes.diff")).is_file()
-    assert not chapter.SESSION_ROOT.exists()
+    workspace = WorkspaceLayout.for_path(tmp_path, tmp_path)
+    assert next(workspace.sandbox_root.glob("*/changes.diff")).is_file()
+    assert not workspace.session_root.exists()
 
 
 def test_main_cleanup_runs_after_model_failure(tmp_path, monkeypatch):
