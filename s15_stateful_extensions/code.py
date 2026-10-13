@@ -181,7 +181,7 @@ def agent_loop(
 
         results: list[dict[str, Any]] = []
         # s15 新增：元数据按调用 ID 保存，事件暂存到批次成功落盘之后。
-        metadata: ToolDetails = {}
+        tool_details: ToolDetails = {}
         result_events: list[AgentEvent] = []
         # 来自 s14：保持；致命后端失败后补齐剩余工具结果，但不继续执行。
         backend_failure: str | None = None
@@ -215,7 +215,7 @@ def agent_loop(
             )
             if result.details is not None:
                 # s15 新增：名称和调用 ID 来自本次调用，不从模型结果正文猜测。
-                metadata[tool_call_id] = {"name": name, "details": result.details}
+                tool_details[tool_call_id] = {"name": name, "details": result.details}
             # s15 修改：沿用已有事件名，结果事件稍后发送；每次调用仍只计数一次。
             result_events.append(
                 AgentEvent(
@@ -235,8 +235,8 @@ def agent_loop(
         # s15 修改：先保存完整批次，再更新内存上下文和通知观察者，避免显示未保存进度。
         try:
             if save_tool_results is not None:
-                save_tool_results(tool_message, metadata)
-            elif metadata:
+                save_tool_results(tool_message, tool_details)
+            elif tool_details:
                 raise SessionPersistenceError(
                     "带 details 的工具结果必须提供 save_tool_results，不能丢弃状态"
                 )

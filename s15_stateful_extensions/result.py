@@ -55,9 +55,15 @@ def execute_tool(
     """
     # 来自 s04：保持；前置 Hook 在分发之前执行，拒绝时不调用 handler。
     reason = run_before_hooks(name, arguments, hooks)
-    raw_result = dispatch(name, arguments) if reason is None else reason
+    if reason is not None:
+        raw_result = reason
+    else:
+        raw_result = dispatch(name, arguments)
     # s15 新增：旧工具字符串转为无元数据结果，扩展返回的快照保持独立。
-    result = raw_result if isinstance(raw_result, ToolResult) else ToolResult(raw_result)
+    if isinstance(raw_result, ToolResult):
+        result = raw_result
+    else:
+        result = ToolResult(content=raw_result)
     # s15 修改：后置 Hook 只修改给模型看的正文，不能丢掉会话状态。
     content = run_after_hooks(name, arguments, result.content, hooks)
     return ToolResult(content=content, details=result.details)

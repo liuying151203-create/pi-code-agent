@@ -23,11 +23,11 @@ class SessionPersistenceError(RuntimeError):
     """工具结果未可靠保存时，要求入口停止，不发送成功进度提示。"""
 
 
-def _copy_tool_details(message: Message, metadata: ToolDetails) -> ToolDetails:
+def _validate_and_copy_tool_details(message: Message, tool_details: ToolDetails) -> ToolDetails:
     """校验元数据确实属于当前工具结果，并复制 JSON 状态。"""
-    if not isinstance(metadata, dict):
+    if not isinstance(tool_details, dict):
         raise TypeError("tool_details 必须是对象")
-    if not metadata:
+    if not tool_details:
         return {}
     if message.get("role") != "user" or not isinstance(message.get("content"), list):
         raise ValueError("tool_details 只能属于工具结果消息")
@@ -36,7 +36,7 @@ def _copy_tool_details(message: Message, metadata: ToolDetails) -> ToolDetails:
         for block in message["content"]
         if isinstance(block, dict) and block.get("type") == "tool_result"
     }
-    for call_id, value in metadata.items():
+    for call_id, value in tool_details.items():
         if not isinstance(call_id, str) or not call_id or call_id not in result_ids:
             raise ValueError("tool_details 必须使用当前工具结果的调用 ID")
         if not isinstance(value, dict) or set(value) != {"name", "details"}:
@@ -45,8 +45,8 @@ def _copy_tool_details(message: Message, metadata: ToolDetails) -> ToolDetails:
             raise ValueError("工具元数据 name 必须是非空字符串")
         if not isinstance(value["details"], dict):
             raise TypeError("工具状态 details 必须是对象")
-    json.dumps(metadata, ensure_ascii=False, allow_nan=False)
-    return deepcopy(metadata)
+    json.dumps(tool_details, ensure_ascii=False, allow_nan=False)
+    return deepcopy(tool_details)
 
 
 # s15 修改：沿用 s11 MessageEntry，在记录层增加状态，不修改模型 message 结构。
@@ -67,14 +67,14 @@ class MessageEntry(runtime.MessageEntry):
     def from_record(cls, record: dict[str, Any]) -> MessageEntry:
         """恢复消息及可选元数据，字段无效就报告而不是清空状态。"""
         base = runtime.MessageEntry.from_record(record)
-        metadata = _copy_tool_details(base.message, record.get("tool_details", {}))
+        tool_details = _validate_and_copy_tool_details(base.message, record.get("tool_details", {}))
         return cls(
             message=base.message,
             timestamp=base.timestamp,
             model=base.model,
             stop_reason=base.stop_reason,
             usage=base.usage,
-            tool_details=metadata,
+            tool_details=tool_details,
         )
 
     def to_record(self) -> dict[str, Any]:
@@ -82,7 +82,9 @@ class MessageEntry(runtime.MessageEntry):
         record = super().to_record()
         # s15 新增：没有状态时不增加空字段，保留普通消息的简洁格式。
         if self.tool_details:
-            record["tool_details"] = _copy_tool_details(self.message, self.tool_details)
+            record["tool_details"] = _validate_and_copy_tool_details(
+                self.message, self.tool_details
+            )
         return record
 
 
@@ -141,7 +143,7 @@ class SessionManager(runtime.SessionManager):
         """
         return cls(JsonlSessionStore(path))
 
-    def append_tool_results(self, message: Message, metadata: ToolDetails) -> None:
+    def append_tool_results(self, message: Message, tool_details: ToolDetails) -> None:
         """把整个工具批次的正文与状态写入同一条记录。
 
         输入：协议合法的 user/tool_result 消息，及按调用 ID 对应的元数据。
@@ -150,10 +152,11 @@ class SessionManager(runtime.SessionManager):
         """
         # s15 新增：与 s11 的模型用量一样，状态附在记录上而非模型正文中。
         base = runtime.MessageEntry.from_message(message)
-        details = _copy_tool_details(base.message, metadata)
-        self.store.append(MessageEntry(message=base.message, tool_details=details))
+        tool_details = _validate_and_copy_tool_details(base.message, tool_details)
+        entry = MessageEntry(message=base.message, tool_details=tool_details)
+        self.store.append(entry)
 
-    def latest_tool_details(self, name: str) -> dict[str, Any] | None:
+    def latest_tool_details(self, tool_name: str) -> dict[str, Any] | None:
         """从完整日志取得指定工具最近的状态快照。
 
         输入：工具名称；输出：独立 details 字典，没有状态时返回 None。
@@ -164,7 +167,9 @@ class SessionManager(runtime.SessionManager):
         for entry in reversed(self.load_entries()):
             if not isinstance(entry, MessageEntry):
                 continue
-            for value in reversed(list(entry.tool_details.values())):
-                if value["name"] == name:
-                    return deepcopy(value["details"])
+            # s15 新增：同批可能多次调用同一工具，也从最后一次调用开始查找。
+            calls_newest_first = reversed(list(entry.tool_details.values()))
+            for saved_call in calls_newest_first:
+                if saved_call["name"] == tool_name:
+                    return deepcopy(saved_call["details"])
         return None

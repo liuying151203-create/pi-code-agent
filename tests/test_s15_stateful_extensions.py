@@ -46,10 +46,10 @@ def save_result(session, result, *, call_id="call-1", name="todo"):
         "role": "user",
         "content": [{"type": "tool_result", "tool_use_id": call_id, "content": result.content}],
     }
-    metadata = (
+    tool_details = (
         {} if result.details is None else {call_id: {"name": name, "details": result.details}}
     )
-    session.append_tool_results(message, metadata)
+    session.append_tool_results(message, tool_details)
 
 
 def test_tool_result_copies_details_and_plain_tools_still_work():
@@ -149,7 +149,7 @@ def test_same_batch_last_snapshot_wins_and_tools_do_not_share_state(tmp_path):
 
 
 @pytest.mark.parametrize(
-    "metadata",
+    "tool_details",
     [
         [],
         {"wrong-id": {"name": "todo", "details": {}}},
@@ -157,14 +157,14 @@ def test_same_batch_last_snapshot_wins_and_tools_do_not_share_state(tmp_path):
         {"call-1": {"details": {}}},
     ],
 )
-def test_invalid_result_metadata_is_not_silently_saved(tmp_path, metadata):
+def test_invalid_result_metadata_is_not_silently_saved(tmp_path, tool_details):
     session = SessionManager.open(tmp_path / "session.jsonl")
     message = {
         "role": "user",
         "content": [{"type": "tool_result", "tool_use_id": "call-1", "content": "x"}],
     }
     with pytest.raises((TypeError, ValueError)):
-        session.append_tool_results(message, metadata)
+        session.append_tool_results(message, tool_details)
     assert not session.path.exists()
 
 
@@ -316,7 +316,7 @@ def test_saving_failure_stops_before_progress_or_next_request(tmp_path, capsys):
     register(api)
     events = []
 
-    def fail_save(message, metadata):
+    def fail_save(message, tool_details):
         raise OSError("磁盘写入失败")
 
     with pytest.raises(SessionPersistenceError, match="已停止运行"):
@@ -500,7 +500,7 @@ def test_main_persistence_failure_does_not_accept_another_query(tmp_path, monkey
             pytest.fail("保存失败后不能接受下一任务")
         return "创建任务清单"
 
-    def fail_save(self, message, metadata):
+    def fail_save(self, message, tool_details):
         raise OSError("测试写入失败")
 
     monkeypatch.setattr("builtins.input", query)

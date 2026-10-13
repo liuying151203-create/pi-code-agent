@@ -53,7 +53,9 @@ ToolResult(
 )
 ```
 
-会话把元数据放在 `MessageEntry.tool_details[调用ID]`，保存工具名及 `details`，不是添加到模型 `tool_result` 内容块。`build_context()` 仍只投影正文；即使旧正文被压缩，`load_entries()` 仍保留恢复依据。保存失败不自动回滚 JSONL，需检查记录后再恢复，不能将报错视为已经保存成功。
+单次调用的状态叫 `ToolResult.details`；循环按调用 ID 收集为 `tool_details`，交给 `append_tool_results()`，最终保存到 `MessageEntry.tool_details[调用ID]`。它不进入模型 `tool_result` 内容块。恢复时先从最新记录查起，同批也先查最后一次调用，找到指定工具的快照后交给扩展恢复。
+
+`build_context()` 仍只投影正文；即使旧正文被压缩，`load_entries()` 仍保留恢复依据。保存失败不自动回滚 JSONL，需检查记录后再恢复，不能将报错视为已经保存成功。
 
 同批可能执行多次 Todo 操作，每次结果都复制自己的快照。观察者读取 `event.data["details"]`，而不是组件的最终 `self.todos`，所以能正确显示 `0/1 → 0/2 → 1/2`，不会把较早事件都显示成最终进度。
 
