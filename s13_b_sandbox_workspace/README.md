@@ -8,7 +8,9 @@
 
 先用示例项目验证，不要直接拿未备份的重要仓库试验。
 
-## 环境准备与运行示例
+## 运行与验证
+
+### 环境准备与启动
 
 在 zero2pi 根目录、已有虚拟环境中操作。先手动启动 Docker Desktop 的本机 Linux 引擎。
 
@@ -22,6 +24,8 @@ New-Item -ItemType Directory -Path ".\example_project\b_demo"
 # 本次授权只针对 b_demo；这不是 A 镜像，也不是副本模式
 python -m s13_b_sandbox_workspace.code --workspace ".\example_project\b_demo" --allow-write
 ```
+
+### 开发与测试
 
 在 `s13-B >>` 输入整行：
 
@@ -42,15 +46,12 @@ Get-ChildItem -LiteralPath ".\example_project\b_demo" -Force
 
 **不要把 `/diff` 当成审批：你看到它时，修改已经发生。** 如果希望确认前原仓库不变，请用 [s13-A](../s13_a_sandbox_copy/README.md)。
 
-## 工作区挂载与文件位置
+### 使用要点
 
-```text
-电脑 example_project/b_demo  ← 同一份文件 →  容器 /work
-```
-
-`--mount type=bind` 把真实目录接给容器，不再打包 `source.tar` 或解压源码。测试仍使用镜像里的 Linux Python 和依赖，不能使用电脑的 Windows `.venv`。[Docker 共享挂载说明](https://docs.docker.com/engine/storage/bind-mounts/)
-
-镜像只装固定工具，放在只读 `/opt/zero2pi`；项目放在可写 `/work`。修改项目不能替换固定 Worker。没有 Docker socket 挂载，没有网络，也不提供逐条审批 Hook。
+- **执行环境：** 只支持本机 Docker Linux 引擎，以非 root 运行，项目需可写。固定工具在只读 `/opt/zero2pi`，真实项目共享到 `/work`；测试使用镜像依赖，不使用电脑的 Windows `.venv`，任务中不能联网安装依赖。
+- **记录与恢复：** 配置只加载 zero2pi 的 `.env`；会话、Trace 和报告分别保存在 `.sessions/s13-b/`、`.traces/s13-b/`、`.sandboxes/s13-b/`，按项目 ID 分组。恢复时指定同一 `--workspace`，追加 `--allow-write --session <会话路径>`，保留旁路绑定文件，不混用 A/C 会话。
+- **保护范围：** 只读空挂载遮蔽已识别的凭证、Git 元数据和运行目录，不识别源码中的所有秘密。使用期间不要添加凭证、路径别名或同时编辑目标文件；保护清单变化或基础设施失败即停止，不回退宿主执行。
+- **报告与冒烟：** `before.tar` 保存启动内容，`changes.diff` 报告已发生变化，也可能包含外部编辑，不提供自动回滚。`--smoke --allow-write` 不请求模型，但会留下随机命名的 `_sandbox_smoke_*.txt`；长 shell 输出全文随容器清理而丢失。
 
 ## 核心组件与方法
 
@@ -95,28 +96,6 @@ flowchart LR
 
 关键连线是 `executor = SharedWorkspaceExecutor(workspace=source_root, image=options.image)`，然后把 `executor.dispatch` 传给本章完整 `agent_loop()`。模型、会话、压缩、事件按 A 的层次显式组装，不用一个包装函数藏住主流程。
 
-## 隔离机制与使用限制
-
-B 不能使用 A 的“复制时排除”来保护共享文件。它对工作区内**现有**的 `.env`、凭证、`.git`、运行记录和依赖目录，在容器里加只读空文件/空目录挂载，遮住原内容；不修改宿主这些对象，不 chmod 原项目。
-
-源码范围内的错误修改和删除仍然可能发生。启动和每次工具调用会检查链接、硬链接、特殊文件及保护清单变化，但不会锁住编辑器；运行期间不要添加凭证、路径别名或同时修改目标文件。未知文件中的秘密不自动识别，保护不是通用脱敏。
-
-禁止跨远程 Docker 使用同名路径；只支持本机 `unix://` 或 `npipe://` 引擎。Linux 容器使用当前普通用户 UID/GID，Windows 使用 65534，宿主不能以 root 启动 B；项目必须可由对应用户写入。镜像运行禁网、只读根、删除 capabilities、禁止提权，CPU 1 核、内存/交换总额 1 GiB、64 个进程、`/tmp` 128 MiB，shell 超时 120 秒。
-
-新增保护对象时停止并要求重新启动，不自动放宽；基础设施失败同样停止，不回退宿主。容器不是绝对安全，Docker Engine 必须可信；需要 Git 元数据的操作在宿主由你完成，不提供容器内 Git 写入。
-
-## 会话与报告
-
-配置仍只加载 zero2pi 的 `.env`。记录放在 zero2pi 下：
-
-- `.sessions/s13-b/<项目ID>/`：JSONL 与工作区绑定，同一项目的 B 会话才可恢复。
-- `.traces/s13-b/<项目ID>/`：模型/工具事件；没有运行事件时不凭空创建 Trace 内容。
-- `.sandboxes/s13-b/<项目ID>/<运行名>/`：`before.tar` 是启动内容备份，`changes.diff` 是已发生变化，`protection.json` 是遮蔽路径清单，`masks/` 是空遮蔽物。
-
-Diff 包含本次启动后可报告的变化，也可能包含你的外部编辑，不把它们全部归因给模型；它不是完整文件系统审计，也不自动回滚。二进制只报告变化，缓存、链接及权限不在源码快照中。沿用 A 的 4000 文件 / 12 MiB 快照预算。
-
-恢复时重新指定同一项目并传 `--allow-write --session <真实历史路径>`；A/C 会话不能直接混用。长 shell 输出全文只在容器临时目录中保留，退出后不可继续读取。
-
 ## 回归测试
 
 以下命令用于验证 Harness 实现，不是运行示例的必做步骤。
@@ -131,7 +110,7 @@ python -m pytest tests/test_s13_b_sandbox_workspace.py -k real_shared
 Remove-Item Env:SANDBOX_B_INTEGRATION
 ```
 
-`--smoke --allow-write` 是真实写入冒烟，不请求模型，会在目标留下随机命名的 `_sandbox_smoke_*.txt`，不会自动删项目文件。离线替身不证明 OS 安全；真实测试包含写入立即可见、`.env` 的修改/删除/重命名被阻止、`.git` 原内容不变。
+离线替身不证明 OS 安全；真实测试包含写入立即可见、`.env` 的修改/删除/重命名被阻止、`.git` 原内容不变。
 
 ## 参考与差异
 

@@ -8,7 +8,9 @@ Worker 直接访问真实项目，不复制源码。与 B 一样，修改立即�
 
 Harness 仍是 Python，仅执行后端调用用户手动安装的 `@anthropic-ai/sandbox-runtime`，固定版本 **0.0.79**。
 
-## 原生后端准备
+## 运行与验证
+
+### 环境准备
 
 在 zero2pi 根目录操作。不要为这个入口重新构建 Docker 镜像。
 
@@ -33,7 +35,7 @@ node ".sandbox-runtime/node_modules/@anthropic-ai/sandbox-runtime/dist/cli.js" w
 
 Linux 使用 bubblewrap，并要求用户手动准备 bubblewrap、socat、ripgrep；macOS 使用 sandbox-exec，并需要 ripgrep。请按对应平台准备，普通用户运行，不以 root 放权。WSL 是 Linux 环境，需要其中的 Python、虚拟环境和 Node，不能直接复用 Windows `.venv`。[固定版本平台与准备说明](https://github.com/anthropics/sandbox-runtime/tree/v0.0.79#platform-support)
 
-## 运行示例
+### 启动与测试
 
 Harness 的 `.env` 仍需要模型配置与实际 `MODEL_CONTEXT_WINDOW_TOKENS`。在 zero2pi 根目录的 PowerShell 执行：
 
@@ -61,7 +63,13 @@ Get-ChildItem -LiteralPath ".\example_project\c_demo" -Force
 
 再在 Agent 输入 `/diff` 查看已发生的变化、`q` 退出。无需 `/apply`。这些是操作步骤和预期，不是已运行的模型日志。
 
-默认安装位置可以由 `--runtime <包目录>` 更换；它必须指向可信固定版本包根目录，里面有 `package.json` 和 `dist/cli.js`。不是随便传一个 shell 程序就当作沙箱。
+### 使用要点
+
+- **后端路径：** `--runtime <包目录>` 可更换安装位置，必须指向可信的固定版本包根目录，包含 `package.json` 和 `dist/cli.js`。
+- **记录与恢复：** 配置只加载 zero2pi 的 `.env`；会话、Trace 和报告分别保存在 `.sessions/s13-c/`、`.traces/s13-c/`、`.sandboxes/s13-c/`，按项目 ID 分组。恢复时指定同一 `--workspace`，追加 `--allow-write --session <会话路径>`，保留旁路绑定文件，不混用 A/B 会话。
+- **保护范围：** 策略保护已识别的凭证、Git 元数据和运行目录，仍允许解释器及系统必需路径读取，并包含平台默认临时路径规则；不是所有宿主文件的通用读取白名单，不识别源码中的所有秘密。运行期间不要添加凭证、路径别名或同时编辑目标文件。
+- **平台限制：** C 没有 B 的 CPU/内存配额，不能认为隔离强度相同。Windows 仍是 alpha，应避免并行原生沙箱；强制中断可能需要 runtime 恢复残留权限。先用独立示例项目验证。
+- **报告与冒烟：** `before.tar` 保存启动内容，`changes.diff` 报告已发生变化，也可能包含外部编辑，不提供自动回滚。`--smoke --allow-write` 不请求模型，但会留下 `_sandbox_smoke_*.txt`；长 shell 输出全文随临时目录清理而丢失。
 
 ## 核心组件与方法
 
@@ -107,26 +115,6 @@ flowchart LR
 ```
 
 `NativeSandboxExecutor(workspace=source_root, harness_root=HARNESS_ROOT, runtime_root=options.runtime)` 接收实际执行依赖；本章完整 `agent_loop()` 只接收 `executor.dispatch`，不承担平台策略、提权初始化或进程参数组装。
-
-## 隔离机制与使用限制
-
-策略显式允许项目及本次临时输出写入，保护凭证、Git 元数据、运行记录和 runtime。系统与解释器所需路径允许读取，依赖只读；不是所有宿主文件的通用读取白名单，也不识别普通源码中的秘密。srt 还包含平台默认临时路径规则，最终限制需结合实际平台测试，不能只看 Python 配置列表。
-
-每次调用前检查链接、硬链接、特殊文件和保护清单变化；不锁住宿主文件，也不能阻止授权范围内的误修改。使用期间不要添加凭证或外部路径别名；重要项目请先备份。CPU/内存没有 B 的 Docker 配额，提供的是命令超时与输出预算，不把 C 宣称为与 B 等强的隔离。
-
-原生进程超时或强制终止可能需要平台 runtime 处理残留权限；Windows alpha 的安全保证依赖专用账号、ACL、WFP 的实际状态。建议先在独立示例项目验证，避免并行原生沙箱；需要成熟的 Docker 边界时用 B，需要确认后才写回时用 A。
-
-`--smoke --allow-write` 不调用模型，但会直接创建随机命名的 `_sandbox_smoke_*.txt` 并验证读取、shell。测试文件保留，不覆盖原文件，不自动删项目内容。
-
-## 会话与报告
-
-配置只加载 zero2pi `.env`，API 请求留在 Harness。目录沿用 A 的布局方法，但使用 C 的分组：
-
-- `.sessions/s13-c/<项目ID>/`：消息、用量及工作区绑定，不能混用 A/B 会话；恢复时仍要传 `--allow-write`。
-- `.traces/s13-c/<项目ID>/`：Agent 的运行事件；startup 探测不是模型请求或模型工具调用。
-- `.sandboxes/s13-c/<项目ID>/<运行名>/`：`before.tar`、已发生变化的 `changes.diff`、实际 `settings.json`、`trusted/` 和探测记录。
-
-报告不是自动恢复工具，也不能把外部编辑都归因给模型；快照沿用 A 的 4000 文件 / 12 MiB 上限，不包含缓存、链接或权限。长 shell 全文放在独立临时目录，正常退出会清理，不影响 Session 中已经保存的有界工具结果。
 
 ## 回归测试
 
