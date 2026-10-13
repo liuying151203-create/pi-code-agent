@@ -22,6 +22,8 @@ s07–s13 的模型交互还需填写实际 `MODEL_CONTEXT_WINDOW_TOKENS`；预�
 
 s13-A 另需手动准备 Docker Linux 服务和本地镜像，命令见 [Sandbox 教程](s13_a_sandbox_copy/README.md#6-怎么运行和观察)；程序不自动拉取镜像或安装依赖。
 
+直接写入真实项目的两种方案：[s13-B 共享容器](s13_b_sandbox_workspace/README.md)、[s13-C 原生受限进程](s13_c_sandbox_native/README.md)。启动需显式授权，分别手动准备镜像或原生 runtime。
+
 ## 常用命令
 
 ```powershell
@@ -73,8 +75,12 @@ python -m s13_a_sandbox_copy.code --mode sandbox
 python -m s13_a_sandbox_copy.code --workspace "D:\dev\my-app"
 # 不调用模型，验证第十三章 A 的容器与工具链路
 python -m s13_a_sandbox_copy.code --smoke
+# 第十三章 B：共享真实项目；先按 B 教程准备镜像，文件直接生效
+python -m s13_b_sandbox_workspace.code --workspace ".\example_project\b_demo" --allow-write
+# 第十三章 C：原生受限进程；先按 C 教程准备 runtime 和平台初始化
+python -m s13_c_sandbox_native.code --workspace ".\example_project\c_demo" --allow-write
 # 运行测试
 python -m pytest
 # 检查代码规范
-ruff check s01_agent_loop s02_tool_use s03_permission s04_hooks s05_session_persistence s06_session_context s07_session_compaction s08_runtime_events s09_runtime_streaming s10_model_provider s11_runtime_observability s12_skill_loading s13_a_sandbox_copy src tests
+ruff check s01_agent_loop s02_tool_use s03_permission s04_hooks s05_session_persistence s06_session_context s07_session_compaction s08_runtime_events s09_runtime_streaming s10_model_provider s11_runtime_observability s12_skill_loading s13_a_sandbox_copy s13_b_sandbox_workspace s13_c_sandbox_native src tests
 ```

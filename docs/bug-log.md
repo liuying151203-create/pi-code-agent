@@ -121,6 +121,13 @@
 - 修复边界：s13-A 依据 `changed_files` 区分无剩余修改和未应用 Diff；仅在容器清理成功后提示清理完成。只调整提示，不改变补丁、确认、备份和清理行为。
 - 回归：`tests/test_s13_a_sandbox_copy.py` 验证两轮成功应用后的退出提示、取消应用后保存未应用 Diff，以及导出/清理失败不伪报成功；使用离线 Docker 替身和真实临时 Git 操作，不启动 Docker 或请求模型。
 
+## B015：Windows 原生 Worker 启动命令的引号需要匹配内层 cmd
+
+- 证据：开发 s13-C 时，用本机 `cmd /d /s /c` 验证包含空格参数的固定 Python 命令。把内层命令作为 Python 列表参数再转换，返回 `Access is denied`；按内层 cmd 的原始命令行传入、保留额外外层引号后，同一安全诊断输出 `A B`。这不是用户运行日志，也没有启动原生 runtime。
+- 原因边界：外层 Node argv 与内层 cmd 命令字符串不是同一层解析。`cmd /s /c` 剥掉最外层引号，重复使用通用 argv 转义会改变内层字节；不能仅根据 `Access is denied` 就认定是 ACL 或 sandbox-runtime 的缺陷。
+- 修复：s13-C 的固定 Worker 命令加外层引号，与上游 Windows 内层 raw passthrough 对应；模型工具参数始终走 stdin JSON，不参与宿主 shell 字符串，不增加本地回退。
+- 回归：`test_fixed_windows_worker_command_handles_spaces_without_running_runtime` 使用真实 Windows cmd 和可信 Worker，只在临时项目写入测试文件；它验证引号和工具接线，不证明原生 OS 隔离，后者仍需显式 C 集成测试。
+
 ## 记录新问题
 
 新增条目时只写已复现的问题，并补齐以下信息：

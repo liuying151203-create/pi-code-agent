@@ -24,6 +24,9 @@ dist/
 # Sandbox input snapshots and review reports
 .sandboxes/
 
+# 用户手动安装的可选原生沙箱运行时
+.sandbox-runtime/
+
 # IDE and OS files
 .idea/
 .vscode/
