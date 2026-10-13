@@ -1,33 +1,110 @@
 # s13-A：执行沙箱 · 隔离副本
 
-这一章只抓住一个区别：**模型修改容器里的项目副本；你确认后，程序才把修改写回原仓库。** 宿主指你的电脑，容器的项目目录是 `/work`，两边不是同一份文件。
+## 实现原理
 
-建议先读下面的例子，再找对应方法，最后看组装。模型请求、会话、压缩和事件沿用 s12，不在这一章重新展开。
+宿主（你的电脑）上的 Python 负责对话和模型请求；模型返回工具调用后，程序把请求交给 Docker 容器中的 Worker 执行。启动时，允许复制的项目文件被复制到容器 `/work`，不挂载原仓库，因此工具修改的是独立副本。
 
-## 1. 用“创建文件并测试”走一遍
+容器通过禁网、非 root 和资源配额限制工具执行。任务结束后，程序比较副本与文件基线生成 Diff；只有你通过 `/apply` 确认且检查通过，才把修改写回原仓库。**工具无需逐条审批，但写回需要确认；退出不会自动写回。**
 
-假设原仓库还没有 `sandbox_demo.py`。如果已经有这个文件，请在下面的任务中换一个未使用的名字，不要覆盖已有内容。
+## 运行与验证
 
-启动后输入：
+本例在 `example_project` 中创建加法函数和三个测试，在容器里测试通过后确认写回。以下是操作步骤与预期结果，不是已运行的模型日志。
 
-```text
-在副本中新建 sandbox_demo.py，定义 add(a, b)，再用 Python 断言 add(2, 3) == 5。完成后说明改了什么。
+### 环境准备
+
+在 zero2pi 根目录、已有虚拟环境中操作。先在 Harness 的 `.env` 中配置模型及实际 `MODEL_CONTEXT_WINDOW_TOKENS`，手动启动 Docker Desktop 的 Linux 引擎，再执行：
+
+```powershell
+# 检查宿主 Git 和 Docker 服务
+git --version
+docker version
+
+# 首次准备或镜像内容变化时构建；首次可能下载基础镜像和依赖
+docker build -f s13_a_sandbox_copy/Dockerfile -t zero2pi-sandbox:s13-a .
 ```
 
-一次正常完成的过程是：
+<details>
+<summary>镜像重建条件</summary>
 
-1. **准备副本。** 程序读取 `--workspace` 指定项目中允许复制的文件（默认当前目录），记住这些文件的内容，再创建容器并复制到 `/work`。你不需要手动创建容器。
-2. **模型决定怎么做。** 宿主 Python 把任务发送给模型。模型可能选择 `write_file` 创建文件，再选择 `bash` 执行 Python 断言；具体工具次序由模型决定。
-3. **工具修改副本。** 六种工具都在容器执行；创建的是 `/work/sandbox_demo.py`。工具结果返回宿主，再交给模型决定是否继续。
-4. **完成后预览。** 模型结束工具调用后，程序比较副本和记住的文件内容，保存 `changes.diff`。这时原仓库仍没有新文件。
-5. **你确认写回。** 输入 `/diff` 查看差异，再输入 `/apply`，确认时输入 `y`。检查通过后，原仓库立即获得新文件，容器仍然保留。
-6. **退出。** 输入 `q`，程序保存剩余未应用的差异并清理容器，不会偷偷应用修改。没有剩余变化时提示“没有未应用修改”。
+**镜像首次构建一次即可，不必每次启动都构建。** 项目副本在每次启动时重新复制，容器也由程序自动创建。
 
-先记住：**副本里测试通过，不代表修改已经进入原仓库；看到“已应用”才表示写回完成。**
+- **需要重建：** 镜像被删除，或修改了 Dockerfile、其 ignore 清单、`pyproject.toml`、`src/zero2pi/*.py`、`s02_tool_use/code.py`，以及 s13-A 的 `__init__.py`、`snapshot.py`、`tool_worker.py`；需要增加镜像内测试依赖时也要重建。
+- **无需重建：** 新对话、修改 `.env`、README、普通项目文件或测试代码，以及宿主入口 `code.py`、交付组件 `workspace_sync.py`；上述镜像内文件除外。
+- **重建后重新启动 Agent：** 已运行的容器不会自动更新。旧 `zero2pi-sandbox:s13` 镜像不能替代 A 镜像。
 
-## 2. 在代码里，这几步分别找谁？
+构建可联网，任务容器禁网，不会临时补装项目依赖。
 
-### 准备副本：`snapshot` 和 `executor.start()`
+</details>
+
+### 启动示例项目
+
+在 PowerShell 执行；已有目录请先检查同名文件，不要清空或覆盖：
+
+```powershell
+# 目录不存在时创建；已有目录保持不变
+if (-not (Test-Path -LiteralPath ".\example_project")) {
+    New-Item -ItemType Directory -Path ".\example_project"
+}
+
+# 默认就是 sandbox，容器由程序创建
+python -m s13_a_sandbox_copy.code --workspace ".\example_project"
+```
+
+启动时检查“目标项目”指向 `zero2pi\example_project`，随后出现 `s13-A >>`。若已有 `sandbox_demo.py` 或 `test_sandbox_demo.py`，请另选示例目录，并修改 `--workspace`。
+
+### 开发与测试
+
+在 **Agent 输入框**输入任务，不是在 PowerShell 执行：
+
+```text
+只用 Python 标准库，在当前项目副本创建 sandbox_demo.py，定义 add(a, b)；创建 test_sandbox_demo.py，用 unittest 测试 2+3=5、-2+1=-1、0+0=0。执行 python -m unittest，修复到三个测试通过。不安装依赖，不创建其他源码文件，完成后简要说明改动和测试结果。
+```
+
+预期测试结果包含 `Ran 3 tests` 和 `OK`，具体工具调用顺序由模型决定。此时文件只在容器 `/work` 中，电脑上的示例目录还没有收到它们；没有测试成功的证据时，不急着写回。
+
+### 差异预览与确认写回
+
+等 Agent 回答结束，在 `s13-A >>` 输入 `/diff`，检查新增的两个文件；确认内容符合任务后输入 `/apply`。程序询问 `是否应用到原仓库？[y/N]` 时，输入 `y` 才写回，回车或 `n` 都取消。
+
+检查通过后的预期提示：
+
+```text
+修改  已应用 2 个文件；容器继续保留。
+```
+
+**文件立即进入原项目，不需要退出对话。** 可以在另一个 PowerShell 中检查：
+
+```powershell
+# 查看已写回的文件
+Get-ChildItem -LiteralPath ".\example_project" -Force
+```
+
+### 继续修改与退出
+
+在同一对话中继续输入：
+
+```text
+只给 sandbox_demo.py 的 add 增加 int 参数和返回值注解，不改测试文件；再次执行 python -m unittest，确认三个测试通过后说明结果。
+```
+
+测试通过后，再用 `/diff` 审查、`/apply` 确认。预期只有类型注解变化，不重复显示第一次创建的全部内容。完成后输入 `q`，预期提示：
+
+```text
+修改  没有未应用修改。
+沙箱  容器已清理。
+```
+
+已写回的两个文件保留在电脑上。没有确认写回就退出，则只保存未应用 Diff，不把副本修改送回原项目。
+
+### 运行选项
+
+- `--workspace <目录>`：替换示例目录即可操作其他项目。不传时使用当前目录；目标必须已存在且不是磁盘根目录，可以不是 Git 仓库，相对路径按启动目录解析。
+- `--smoke`：只验证容器工具，不请求模型或写回。可以先运行 `python -m s13_a_sandbox_copy.code --workspace ".\example_project" --smoke`。
+- 配置始终来自 zero2pi 的 `.env`，不加载目标项目配置；本次运行不能切换目标。技能仅从目标快照的 `s12_skill_loading/skills/<名称>/SKILL.md` 发现，正文通过 `read_file` 按需读取。
+
+## 核心组件与方法
+
+### 副本准备：`snapshot` 与 `executor.start()`
 
 `main()` 先用 `WorkspaceLayout.for_path(options.workspace, HARNESS_ROOT)` 得到 `workspace`：`source_root` 是要修改的项目，另外三个目录是这个项目在 Harness 中的记录位置。它只选路径，不创建容器或复制文件。
 
@@ -39,7 +116,7 @@
 
 对应文件：[workspace.py](workspace.py)、[sandbox.py](sandbox.py)、[snapshot.py](snapshot.py)。
 
-### 修改和测试：`agent_loop()` → `executor.dispatch()` → Worker
+### 工具执行：`agent_loop()` → `executor.dispatch()` → Worker
 
 `main()` 把 `executor.dispatch` 传给 `agent_loop()`。模型返回工具名称和参数时，循环通过已有 `execute_tool()` 调用它。
 
@@ -56,7 +133,7 @@
 
 对应文件：[code.py](code.py) 中的 `agent_loop()`、[tool_worker.py](tool_worker.py)。
 
-### 查看和写回：`main()` → `workspace_sync`
+### 差异预览与确认写回：`main()` 与 `workspace_sync`
 
 `WorkspaceSync` 不在 Agent Loop 里面，也不是模型工具。它由宿主 `main()` 持有：
 
@@ -73,9 +150,9 @@
 
 对应文件：[workspace_sync.py](workspace_sync.py)。`/diff` 和 `/apply` 由入口识别，不发送给模型，模型不能替你确认。
 
-## 3. 运行流程图：只看先后顺序
+## 运行流程
 
-这张图只画“任务正常完成后，用户确认交付”的路线。取消确认或检查失败时，原仓库不应用这批修改，回到输入入口；`q` 随时走退出收尾。
+流程图展示任务执行、差异预览和确认写回的先后顺序。图中为正常完成并确认交付的路径；取消确认或检查失败时，原仓库不应用这批修改，回到输入入口；`q` 随时走退出收尾。
 
 ```mermaid
 flowchart TD
@@ -91,9 +168,9 @@ flowchart TD
 
 工具结果返回模型的循环，和用户确认写回的流程，是两件事。测试命令成功也不会绕过用户确认。
 
-## 4. 组装结构：只看“谁提供给谁”
+## 组装结构
 
-组装不是运行步骤。它是 `main()` 提前告诉组件：**请求模型找谁、执行工具找谁、比较文件用哪份基线。**
+`main()` 组装模型请求接口、工具执行器和交付组件。这里说明组件之间的依赖及参数传递，不表示执行顺序。
 
 下面是 `main()` 中关键连线的摘录，省略路径检查、s12 请求链组装、交互与收尾，不能单独运行：
 
@@ -143,15 +220,9 @@ flowchart LR
 
 `workspace` 还向入口提供 `session_root`、`trace_root`、`sandbox_root`；入口分别用它们选择会话、创建 Trace 路径和拼接 `run_root/diff_path`。这只是存储位置的组装，不是新的模型调用链。
 
-## 5. 再做一轮，为什么不会重复写回？
+## 多轮交付与基线更新
 
-第一轮创建文件并应用成功后，让模型继续：
-
-```text
-给 sandbox_demo.py 中的 add 增加 int 类型注解，再运行原断言。
-```
-
-同一个容器仍然存活，所以模型可以直接修改那个文件。此时比较的是：
+“基线”是计算 Diff 时用来对照的文件内容。应用成功后，`workspace_sync.baseline` 更新为刚交付的版本；容器继续保留，因此下一轮只报告新的变化：
 
 ```text
 第一轮：启动时的文件 → 创建 add 后的文件
@@ -161,150 +232,9 @@ flowchart LR
 应用成功：基线再次更新
 ```
 
-所以第二次 Diff 只展示新增注解，不会重复交付第一轮内容。更新的是 `workspace_sync.baseline`，启动归档 `source.tar` 不会被改写。
+启动归档 `source.tar` 不改写。宿主的外部编辑不会自动同步到容器；若本批目标文件被外部修改，程序拒绝整批应用，不强行覆盖，无关文件也不覆盖。
 
-如果你在编辑器里同时改了本批目标文件，程序会拒绝整批应用，不强行覆盖；无关文件的修改不会被覆盖。**宿主的外部编辑也不会自动反向同步到容器。**
-
-## 6. 怎么运行和观察？
-
-在 zero2pi 根目录、已有虚拟环境中执行。不传 `--workspace` 时，目标仍是当前目录；传入后只改变操作对象，不改变 Harness 的配置位置。
-
-先手动启动 Docker Desktop 的 Linux 引擎，再准备镜像：
-
-```powershell
-# 检查宿主 Git 和 Docker 服务
-git --version
-docker version
-
-# 首次使用或需要更新镜像时执行，不必每次启动都执行；首次可能下载镜像和依赖
-docker build -f s13_a_sandbox_copy/Dockerfile -t zero2pi-sandbox:s13-a .
-
-# 无模型冒烟：验证容器工具，不加载模型配置、不回写原仓库
-python -m s13_a_sandbox_copy.code --smoke
-
-# 正式交互：默认就是 sandbox，不用手动创建容器
-python -m s13_a_sandbox_copy.code
-```
-
-**镜像首次构建一次即可，不必每次启动都构建。** 项目副本在每次启动时重新复制，容器也由程序自动创建。
-
-- **需要重建：** 镜像被删除，或修改了 Dockerfile、其 ignore 清单、`pyproject.toml`、`src/zero2pi/*.py`、`s02_tool_use/code.py`，以及 s13-A 的 `__init__.py`、`snapshot.py`、`tool_worker.py`；需要增加镜像内测试依赖时也要重建。
-- **无需重建：** 新对话、修改 `.env`、README、普通项目文件或测试代码，以及宿主入口 `code.py`、交付组件 `workspace_sync.py`；上述镜像内文件除外。
-- **重建后重新启动 Agent：** 已运行的容器不会自动更新。旧 `zero2pi-sandbox:s13` 镜像不能替代 A 镜像。
-
-构建可联网，任务容器禁网，不会临时补装项目依赖。
-
-### 指定另一个项目
-
-```powershell
-# 从 zero2pi 启动，复制 my-app；/apply 确认后写回 my-app，而不是 zero2pi
-python -m s13_a_sandbox_copy.code --workspace "D:\dev\my-app"
-
-# 只验证该项目的容器副本，不调用模型或写回
-python -m s13_a_sandbox_copy.code --workspace "D:\dev\my-app" --smoke
-```
-
-目标必须是已存在的目录，可以不是 Git 仓库；相对路径按启动目录解析。不存在、文件路径或磁盘根目录会报错，不自动创建项目。整次运行绑定这个目标，不提供对话内切换；它只收到源码副本，不挂载宿主目录。
-
-模型配置只加载 **zero2pi 根目录的 `.env`**，不加载目标项目 `.env`；需填写 `MODEL_CONTEXT_WINDOW_TOKENS`。技能也只从目标快照的 `s12_skill_loading/skills/<名称>/SKILL.md` 发现，路径改为 `/work/...`；没有这个目录就没有技能，不偷偷复制 Harness 的技能。`load_container_skills(snapshot)` 读取头部，正文仍交给已有 `read_file` 按需加载。
-
-### 完整运行案例：在 example_project 中开发并测试
-
-**案例目标：** 让 Agent 写一个加法函数和三个测试，在容器里测试通过，再由你确认把两个文件写进 `example_project`。只用 Python 标准库，不需要安装额外依赖。
-
-下面是操作教程与预期结果，不是已经替你运行过的模型日志。假设虚拟环境、宿主 `.env`、Docker 和 A 镜像已经按前面的说明准备好；已有镜像时不要重复构建。
-
-#### 第一步：指定示例目录，启动 Agent
-
-在 **zero2pi 根目录的 PowerShell** 执行：
-
-```powershell
-# 当前已创建这个空目录；若刚克隆项目、目录不存在，先执行下面这一行
-# New-Item -ItemType Directory -Path ".\example_project"
-
-# 指定示例项目；默认就是沙箱模式，不需要再传 --mode sandbox
-python -m s13_a_sandbox_copy.code --workspace ".\example_project"
-```
-
-启动时检查“目标项目”指向 `zero2pi\example_project`，随后出现 `s13-A >>`。容器由程序创建，你不用手动 `docker run`。
-
-如果示例目录已有文件，先检查是否存在下面同名文件；不要为了重跑案例删除已有内容，可以另建示例目录并修改 `--workspace`。
-
-#### 第二步：输入开发任务，等待工具执行结束
-
-在 **`s13-A >>` 后面**输入下面整行，不是在 PowerShell 执行：
-
-```text
-只用 Python 标准库，在当前项目副本创建 sandbox_demo.py，定义 add(a, b)；创建 test_sandbox_demo.py，用 unittest 测试 2+3=5、-2+1=-1、0+0=0。执行 python -m unittest，修复到三个测试通过。不安装依赖，不创建其他源码文件，完成后简要说明改动和测试结果。
-```
-
-你应看到写入工具及测试命令的执行结果。正常情况下测试结果包含 `Ran 3 tests` 和 `OK`；工具调用顺序、次数和模型回答可能不同。没有测试成功的证据时，先让 Agent 检查，不急着确认写回。
-
-此时文件在 **容器 `/work`** 中，电脑上的 `example_project` 仍未收到它们。需要检查时，在另一个位于 zero2pi 根目录的 PowerShell 中执行：
-
-```powershell
-# 只查看宿主目录，不进入 Agent；若开始时为空，现在仍应为空
-Get-ChildItem -LiteralPath ".\example_project" -Force
-```
-
-#### 第三步：查看修改，再确认写回
-
-等 Agent 回答结束、重新出现 `s13-A >>` 后，先输入：
-
-```text
-/diff
-```
-
-检查 Diff 应包含 `sandbox_demo.py` 和 `test_sandbox_demo.py` 的新增内容。确认实现和测试符合任务，再输入：
-
-```text
-/apply
-```
-
-程序会列出待应用文件并问 `是否应用到原仓库？[y/N]`。确认时输入 `y`；回车或输入 `n` 都取消，不会写回。检查通过后的预期提示是：
-
-```text
-修改  已应用 2 个文件；容器继续保留。
-```
-
-**到这一步，电脑上的 `example_project` 才获得两个文件，不需要退出对话。** 可以在编辑器中打开，也可以在另一个 PowerShell 中再次查看目录。
-
-#### 第四步：不退出，再做一次小修改
-
-回到 Agent，输入：
-
-```text
-只给 sandbox_demo.py 的 add 增加 int 参数和返回值注解，不改测试文件；再次执行 python -m unittest，确认三个测试通过后说明结果。
-```
-
-等待结束后，再用 `/diff` 审查。预期只有类型注解的变化，不应重复显示第一次创建文件的整个内容；这是应用成功后更新基线的效果。再 `/apply`，确认时输入 `y`。
-
-#### 第五步：退出，确认最终文件保留
-
-没有新修改时输入：
-
-```text
-q
-```
-
-正常退出的预期提示：
-
-```text
-修改  没有未应用修改。
-沙箱  容器已清理。
-```
-
-电脑上保留的结果应是：
-
-```text
-example_project/
-├─ sandbox_demo.py        # add 函数，第二轮增加了类型注解
-└─ test_sandbox_demo.py   # 三个 unittest 测试
-```
-
-如果没有 `/apply` 就退出，只会保存未应用 Diff，不会把副本里的文件写回。**这个案例要观察的就是：工具无需逐条批准，但文件写回需要每批确认一次。**
-
-## 7. 记录保存在哪里？退出会失去什么？
+## 会话、报告与退出行为
 
 所有记录留在 **zero2pi 的运行目录**，不复制到容器，也不写进外部目标项目。程序把目标的规范化绝对路径转换为稳定 ID，例如 `my-app-<路径哈希>`；同名但位置不同的项目会分到不同目录：
 
@@ -326,9 +256,9 @@ python -m s13_a_sandbox_copy.code --workspace "D:\dev\my-app" --session ".sessio
 
 正常退出会删除容器：已应用的文件仍在原仓库，未应用内容保留为 Diff，不自动回写。`--session` 只能恢复消息和累计用量；每次启动仍从当前目标创建新副本，另建 Trace 和报告，不恢复旧容器或未应用文件。项目移动或重命名会形成新分组，不能直接加载原路径的历史。强制关闭终端或 Docker 失联可能残留容器，需按具体名称处理。
 
-## 8. 使用时要注意什么？
+## 使用限制与注意事项
 
-这一节不是运行步骤，只说明当前能做什么、不能做什么；跑上面的案例时重点记住前两条即可。
+以下说明执行隔离、依赖准备和文件写回的限制；运行示例时重点关注副本写回与容器依赖。
 
 - **模型只能改容器副本，不能替你确认写回。** 宿主模型配置和运行记录不送进容器；项目中其他普通源码也可能含秘密，所以仍要先检查哪些内容可以交给模型。
 - **容器不能联网安装依赖。** 上面的案例只用标准库，可以直接测试。其他项目需要的库要预先放入可信镜像；电脑上的 `.venv` 不会复制进去。
@@ -347,7 +277,7 @@ python -m s13_a_sandbox_copy.code --workspace "D:\dev\my-app" --session ".sessio
 
 </details>
 
-## 9. 修改 Harness 后怎么跑回归测试？
+## 回归测试
 
 这是**开发者检查程序实现**的命令，不是上面加法案例的必做步骤。它们在 zero2pi 根目录的 PowerShell 执行，不输入到 Agent 对话中。
 

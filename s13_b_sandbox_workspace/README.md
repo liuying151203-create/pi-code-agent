@@ -1,10 +1,14 @@
 # s13-B：执行沙箱 · Docker 共享工作区
 
-**A 改副本，再确认交付；B 在容器里直接改真实项目。** B 不需要 `/apply`，文件在工具执行后立即出现在编辑器里，退出也不会撤销。
+## 实现原理
 
-这是主动放权的入口：每次启动都要传 `--allow-write`。它只代表你授权指定工作区，不代表模型的修改一定正确；先用示例项目，不要直接拿未备份的重要仓库试验。
+宿主 Python 负责对话和模型请求，六种工具交给 Docker 容器中的 Worker 执行。与 A 复制项目不同，B 用共享挂载把真实项目接到容器 `/work`：电脑和容器访问的是同一份文件，工具修改后立即生效，不需要 `/apply`，退出也不会撤销。
 
-## 1. 可照着运行的案例
+容器通过禁网、非 root 和资源配额限制执行，并用只读空挂载遮蔽工作区内已识别的凭证和元数据。**启动时用 `--allow-write` 授权，不再逐条审批；授权范围内的误修改仍会直接发生。** `/diff` 只报告已经发生的变化，不是写回确认。
+
+先用示例项目验证，不要直接拿未备份的重要仓库试验。
+
+## 环境准备与运行示例
 
 在 zero2pi 根目录、已有虚拟环境中操作。先手动启动 Docker Desktop 的本机 Linux 引擎。
 
@@ -38,7 +42,7 @@ Get-ChildItem -LiteralPath ".\example_project\b_demo" -Force
 
 **不要把 `/diff` 当成审批：你看到它时，修改已经发生。** 如果希望确认前原仓库不变，请用 [s13-A](../s13_a_sandbox_copy/README.md)。
 
-## 2. 文件到底在哪里？
+## 工作区挂载与文件位置
 
 ```text
 电脑 example_project/b_demo  ← 同一份文件 →  容器 /work
@@ -48,7 +52,7 @@ Get-ChildItem -LiteralPath ".\example_project\b_demo" -Force
 
 镜像只装固定工具，放在只读 `/opt/zero2pi`；项目放在可写 `/work`。修改项目不能替换固定 Worker。没有 Docker socket 挂载，没有网络，也不提供逐条审批 Hook。
 
-## 3. 在代码里找这几个方法
+## 核心组件与方法
 
 - `main()`：核对 `--allow-write`，选定项目，组装请求链，处理输入及变化报告。授权不从历史会话恢复。
 - `SharedWorkspaceExecutor.start(run_root)`：确认本机 Docker 和可信镜像，检查链接、硬链接和保护路径，创建挂载并探测 Worker。
@@ -60,7 +64,9 @@ Get-ChildItem -LiteralPath ".\example_project\b_demo" -Force
 
 对应文件：[code.py](code.py)、[sandbox.py](sandbox.py)、[workspace_access.py](workspace_access.py)、[tool_worker.py](tool_worker.py)。
 
-## 4. 流程图：一次任务怎么走
+## 运行流程
+
+流程图展示启动授权、工作区挂载、工具执行及退出的先后顺序。工具直接修改真实文件，任务结束后保存的是已发生变化的报告。
 
 ```mermaid
 flowchart TD
@@ -74,7 +80,7 @@ flowchart TD
     C -->|q| G[关闭容器 文件保留]
 ```
 
-## 5. 组装结构：谁提供给谁
+## 组装结构
 
 箭头只表示左侧向右侧提供依赖或数据，不表示调用先后；参数名对应 `main()`。
 
@@ -89,7 +95,7 @@ flowchart LR
 
 关键连线是 `executor = SharedWorkspaceExecutor(workspace=source_root, image=options.image)`，然后把 `executor.dispatch` 传给本章完整 `agent_loop()`。模型、会话、压缩、事件按 A 的层次显式组装，不用一个包装函数藏住主流程。
 
-## 6. 为什么还能保护部分宿主内容？
+## 隔离机制与使用限制
 
 B 不能使用 A 的“复制时排除”来保护共享文件。它对工作区内**现有**的 `.env`、凭证、`.git`、运行记录和依赖目录，在容器里加只读空文件/空目录挂载，遮住原内容；不修改宿主这些对象，不 chmod 原项目。
 
@@ -99,7 +105,7 @@ B 不能使用 A 的“复制时排除”来保护共享文件。它对工作区
 
 新增保护对象时停止并要求重新启动，不自动放宽；基础设施失败同样停止，不回退宿主。容器不是绝对安全，Docker Engine 必须可信；需要 Git 元数据的操作在宿主由你完成，不提供容器内 Git 写入。
 
-## 7. 会话与报告
+## 会话与报告
 
 配置仍只加载 zero2pi 的 `.env`。记录放在 zero2pi 下：
 
@@ -111,7 +117,9 @@ Diff 包含本次启动后可报告的变化，也可能包含你的外部编辑
 
 恢复时重新指定同一项目并传 `--allow-write --session <真实历史路径>`；A/C 会话不能直接混用。长 shell 输出全文只在容器临时目录中保留，退出后不可继续读取。
 
-## 8. 开发者测试，不是案例必做步骤
+## 回归测试
+
+以下命令用于验证 Harness 实现，不是运行示例的必做步骤。
 
 ```powershell
 # 无容器、无模型：检查参数、即时写入接线和失败收尾

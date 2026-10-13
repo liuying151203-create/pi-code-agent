@@ -1,10 +1,14 @@
 # s13-C：执行沙箱 · 原生受限进程
 
-**C 不创建 Docker 容器，而让操作系统限制工具进程。** 和 B 一样，工具直接修改真实项目，需要本次启动传入 `--allow-write`，不需要 `/apply`，退出也不回滚文件。
+## 实现原理
 
-Harness 仍是 Python。仅执行后端调用用户手动安装的 `@anthropic-ai/sandbox-runtime`，固定版本 **0.0.79**；不是把项目改成 TypeScript，也不是设置 `cwd` 就声称已经隔离。
+宿主 Python 负责对话和模型请求，不创建 Docker 容器。工具调用交给 `sandbox-runtime` 启动的 Worker，六种工具及其 shell 子进程在操作系统限制下执行；策略限制文件读写和网络访问，而不只是切换工作目录。
 
-## 1. 先准备原生后端，只需手动做一次
+Worker 直接访问真实项目，不复制源码。与 B 一样，修改立即生效，启动需传 `--allow-write`，不再逐条审批，也不需要 `/apply`；退出不回滚。**隔离依赖平台后端和实际权限状态；版本检查或启动探测失败就停止，不退回无保护执行。**
+
+Harness 仍是 Python，仅执行后端调用用户手动安装的 `@anthropic-ai/sandbox-runtime`，固定版本 **0.0.79**。
+
+## 原生后端准备
 
 在 zero2pi 根目录操作。不要为这个入口重新构建 Docker 镜像。
 
@@ -29,7 +33,7 @@ node ".sandbox-runtime/node_modules/@anthropic-ai/sandbox-runtime/dist/cli.js" w
 
 Linux 使用 bubblewrap，并要求用户手动准备 bubblewrap、socat、ripgrep；macOS 使用 sandbox-exec，并需要 ripgrep。请按对应平台准备，普通用户运行，不以 root 放权。WSL 是 Linux 环境，需要其中的 Python、虚拟环境和 Node，不能直接复用 Windows `.venv`。[固定版本平台与准备说明](https://github.com/anthropics/sandbox-runtime/tree/v0.0.79#platform-support)
 
-## 2. 可照着运行的案例
+## 运行示例
 
 Harness 的 `.env` 仍需要模型配置与实际 `MODEL_CONTEXT_WINDOW_TOKENS`。在 zero2pi 根目录的 PowerShell 执行：
 
@@ -59,7 +63,7 @@ Get-ChildItem -LiteralPath ".\example_project\c_demo" -Force
 
 默认安装位置可以由 `--runtime <包目录>` 更换；它必须指向可信固定版本包根目录，里面有 `package.json` 和 `dist/cli.js`。不是随便传一个 shell 程序就当作沙箱。
 
-## 3. 在代码里找这几个方法
+## 核心组件与方法
 
 - `main()`：核对本次授权、绑定项目，显式组装模型/上下文链，处理输入和变化报告。技能路径指向真实工作区，不再写成 `/work`。
 - `NativeSandboxExecutor.start(run_root)`：检查版本，把固定工具复制到受保护的 `trusted/`，生成 `settings.json`，通过同一受限 Worker 实测三项限制。
@@ -70,7 +74,9 @@ Get-ChildItem -LiteralPath ".\example_project\c_demo" -Force
 
 对应文件：[code.py](code.py)、[sandbox.py](sandbox.py)、[tool_worker.py](tool_worker.py)。固定工具来自 s02，不从可写目标导入实现。
 
-## 4. 流程图：一次任务怎么走
+## 运行流程
+
+流程图展示启动授权、策略准备、隔离探测、工具执行及退出的先后顺序。探测失败时停止；工具执行成功后，真实项目的修改立即生效。
 
 ```mermaid
 flowchart TD
@@ -86,7 +92,7 @@ flowchart TD
     D -->|q| H[清理临时输出 项目保留]
 ```
 
-## 5. 组装结构：谁提供给谁
+## 组装结构
 
 箭头只表示左侧向右侧提供依赖或数据；名称对应实际构造参数，不表示执行顺序。
 
@@ -102,7 +108,7 @@ flowchart LR
 
 `NativeSandboxExecutor(workspace=source_root, harness_root=HARNESS_ROOT, runtime_root=options.runtime)` 接收实际执行依赖；本章完整 `agent_loop()` 只接收 `executor.dispatch`，不承担平台策略、提权初始化或进程参数组装。
 
-## 6. 能保护什么，不能保证什么？
+## 隔离机制与使用限制
 
 策略显式允许项目及本次临时输出写入，保护凭证、Git 元数据、运行记录和 runtime。系统与解释器所需路径允许读取，依赖只读；不是所有宿主文件的通用读取白名单，也不识别普通源码中的秘密。srt 还包含平台默认临时路径规则，最终限制需结合实际平台测试，不能只看 Python 配置列表。
 
@@ -112,7 +118,7 @@ flowchart LR
 
 `--smoke --allow-write` 不调用模型，但会直接创建随机命名的 `_sandbox_smoke_*.txt` 并验证读取、shell。测试文件保留，不覆盖原文件，不自动删项目内容。
 
-## 7. 会话与报告
+## 会话与报告
 
 配置只加载 zero2pi `.env`，API 请求留在 Harness。目录沿用 A 的布局方法，但使用 C 的分组：
 
@@ -122,7 +128,9 @@ flowchart LR
 
 报告不是自动恢复工具，也不能把外部编辑都归因给模型；快照沿用 A 的 4000 文件 / 12 MiB 上限，不包含缓存、链接或权限。长 shell 全文放在独立临时目录，正常退出会清理，不影响 Session 中已经保存的有界工具结果。
 
-## 8. 开发者测试，不是案例必做步骤
+## 回归测试
+
+以下命令用于验证 Harness 实现，不是运行示例的必做步骤。
 
 ```powershell
 # 无原生 runtime、无模型：检查策略、stdin 接线、超时和完整入口

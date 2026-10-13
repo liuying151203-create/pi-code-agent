@@ -20,7 +20,7 @@ Copy-Item .env.example .env
 
 s07–s13 的模型交互还需填写实际 `MODEL_CONTEXT_WINDOW_TOKENS`；预算迁移与示例见 [s07 配置](s07_session_compaction/README.md#运行)，不要直接复制未经服务确认的模型容量。
 
-s13-A 另需手动准备 Docker Linux 服务和本地镜像，命令见 [Sandbox 教程](s13_a_sandbox_copy/README.md#6-怎么运行和观察)；程序不自动拉取镜像或安装依赖。
+s13-A 另需手动准备 Docker Linux 服务和本地镜像，命令见 [Sandbox 教程](s13_a_sandbox_copy/README.md#运行与验证)；程序不自动拉取镜像或安装依赖。
 
 直接写入真实项目的两种方案：[s13-B 共享容器](s13_b_sandbox_workspace/README.md)、[s13-C 原生受限进程](s13_c_sandbox_native/README.md)。启动需显式授权，分别手动准备镜像或原生 runtime。
 
