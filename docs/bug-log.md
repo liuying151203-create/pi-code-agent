@@ -128,6 +128,13 @@
 - 修复：s13-C 的固定 Worker 命令加外层引号，与上游 Windows 内层 raw passthrough 对应；模型工具参数始终走 stdin JSON，不参与宿主 shell 字符串，不增加本地回退。
 - 回归：`test_fixed_windows_worker_command_handles_spaces_without_running_runtime` 使用真实 Windows cmd 和可信 Worker，只在临时项目写入测试文件；它验证引号和工具接线，不证明原生 OS 隔离，后者仍需显式 C 集成测试。
 
+## B016：扩展订阅错误地拒绝已有事件
+
+- 证据：s14 首轮离线回归中，`api.on("tool_result", ...)` 抛出“未知事件类型”，默认扩展因此无法加载；不是用户模型日志。
+- 原因：s11 用 Python `type` 声明事件别名，直接对别名调用 `get_args()` 得到空元组，未读取它包装的 `Literal`。
+- 修复边界：仅在 s14 注册校验中读取 `AgentEventType.__value__` 的实际取值，不修改 s11 的事件或运行时行为。
+- 回归：`test_event_subscription_filters_and_orders_observers` 验证已有事件可订阅、未知名称拒绝；完整入口测试验证默认扩展加载、调用和结果观察。
+
 ## 记录新问题
 
 新增条目时只写已复现的问题，并补齐以下信息：
