@@ -30,15 +30,20 @@ class WorkspaceLayout:
     sandbox_root: Path
 
     @classmethod
-    def for_path(cls, workspace: Path, harness_root: Path) -> WorkspaceLayout:
+    def for_path(
+        cls, workspace: Path, harness_root: Path, *, chapter: str = "s13-a"
+    ) -> WorkspaceLayout:
         """为现有项目计算稳定的记录位置，不创建目录或文件。
 
-        输入：相对启动目录的目标路径、Harness 根目录；输出：不可变路径布局。
+        输入：相对启动目录的目标路径、Harness 根目录、沙箱版本；输出：路径布局。
         流程：校验目标目录 → 规范化绝对路径 → 名称加路径哈希 → 检查记录边界。
         同一实际路径复用分组，同名但位于不同位置的项目不会共用记录。
         """
         source_root = workspace.resolve(strict=True)
         harness_root = harness_root.resolve(strict=True)
+        # s13-B/C 新增：三个实际运行入口按版本再分组，不能跨沙箱版本恢复授权或会话。
+        if chapter not in {"s13-a", "s13-b", "s13-c"}:
+            raise ValueError("工作区记录版本必须是 s13-a、s13-b 或 s13-c")
         if not source_root.is_dir() or source_root == Path(source_root.anchor):
             raise ValueError("工作区必须是已有项目目录，不能是文件或磁盘根目录")
         # s13-A 新增：Windows 大小写路径归为同一项目；哈希不依赖 Python 随机 hash。
@@ -46,9 +51,10 @@ class WorkspaceLayout:
         digest = hashlib.sha256(identity.encode("utf-8")).hexdigest()[:16]
         label = re.sub(r"[^a-z0-9_-]+", "-", source_root.name.lower()).strip("-")[:40]
         workspace_id = f"{label or 'workspace'}-{digest}"
-        session_root = harness_root / ".sessions/s13-a" / workspace_id
-        trace_root = harness_root / ".traces/s13-a" / workspace_id
-        sandbox_root = harness_root / ".sandboxes/s13-a" / workspace_id
+        # s13-B/C 修改：版本成为目录的一层；默认 A 的路径和既有会话绑定保持不变。
+        session_root = harness_root / ".sessions" / chapter / workspace_id
+        trace_root = harness_root / ".traces" / chapter / workspace_id
+        sandbox_root = harness_root / ".sandboxes" / chapter / workspace_id
         # s13-A 新增：记录目录不能通过预置链接转向目标项目或其他宿主位置。
         for path in (session_root, trace_root, sandbox_root):
             if path.resolve() != path or not path.is_relative_to(harness_root):
