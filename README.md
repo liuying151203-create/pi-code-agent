@@ -2,6 +2,8 @@
 
 `zero2pi` 是一个从零实现 Agent 的学习与实践项目：以 `learn-claude-code` 的渐进式方式组织开发，参考 `pi` 的 Agent loop、工具调用和运行时设计，逐步构建一个清晰、可运行、可扩展的 Agent Harness。
 
+第二阶段设计：[代码仓库理解与检索](docs/repository-retrieval-design.md)（方案评审，尚未开发）。
+
 ## 基础环境
 
 下面的命令分别用于创建虚拟环境、安装项目依赖，以及创建本地配置文件：
