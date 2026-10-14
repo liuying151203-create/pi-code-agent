@@ -8,6 +8,8 @@ Worker 直接访问真实项目，不复制源码。与 B 一样，修改立即�
 
 Harness 仍是 Python，仅执行后端调用用户手动安装的 `@anthropic-ai/sandbox-runtime`，固定版本 **0.0.79**。
 
+观察者故障也会停止入口并清理执行器，但已发生的修改不撤销；历史投影与恢复直接复用 [s11](../s11_runtime_observability/README.md#有效历史与故障边界)，不会自动重放工具。
+
 ## 运行与验证
 
 ### 环境准备

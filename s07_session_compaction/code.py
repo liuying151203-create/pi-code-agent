@@ -730,12 +730,12 @@ class CompactedContextRequester:
         outcome = self.compactor.compact_if_needed()
         if outcome is not None:
             # s07 修复：直接展示前后大小和保留量，无需让模型扫描会话日志验证。
-            source = "模型摘要" if outcome.summary_kind == "model" else "确定性回退摘要"
+            # s07 清理：空摘要已经停止，删除不再存在的回退摘要展示分支。
             print(
                 "会话  已压缩 "
                 f"{outcome.before_chars} → {outcome.after_chars} 字符，"
                 f"总结 {outcome.summarized_messages} 条、保留 {outcome.retained_messages} 条，"
-                f"使用{source}。",
+                "使用模型摘要。",
                 flush=True,
             )
         # s07 修改：压缩记录落盘后重新投影，使本次请求使用摘要和保留消息。

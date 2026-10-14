@@ -511,6 +511,51 @@ def test_main_persistence_failure_does_not_accept_another_query(tmp_path, monkey
     assert "进度  " not in capsys.readouterr().out
 
 
+def test_result_observer_failure_keeps_saved_todo_batch(tmp_path, monkeypatch, capsys):
+    requests = []
+
+    class Provider:
+        model = "offline-observer-failure"
+
+        def stream(self, *, on_text, **kwargs):
+            requests.append(kwargs)
+            assert len(requests) == 1
+            return response(
+                [
+                    tool_call("first", action="add", text="第一项"),
+                    tool_call("second", action="add", text="第二项"),
+                ]
+            )
+
+    def observer(event):
+        if event.type == "tool_result":
+            raise OSError("结果观察者故障")
+
+    monkeypatch.setattr(chapter, "create_model_provider", lambda **kwargs: Provider())
+    monkeypatch.setattr(chapter, "JsonlTraceRecorder", lambda path: observer)
+    monkeypatch.setattr(chapter, "load_dotenv", lambda **kwargs: None)
+    monkeypatch.setattr(chapter, "SESSION_ROOT", tmp_path / "sessions")
+    monkeypatch.setattr(chapter, "TRACE_ROOT", tmp_path / "traces")
+    monkeypatch.setenv("MODEL_CONTEXT_WINDOW_TOKENS", "128000")
+    inputs = []
+
+    def query(prompt):
+        inputs.append(prompt)
+        assert len(inputs) == 1
+        return "添加两项任务"
+
+    monkeypatch.setattr("builtins.input", query)
+    with pytest.raises(chapter.EventDispatchError):
+        chapter.main(["--mode", "read-only"])
+    saved = SessionManager.open(next((tmp_path / "sessions").glob("*.jsonl")))
+    todo = TodoExtension(saved.latest_tool_details("todo"))
+    assert [item.text for item in todo.todos] == ["第一项", "第二项"]
+    assert todo.next_id == 3
+    assert len(saved.build_context()[-1]["content"]) == 2
+    assert len(requests) == len(inputs) == 1
+    assert "进度  " not in capsys.readouterr().out
+
+
 def test_help_has_no_runtime_side_effects(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(chapter, "load_extensions", lambda *args: pytest.fail("help 不加载扩展"))

@@ -409,7 +409,7 @@ def agent_loop(
         create_message：创建模型响应的函数。
         dispatch：接收工具名和参数、返回工具结果文本的分发函数。
         system：系统提示词。
-        tools：工具定义列表；未传入时使用本章的五个工具。
+        tools：工具定义列表；未传入时使用本章的六个工具。
         max_tokens：单次模型响应的最大 token 数。
 
     输出：

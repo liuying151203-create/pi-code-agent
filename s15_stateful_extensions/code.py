@@ -54,6 +54,8 @@ CompactedContextRequester = previous.CompactedContextRequester
 BlockingModelRequester = previous.BlockingModelRequester
 StreamingModelRequester = previous.StreamingModelRequester
 EventDispatcher = previous.EventDispatcher
+# 来自 s11：保持；扩展观察者故障停止入口，不继续请求模型。
+EventDispatchError = runtime.EventDispatchError
 TerminalEventSink = previous.TerminalEventSink
 JsonlTraceRecorder = previous.JsonlTraceRecorder
 UsageTracker = previous.UsageTracker
@@ -149,6 +151,9 @@ def agent_loop(
                 tools=active_tools,
                 max_tokens=max_tokens,
             )
+        except EventDispatchError:
+            # 来自 s11：保持；观察链失败后不再次广播结束事件。
+            raise
         except (RuntimeError, ValueError):
             emit(
                 AgentEvent(
@@ -409,8 +414,8 @@ def main(arguments: Sequence[str] | None = None) -> None:
                 save_tool_results=session.append_tool_results,
                 max_rounds=round_limit,
             )
-        except (SandboxError, SessionPersistenceError):
-            # s15 修改：后端或持久化致命失败都退出，不带不一致的扩展状态开始下一任务。
+        except (SandboxError, SessionPersistenceError, EventDispatchError):
+            # s15 修改：后端、保存或观察层故障都退出，已保存状态仍可恢复，不自动重放工具。
             raise
         except (RuntimeError, ValueError) as error:
             print(format_error(str(error)), file=sys.stderr)

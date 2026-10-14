@@ -46,6 +46,8 @@ CompactedContextRequester = previous.CompactedContextRequester
 BlockingModelRequester = previous.BlockingModelRequester
 StreamingModelRequester = previous.StreamingModelRequester
 EventDispatcher = previous.EventDispatcher
+# 来自 s11：保持；观察层故障结束入口，由 finally 清理沙箱。
+EventDispatchError = runtime.EventDispatchError
 TerminalEventSink = previous.TerminalEventSink
 JsonlTraceRecorder = previous.JsonlTraceRecorder
 UsageTracker = previous.UsageTracker
@@ -121,6 +123,9 @@ def agent_loop(
                 tools=active_tools,
                 max_tokens=max_tokens,
             )
+        except EventDispatchError:
+            # 来自 s11：保持；观察链失败后不再次广播结束事件。
+            raise
         except (RuntimeError, ValueError):
             emit(
                 AgentEvent(
@@ -463,8 +468,8 @@ def main(arguments: Sequence[str] | None = None) -> None:
                     save_assistant=session.append_assistant,
                     max_rounds=round_limit,
                 )
-            except SandboxError:
-                # s13-A 新增：隔离失败结束整个入口，由 finally 关闭容器，不再接受新任务。
+            except (SandboxError, EventDispatchError):
+                # s13-A 修改：隔离或观察层故障都结束入口，finally 关闭容器，不再接受任务。
                 raise
             except (RuntimeError, ValueError) as error:
                 print(format_error(str(error)), file=sys.stderr)

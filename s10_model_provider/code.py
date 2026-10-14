@@ -91,12 +91,12 @@ class TerminalEventSink:
         elif event.type == "tool_result":
             print(format_tool_result(event.data["output"]), flush=True)
         elif event.type == "compaction":
-            source = "模型摘要" if event.data["summary_kind"] == "model" else "确定性回退摘要"
+            # 来自 s07：保持；只展示已成功保存的模型摘要，空摘要不会产生压缩事件。
             print(
                 "会话  已压缩 "
                 f"{event.data['before_chars']} → {event.data['after_chars']} 字符，"
                 f"总结 {event.data['summarized_messages']} 条、"
-                f"保留 {event.data['retained_messages']} 条，使用{source}。",
+                f"保留 {event.data['retained_messages']} 条，使用模型摘要。",
                 flush=True,
             )
 
@@ -163,6 +163,20 @@ class ModelUsage:
             "cache_write_tokens": self.cache_write_tokens,
             "total_tokens": self.total_tokens,
         }
+
+
+# s10 修复 B017/B020：失败可携带已知用量，但不能携带可执行的半成品工具调用。
+class ModelResponseError(RuntimeError):
+    """报告响应未完成或转换失败，并保留已经收到的 Token 用量。
+
+    输入：失败说明和 Provider 已获得的 usage；输出：供请求器捕获的异常。
+    流程：Provider 检查响应 → 失败时抛出 → s11 通过原有失败事件保存用量。
+    边界：没有收到 usage 时仍为未知，不重新请求模型，也不返回可执行 content。
+    """
+
+    def __init__(self, message: str, usage: ModelUsage) -> None:
+        super().__init__(message)
+        self.usage = usage
 
 
 # s10 新增：Agent loop 只依赖该响应，不再读取 Anthropic/OpenAI SDK 类型。
@@ -318,7 +332,14 @@ class OpenAIChatProvider:
             for tool_delta in _get(delta, "tool_calls") or []:
                 _append_openai_tool_delta(tool_calls, tool_delta)
 
-        content = _openai_content_blocks("".join(text_parts), tool_calls.values())
+        # s10 修复 B017：参考 Pi 默认结束标记检查，合法 JSON 不代表流已经完成。
+        if stop_reason is None:
+            raise ModelResponseError("OpenAI-compatible 流结束时缺少 finish_reason", usage)
+        try:
+            content = _openai_content_blocks("".join(text_parts), tool_calls.values())
+        except (RuntimeError, TypeError, ValueError) as error:
+            # s10 修复 B020：转换失败也保留流末尾已经返回的用量。
+            raise ModelResponseError(str(error), usage) from error
         return ModelResponse(
             content=content,
             model=response_model,
@@ -422,9 +443,11 @@ def _to_openai_tool(tool: dict[str, Any]) -> dict[str, Any]:
 
 def _normalize_openai_response(response: Any, fallback_model: str) -> ModelResponse:
     """把非流式 Chat Completions 响应转成统一响应。"""
+    # s10 修复 B020：先取得用量，后续 choices 或工具参数转换失败时仍可报告。
+    usage = _openai_usage(_get(response, "usage") or {})
     choices = _get(response, "choices") or []
     if not choices:
-        raise RuntimeError("OpenAI-compatible 模型没有返回 choices")
+        raise ModelResponseError("OpenAI-compatible 模型没有返回 choices", usage)
 
     choice = choices[0]
     message = _get(choice, "message") or {}
@@ -440,11 +463,16 @@ def _normalize_openai_response(response: Any, fallback_model: str) -> ModelRespo
             }
         )
 
+    try:
+        content = _openai_content_blocks(str(_get(message, "content") or ""), tool_calls)
+    except (RuntimeError, TypeError, ValueError) as error:
+        # s10 修复 B020：异常沿用 RuntimeError 契约，额外携带原响应的用量。
+        raise ModelResponseError(str(error), usage) from error
     return ModelResponse(
-        content=_openai_content_blocks(str(_get(message, "content") or ""), tool_calls),
+        content=content,
         model=str(_get(response, "model") or fallback_model),
         stop_reason=_optional_text(_get(choice, "finish_reason")),
-        usage=_openai_usage(_get(response, "usage") or {}),
+        usage=usage,
     )
 
 

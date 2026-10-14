@@ -36,6 +36,8 @@ OpenAI Chat Completions 使用 `assistant.tool_calls` 和独立 `tool` 消息；
 
 因此历史会话保存的是 Harness 内部格式。切换 Provider 后可以加载同一份 s10 会话；发送请求时由当前 Provider 转换为自己的协议。
 
+Provider 还负责响应完整性：OpenAI 流必须收到 `finish_reason` 才返回可执行的完整响应；空流或缺少结束标记时停止，不因为工具参数恰好是合法 JSON 就执行。响应转换失败会抛出带已知用量的 `ModelResponseError`，s11 使用现有失败事件保存它；没有 usage 时仍标为未知，不自动重试。
+
 摘要请求策略来自 s07，接口参数由 s10 选择：`AnthropicProvider` 使用 `thinking: {"type": "disabled"}`；`OpenAIChatProvider` 使用空选项，不猜测所有兼容服务都支持某种关闭思考字段。`main()` 先创建 `summary_options`，再通过 `ContextSummarizer(request_options=summary_options)` 注入；正常回答不携带这些选项。相同模型名不代表相同 API，判断依据是 Provider 类型。
 
 ```text
@@ -132,5 +134,6 @@ python -m s10_model_provider.code --session .sessions\s10\session-20260922-12000
 - 模型窗口与输出上限是不同能力。本章暂没有 Pi 的模型能力注册表：s07-s12 需显式配置实际 `MODEL_CONTEXT_WINDOW_TOKENS`，摘要输出额度也须符合服务限制；不会从 DeepSeek 等模型名称猜测容量。s11 使用统一 usage 校准压缩，s12 复用。
 
 - Pi 在独立 AI 包中统一多种 Provider、流式事件、模型元数据和费用。s10 保留“Provider 负责协议差异”的边界，但只实现当前项目实际配置的 Anthropic 与 OpenAI-compatible 两条路径，降低阅读成本。
+- Pi 按接口兼容能力检查流的结束标记。本章没有省略标记的兼容配置，因此默认严格检查；s10 测试验证工具不执行，s11 的恢复测试验证失败用量只保存一次。
 - lcc 的章节通常固定使用 Anthropic 客户端。s10 保留其单文件可运行结构，但让 Agent loop 依赖项目内部响应，解决 DeepSeek 等 Chat Completions 服务不能仅靠 Base URL 接入的问题。
 - s11 将直接读取 `ModelResponse.usage` 实现追踪与统计，以验证统一响应不仅支持切换模型，也能复用上层运行组件。

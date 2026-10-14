@@ -1,6 +1,8 @@
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 import s10_model_provider.code as chapter
 
 
@@ -25,6 +27,79 @@ class FakeAnthropicStream:
 
 def test_default_session_root_is_scoped_to_s10() -> None:
     assert chapter.SESSION_ROOT == Path(".sessions/s10")
+
+
+@pytest.mark.parametrize("with_tool", [False, True])
+def test_unfinished_openai_stream_never_reaches_tool_dispatch(with_tool):
+    chunks = []
+    if with_tool:
+        chunks.append(
+            {
+                "choices": [
+                    {
+                        "finish_reason": None,
+                        "delta": {
+                            "tool_calls": [
+                                {
+                                    "index": 0,
+                                    "id": "call-1",
+                                    "function": {
+                                        "name": "write_file",
+                                        "arguments": '{"path":"demo.py","content":"x"}',
+                                    },
+                                }
+                            ]
+                        },
+                    }
+                ],
+            }
+        )
+    client = SimpleNamespace(
+        chat=SimpleNamespace(completions=SimpleNamespace(create=lambda **kwargs: iter(chunks)))
+    )
+    provider = chapter.OpenAIChatProvider(client, "offline")
+    requester = chapter.StreamingModelRequester(provider, 60, lambda event: None)
+    with pytest.raises(chapter.ModelResponseError, match="finish_reason"):
+        chapter.agent_loop(
+            [],
+            create_message=requester,
+            dispatch=lambda *args: pytest.fail("未完成流不能执行工具"),
+            system="测试",
+            hooks=chapter.Hooks(),
+            emit=lambda event: None,
+        )
+
+
+@pytest.mark.parametrize("streaming", [False, True])
+def test_openai_conversion_failure_preserves_known_usage(streaming):
+    tool = {"id": "bad", "function": {"name": "read_file", "arguments": '{"path":'}}
+    usage = {"prompt_tokens": 100, "completion_tokens": 20}
+    response = {
+        "choices": [{"finish_reason": "tool_calls", "message": {"tool_calls": [tool]}}],
+        "usage": usage,
+    }
+    chunks = [
+        {
+            "choices": [
+                {"finish_reason": "tool_calls", "delta": {"tool_calls": [dict(tool, index=0)]}}
+            ]
+        },
+        {"choices": [], "usage": usage},
+    ]
+    client = SimpleNamespace(
+        chat=SimpleNamespace(
+            completions=SimpleNamespace(
+                create=lambda **kwargs: iter(chunks) if streaming else response
+            )
+        )
+    )
+    provider = chapter.OpenAIChatProvider(client, "offline")
+    with pytest.raises(chapter.ModelResponseError, match="JSON") as caught:
+        if streaming:
+            provider.stream(on_text=lambda text: None, messages=[], tools=[])
+        else:
+            provider.complete(messages=[], tools=[])
+    assert caught.value.usage.total_tokens == 120
 
 
 def test_summary_options_follow_api_type_not_model_name() -> None:

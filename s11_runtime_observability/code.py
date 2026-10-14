@@ -17,7 +17,7 @@ import json
 import os
 import sys
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from time import perf_counter
@@ -100,7 +100,12 @@ def _known_usage(usage: ModelUsage | None) -> ModelUsage | None:
 # s11 新增：参考 Pi，把 assistant 的用量和产生它的消息保存在同一条 Entry。
 @dataclass(frozen=True)
 class MessageEntry(s07.MessageEntry):
-    """保存模型消息；assistant 消息还携带模型、停止原因和可选用量。"""
+    """保存消息事实及产生 assistant 的模型元数据。
+
+    输入：模型消息、停止原因和可选用量；输出：可序列化的消息 Entry。
+    流程：循环保存回答 → 日志恢复元数据 → 投影判断回答有效性，统计读取用量。
+    边界：失败回答仍留在日志中，不等于它可以继续发送给模型。
+    """
 
     model: str | None = None
     stop_reason: str | None = None
@@ -133,7 +138,12 @@ class MessageEntry(s07.MessageEntry):
 # s11 新增：参考 Pi，CompactionEntry 只保存真正生成摘要的那次用量。
 @dataclass(frozen=True)
 class CompactionEntry(s07.CompactionEntry):
-    """保存压缩结果，以及生成摘要的模型和可选用量。"""
+    """保存压缩投影边界及生成摘要的用量。
+
+    输入：摘要、保留尾部、摘要模型和用量；输出：compaction JSONL 记录。
+    流程：压缩器保存 → 模型投影使用摘要和尾部 → 会话统计累计摘要用量。
+    边界：不删除旧消息，尾部只含模型消息，不重复记录它们原来的用量。
+    """
 
     summary_model: str | None = None
     summary_usage: ModelUsage | None = None
@@ -195,6 +205,114 @@ type SessionEntry = MessageEntry | CompactionEntry | ModelErrorEntry
 type AssistantSaver = Callable[[Message, ModelResponse], None]
 
 
+# ===== s11 修改：有效历史投影与恢复配对 =====
+
+
+# s11 修复 B018：日志保留失败事实，但压缩和模型投影只使用有效回答。
+def _model_context_entries(entries: Sequence[SessionEntry]) -> list[SessionEntry]:
+    """过滤失败回答，并清理旧压缩尾部中的同一失败消息。
+
+    输入：完整会话 Entry；输出：仅供投影和压缩使用的记录列表，不写回日志。
+    流程：读取回答停止原因 → 记录原投影中的有效标记 → 压缩尾部匹配原投影后过滤。
+    边界：尾部不保存 stop_reason，因此从它对应的原消息继承标记；不按正文去重，
+    避免把文字相同的正常回答误删。手工写入、无法匹配来源的尾部保持原样。
+    """
+    model_entries: list[SessionEntry] = []
+    source_messages: list[Message] = []
+    source_failed: list[bool] = []
+    for entry in entries:
+        if isinstance(entry, MessageEntry):
+            failed = entry.stop_reason in {"error", "aborted"}
+            source_messages.append(entry.message)
+            source_failed.append(failed)
+            if not failed:
+                model_entries.append(entry)
+        elif isinstance(entry, CompactionEntry):
+            tail = list(entry.retained_tail)
+            # s11 修复 B018：用位置恢复旧尾部的来源，正文相同也不混淆成功和失败。
+            tail_failed = [False] * len(tail)
+            if tail and source_messages[-len(tail) :] == tail:
+                tail_failed = source_failed[-len(tail) :]
+            valid_tail = tuple(message for message, failed in zip(tail, tail_failed) if not failed)
+            model_entries.append(replace(entry, retained_tail=valid_tail))
+            # s11 修复 B018：原投影及标记一起推进，连续旧压缩仍能追踪失败尾部。
+            source_messages = [s07._summary_message(entry), *tail]
+            source_failed = [False, *tail_failed]
+        else:
+            model_entries.append(entry)
+    return model_entries
+
+
+# s11 修复 B019：参考 Pi 的孤立调用处理，仅修复模型输入，不重放工具或改写事实日志。
+def _complete_tool_result_pairs(messages: Sequence[Message]) -> list[Message]:
+    """为缺失工具结果补充明确的错误反馈，保持历史协议配对。
+
+    输入：投影后的有效消息；输出：新的、调用与结果配对的模型消息列表。
+    流程：记住 assistant 调用 → 补齐下一条结果中的缺失项，或在新对话前插入错误结果。
+    边界：结果缺失不能证明工具没执行；提示不要自动重放，不虚构成功或 Todo 快照。
+    补齐只发生在请求上下文，不增加持久化工具执行或用量记录。
+    """
+    context: list[Message] = []
+    pending_results: list[dict[str, Any]] = []
+    for message in messages:
+        content = message.get("content")
+        result_message = (
+            message.get("role") == "user"
+            and isinstance(content, list)
+            and any(_get(block, "type") == "tool_result" for block in content)
+        )
+        if pending_results:
+            present_ids = (
+                {
+                    _get(block, "tool_use_id")
+                    for block in content
+                    if _get(block, "type") == "tool_result"
+                }
+                if result_message
+                else set()
+            )
+            missing = [
+                result for result in pending_results if result["tool_use_id"] not in present_ids
+            ]
+            if missing:
+                # s11 修复 B019：有部分结果时只补缺失项；没有结果时先结束未完成调用。
+                if result_message:
+                    message = {**message, "content": [*content, *missing]}
+                else:
+                    context.append({"role": "user", "content": missing})
+            pending_results = []
+        context.append(message)
+        if message.get("role") == "assistant" and isinstance(content, list):
+            pending_results = [
+                {
+                    "type": "tool_result",
+                    "tool_use_id": _get(block, "id"),
+                    "content": "Error: tool result was not saved; do not replay this call automatically",
+                }
+                for block in content
+                if _get(block, "type") == "tool_use"
+            ]
+    # s11 修复 B019：日志恰好结束在调用处时，也补齐只用于模型输入的错误结果。
+    if pending_results:
+        context.append({"role": "user", "content": pending_results})
+    return context
+
+
+def build_session_context(entries: Sequence[SessionEntry]) -> list[Message]:
+    """从完整日志生成可继续请求模型的上下文。
+
+    输入：消息、压缩和失败调用 Entry；输出：不含失败回答且工具配对完整的消息。
+    流程：排除失败回答 → 复用 s07 最新压缩点投影 → 补齐缺失结果；日志和统计不变。
+    """
+    # s11 修复 B018/B019：两个独立边界显式排列，不能把完整事实直接当模型输入。
+    model_entries = _model_context_entries(entries)
+    messages = s07.build_session_context(model_entries)
+    return _complete_tool_result_pairs(messages)
+
+
+# ===== s11：Entry 解析与追加式存储 =====
+
+
 def entry_from_record(record: object) -> SessionEntry:
     """根据类型恢复本章实际使用的三种会话 Entry。"""
     if not isinstance(record, dict):
@@ -210,7 +328,12 @@ def entry_from_record(record: object) -> SessionEntry:
 
 # s11 修改：读取时识别用量元数据，写入仍复用 s07 的追加式 JSONL。
 class JsonlSessionStore(s07.JsonlSessionStore):
-    """读取带用量的 s11 会话记录，并保留原有追加式存储。"""
+    """读取消息、压缩和失败调用，追加写入复用 s07。
+
+    输入：会话路径；输出：带模型元数据的完整 Entry 列表。
+    流程：逐行解析 → 根据类型恢复对象 → 将格式错误连同行号报告。
+    边界：只处理日志 I/O，有效上下文的选择交给 SessionManager。
+    """
 
     def read_all(self) -> list[SessionEntry]:
         """逐行读取消息、压缩和失败调用记录。"""
@@ -242,6 +365,16 @@ class SessionManager(s07.SessionManager):
     def open(cls, path: Path) -> SessionManager:
         """打开一个 s11 会话文件。"""
         return cls(JsonlSessionStore(path))
+
+    # s11 修改：投影排除失败回答并修复调用配对，原日志和累计用量仍完整保留。
+    def build_context(self) -> list[Message]:
+        """读取完整日志，生成有效模型历史，不执行或重新保存工具。
+
+        输入：本会话的全部 Entry；输出：有效对话、最新摘要和保留尾部。
+        流程：load_entries → build_session_context；恢复历史与正常请求使用同一规则。
+        """
+        entries = self.load_entries()
+        return build_session_context(entries)
 
     def append_assistant(self, message: Message, response: ModelResponse) -> None:
         """把 assistant 内容与生成它的模型用量保存为同一条记录。"""
@@ -356,7 +489,12 @@ class SessionStats:
 # s11 新增：只有未形成消息的异常调用走事件落盘，防止与 assistant 重复计费。
 @dataclass(frozen=True)
 class SessionErrorRecorder:
-    """在模型请求抛异常时，将未形成消息的调用立即写入当前会话。"""
+    """保存没有形成回答或摘要的失败模型调用。
+
+    输入：当前会话和 model_error 事件；输出：一条 ModelErrorEntry。
+    流程：请求器报告失败 → 观察者恢复可用 usage → 会话追加失败事实。
+    边界：只保存抛异常的调用，不重复保存已经归属 assistant 的用量。
+    """
 
     session: SessionManager
 
@@ -405,6 +543,15 @@ class AgentEvent:
 type EventSink = Callable[[AgentEvent], None]
 
 
+# s11 修复 B019：观察层故障必须与可恢复模型错误区分，入口不能继续接受任务。
+class EventDispatchError(RuntimeError):
+    """标记事件监听器失败，要求当前运行入口停止。
+
+    输入：失败事件及监听器异常说明；输出：保留原异常链的致命运行时错误。
+    边界：不吞掉 Trace 故障、不重新广播失败事件；已保存事实由会话恢复规则处理。
+    """
+
+
 # s11 新增：一个事件可同时交给终端、Trace 和统计器，不再把观察逻辑塞进核心循环。
 @dataclass
 class EventDispatcher:
@@ -415,7 +562,7 @@ class EventDispatcher:
     输出：无；每个监听器都会按注册顺序收到同一个事件。
     流程：注册监听器 → 核心组件调用 `emit()` → 依次通知监听器。
 
-    当前实现保持同步和显式：监听器异常会直接暴露，避免教学阶段静默丢失 Trace。
+    监听器失败会转换为 EventDispatchError 并停止入口，不静默丢失 Trace。
     """
 
     listeners: list[EventSink] = field(default_factory=list)
@@ -427,7 +574,15 @@ class EventDispatcher:
     def emit(self, event: AgentEvent) -> None:
         """按注册顺序广播一个事件。"""
         for listener in tuple(self.listeners):
-            listener(event)
+            try:
+                listener(event)
+            except EventDispatchError:
+                raise
+            except Exception as error:
+                # s11 修复 B019：同一失败不再广播，保留原因并让入口停止而非继续循环。
+                raise EventDispatchError(
+                    f"事件 {event.type} 的观察者失败，已停止运行：{error}"
+                ) from error
 
 
 # ===== 来自 s10：终端事件消费者（保持） =====
@@ -463,12 +618,12 @@ class TerminalEventSink:
         elif event.type == "tool_result":
             print(format_tool_result(event.data["output"]), flush=True)
         elif event.type == "compaction":
-            source = "模型摘要" if event.data["summary_kind"] == "model" else "确定性回退摘要"
+            # 来自 s07：保持；只展示已成功保存的模型摘要，空摘要不会产生压缩事件。
             print(
                 "会话  已压缩 "
                 f"{event.data['before_chars']} → {event.data['after_chars']} 字符，"
                 f"总结 {event.data['summarized_messages']} 条、"
-                f"保留 {event.data['retained_messages']} 条，使用{source}。",
+                f"保留 {event.data['retained_messages']} 条，使用模型摘要。",
                 flush=True,
             )
 
@@ -667,7 +822,11 @@ def _trace_event_data(event: AgentEvent) -> dict[str, Any]:
             "output_preview": output[:500],
         }
     if event.type == "agent_end":
-        return {"message_count": len(event.data["messages"])}
+        data: dict[str, Any] = {"message_count": len(event.data["messages"])}
+        # s11 修复 B021：停止原因是紧凑运行事实，不能随完整消息一起丢弃。
+        if "reason" in event.data:
+            data["reason"] = event.data["reason"]
+        return data
     return s05._to_jsonable(event.data)
 
 
@@ -736,6 +895,9 @@ class BlockingModelRequester:
         started_at = perf_counter()
         try:
             response = self.provider.complete(**kwargs)
+        except EventDispatchError:
+            # s11 修复 B019：观察者故障不是模型失败，不重发错误事件或重复计算用量。
+            raise
         except Exception as error:
             duration_ms = (perf_counter() - started_at) * 1000
             # s11 修改：异常若携带 usage，同一次失败调用仍计入用量。
@@ -807,6 +969,9 @@ class StreamingModelRequester:
         started_at = perf_counter()
         try:
             response = self.provider.stream(on_text=self._emit_text, **kwargs)
+        except EventDispatchError:
+            # s11 修复 B019：增量观察者失败也停止，不能再向坏掉的观察链广播。
+            raise
         except Exception as error:
             duration_ms = (perf_counter() - started_at) * 1000
             # s11 修改：流式请求失败也可能返回已消耗的 usage。
@@ -857,7 +1022,12 @@ class StreamingModelRequester:
 # s11 新增：摘要器向压缩器明确传递摘要、模型及用量。
 @dataclass(frozen=True)
 class SummaryResult:
-    """保存可用摘要及其对应模型响应的可选用量。"""
+    """把摘要正文与生成它的用量一起交给压缩器。
+
+    输入：摘要文字、模型和可选 usage；输出：摘要器与压缩器间的结果对象。
+    流程：摘要器提取有效正文 → 压缩器复核长度 → 随 CompactionEntry 保存。
+    边界：不发起请求、不落盘，失败调用由已有失败记录通道处理。
+    """
 
     text: str | None
     model: str | None
@@ -1025,6 +1195,8 @@ def estimate_session_context_tokens(entries: Sequence[SessionEntry]) -> int:
     流程：逆序寻找回答 → 排除失败和未知用量 → 加上后续消息；遇到压缩点停止回溯。
     边界：旧压缩前的 usage 对新投影已失效；摘要请求用量不是正常回答的上下文大小。
     """
+    # s11 修复 B018：失败回答及旧失败尾部不参与新增消息估算。
+    entries = _model_context_entries(entries)
     for index in range(len(entries) - 1, -1, -1):
         entry = entries[index]
         if isinstance(entry, CompactionEntry):
@@ -1039,7 +1211,7 @@ def estimate_session_context_tokens(entries: Sequence[SessionEntry]) -> int:
                 later.message for later in entries[index + 1 :] if isinstance(later, MessageEntry)
             ]
             return entry.usage.total_tokens + s07.estimate_context_tokens(later_messages)
-    return s07.estimate_context_tokens(s07.build_session_context(entries))
+    return s07.estimate_context_tokens(build_session_context(entries))
 
 
 # s11 修改：压缩器保存成功摘要的用量；触发判断由已有 usage 校准。
@@ -1071,8 +1243,10 @@ class ContextCompactor:
         """
         # s11 修改：实际上下文用量与会话累计统计分开，准备阶段不依赖 Provider 类型。
         entries = self.session.load_entries()
+        # s11 修复 B018：与请求投影使用同一有效记录，压缩不能重新保留失败回答。
+        model_entries = _model_context_entries(entries)
         context_tokens = estimate_session_context_tokens(entries)
-        plan = s07.prepare_compaction(entries, self.policy, context_tokens=context_tokens)
+        plan = s07.prepare_compaction(model_entries, self.policy, context_tokens=context_tokens)
         if plan is None:
             return None
 
@@ -1203,6 +1377,9 @@ def agent_loop(
                 tools=active_tools,
                 max_tokens=max_tokens,
             )
+        except EventDispatchError:
+            # s11 修复 B019：观察链已失败，不尝试再广播 agent_end。
+            raise
         except (RuntimeError, ValueError):
             emit(
                 AgentEvent(
@@ -1434,6 +1611,9 @@ def main(arguments: Sequence[str] | None = None) -> None:
                 # s11 修改：仅限制回答请求；默认 None，不强制生成一次额外收尾回答。
                 max_rounds=round_limit,
             )
+        except EventDispatchError:
+            # s11 修复 B019：半截交互不能当普通请求错误继续，由恢复投影处理缺失结果。
+            raise
         except (RuntimeError, ValueError) as error:
             print(format_error(str(error)), file=sys.stderr)
         finally:

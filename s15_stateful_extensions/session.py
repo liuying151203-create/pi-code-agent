@@ -55,7 +55,7 @@ class MessageEntry(runtime.MessageEntry):
     """保存正文消息，以及按工具调用 ID 对应的状态元数据。
 
     输入：原有 message、模型用量，以及可选 tool_details。
-    输出：JSONL 记录；构建模型上下文时仍只投影 message。
+    输出：JSONL 记录；有效模型历史仍由 s11 投影，tool_details 不进入请求。
     流程：普通字段复用 s11 → 校验并读写 tool_details → 交给会话恢复状态。
     不新增任务专用 Entry，循环和会话层都不理解 Todo 的字段含义。
     """
@@ -133,7 +133,7 @@ class SessionManager(runtime.SessionManager):
     边界：不从模型正文或摘要恢复状态，不改变 s11 的模型用量规则。
     """
 
-    # s15 修改：打开本章解析器，继承的 build_context 仍只读取每条 Entry.message。
+    # s15 修改：打开本章解析器，build_context 继续复用 s11 的有效历史投影。
     @classmethod
     def open(cls, path: Path) -> SessionManager:
         """打开支持工具元数据的会话，不加载或执行扩展。

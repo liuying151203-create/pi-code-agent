@@ -47,6 +47,8 @@ CompactedContextRequester = previous.CompactedContextRequester
 BlockingModelRequester = previous.BlockingModelRequester
 StreamingModelRequester = previous.StreamingModelRequester
 EventDispatcher = previous.EventDispatcher
+# 来自 s11：保持；扩展观察者故障停止入口，不继续请求模型。
+EventDispatchError = runtime.EventDispatchError
 TerminalEventSink = previous.TerminalEventSink
 JsonlTraceRecorder = previous.JsonlTraceRecorder
 UsageTracker = previous.UsageTracker
@@ -141,6 +143,9 @@ def agent_loop(
                 tools=active_tools,
                 max_tokens=max_tokens,
             )
+        except EventDispatchError:
+            # 来自 s11：保持；观察链失败后不再次广播结束事件。
+            raise
         except (RuntimeError, ValueError):
             emit(
                 AgentEvent(
@@ -365,7 +370,8 @@ def main(arguments: Sequence[str] | None = None) -> None:
                 save_assistant=session.append_assistant,
                 max_rounds=round_limit,
             )
-        except SandboxError:
+        except (SandboxError, EventDispatchError):
+            # 来自 s11：保持；扩展观察者故障不能当作普通模型错误继续任务。
             # 来自 s13-A：保持；后端致命失败必须退出，不开始下一任务或换到宿主执行。
             raise
         except (RuntimeError, ValueError) as error:

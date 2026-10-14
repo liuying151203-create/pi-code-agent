@@ -8,6 +8,8 @@ Skills 提供任务说明，Extension 是新增功能的包，可以提供工具
 
 本章复用 s12 的模型、会话、压缩和技能，用 s13-A 的完整循环保留致命后端失败保护。s13-A/B/C 是执行后端的不同方案，本章不启动沙箱，也不把任意扩展 Python 当成受限进程。
 
+扩展观察者报错会通过 s11 的 `EventDispatchError` 停止入口，不能当普通模型错误继续任务；历史恢复复用 [s11 的有效投影](../s11_runtime_observability/README.md#有效历史与故障边界)，不自动重放缺失结果的调用。
+
 ## 运行与验证
 
 在 zero2pi 根目录、已有虚拟环境和模型配置下执行，无新增安装步骤：
@@ -58,7 +60,7 @@ api.on("tool_result", preview.observe_result)
 
 ```python
 # 简化说明，省略校验和复制
-tools.append(definition)                    # 给模型看：名称、说明和参数格式
+tools.append(definition)  # 给模型看：名称、说明和参数格式
 handlers["read_preview"] = preview.execute  # 给程序用：实际执行的 Python 函数
 ```
 

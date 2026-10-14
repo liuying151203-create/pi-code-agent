@@ -137,45 +137,45 @@
 
 ## B017：OpenAI 流缺少结束标记，仍被当作完整工具调用执行
 
-- 状态：2026-10-13 阶段审查发现，已离线复现，尚未修复。
+- 状态：2026-10-13 阶段审查发现，同日修复并通过离线回归。
 - 证据：SDK 替身只返回一个含完整工具参数的增量，`finish_reason=None`，随后迭代结束。s10 `OpenAIChatProvider.stream()` 返回 `stop_reason=None` 的 `ModelResponse`；交给 s15 循环后，替身 `write_file` handler 仍被调用。没有实际写文件、请求模型或连接网络。
 - 原因与归属：s10 组装文本和参数后没有检查流是否收到完成标记；下游只排除 `error/aborted`，因此“参数恰好是合法 JSON”被误当成响应完整。空流也会返回空的成功响应。
-- 待修边界：在 s10 的 Provider 边界识别未完成流并报告失败，不执行其中的工具；保留已经获得的用量。当前接口没有省略结束标记的兼容能力配置，不能默认接受所有缺失标记的流。
+- 修复边界：s10 在返回 ModelResponse 前检查 finish_reason，空流和缺结束标记抛出带已知用量的 ModelResponseError，不返回半成品工具调用。没有增加省略标记的兼容开关，也不自动重试。
 - 参考：同级 Pi 的 `packages/ai/src/api/openai-completions.ts` 根据兼容能力检查结束标记；默认支持该标记时，缺失会报告 `Stream ended without finish_reason`，不是靠循环猜测完整性。
-- 验证要求：增加空流、缺结束标记但 JSON 完整、正常结束和失败用量测试；验证下游分发次数为零。本次只执行内存诊断，尚未新增回归测试。
+- 回归：`tests/test_s10_model_provider.py` 验证空流和 JSON 完整但缺结束标记时工具分发次数为零，原正常流测试保持通过；`tests/test_runtime_recovery.py` 验证未完成流的已知/未知用量保存规则。不调用真实 API。
 
 ## B018：失败回答保留了工具调用，恢复上下文时没有排除
 
-- 状态：2026-10-13 阶段审查发现，已离线复现，尚未修复。
+- 状态：2026-10-13 阶段审查发现，同日修复并通过离线回归。
 - 证据：给 s15 循环传入带 `read_file` 调用、停止原因为 `aborted` 的响应。循环正确地不执行工具，但仍保存 assistant；`SessionManager.build_context()` 将该调用原样投影。s10 转换后的消息是带 `tool_calls` 的 assistant 后接新 user，没有对应 `tool` 结果。这是内存替身证据，未请求真实 API。
 - 原因与归属：s11 开始保存失败回答及其用量，却沿用 s07 只按 Entry 类型投影的逻辑，丢失停止原因的过滤边界；s12、s13-A/B/C、s14、s15 继续复用。保存失败事实与发送有效模型历史是两件事，不能直接复用全部 message。
-- 待修边界：在 s11 的会话投影边界排除失败/中断回答，完整日志与累计用量仍保留；避免压缩保留尾部再次带入无效调用。不是删除失败记录，也不是重放未执行的工具。
+- 修复边界：s11 `_model_context_entries()` 排除失败/中断回答；旧压缩尾部按原投影位置继承失败标记，不能按相同正文去重。SessionManager 和压缩器使用同一有效历史规则，完整日志与累计用量不变。无法匹配来源的手工尾部不猜测停止原因，原始日志不迁移或删改。
 - 参考：同级 Pi 的 `packages/ai/src/api/transform-messages.ts` 在转换阶段跳过 `error/aborted` assistant，并为其他孤立工具调用处理缺失结果。
-- 验证要求：失败回答包含工具调用时，重新加载及压缩后的模型输入不能含未配对调用；失败次数与已知 Token 不减少。本次复现投影与转换缺口，未验证真实服务的具体拒绝文案。
+- 回归：`tests/test_runtime_recovery.py` 覆盖 s11–s15（含 s13 三版本）的 error/aborted 历史、相同成功/失败正文、连续旧压缩尾部及新压缩输入过滤；失败次数和 Token 保留。不调用真实 API，也不修改已有运行日志。
 
 ## B019：事件观察者异常可能留下缺失结果的会话
 
-- 状态：2026-10-13 阶段审查发现，已离线复现，尚未修复。
+- 状态：2026-10-13 阶段审查发现，同日修复并通过离线回归。
 - 证据：s15 的 `tool_call` 观察者抛出 `ValueError`。assistant 已保存，工具批次尚未保存；诊断事件只有 `agent_start/assistant_message/tool_call`，没有 `agent_end`，会话里保留孤立 `tool_use`。main 对普通 `RuntimeError/ValueError` 的处理仍允许进入下一任务。
 - 原因与归属：s11 同步 EventDispatcher 明确允许暴露监听器异常，这本身是既有设计；缺口在循环/入口没有区分观察层故障与可恢复模型错误，也没有覆盖工具阶段异常的会话收尾。s14 引入用户扩展观察者后，该路径更容易触发；s15 保存后才发送结果事件只保护了结果事件，不保护更早的事件。
-- 待修边界：明确观察层错误的停止策略，不能直接带不完整会话继续；恢复/投影需要处理缺失结果。不得将未执行工具记为成功，也不得为了隐藏故障静默忽略所有 Trace 写入错误。
-- 验证要求：覆盖 assistant、tool_call 和结果事件监听器故障，核对不继续请求、不重复执行、状态是否已保存及恢复时的配对。本次只用内存日志和抛错观察者复现，尚未新增回归测试。
+- 修复边界：s11 EventDispatcher 将监听器异常包装为 EventDispatchError；s11–s15 的入口停止，不再次向故障观察链广播。恢复投影为缺失结果补错误反馈，只修改请求上下文，不写回日志、不重放工具；缺结果不证明工具没执行。s13 仍在 finally 清理，不能撤销已发生的共享目录修改。
+- 回归：`tests/test_runtime_recovery.py` 逐章运行真实 main，覆盖 assistant_message/tool_call/tool_result 故障及恢复，不接受第二个任务、不自动重放，沙箱替身必须清理；增量故障不重发 model_error。`tests/test_s15_stateful_extensions.py` 验证结果事件失败前已保存的完整 Todo 批次可恢复且不误报进度。离线后端不证明 OS 隔离。
 
 ## B020：Provider 转换错误丢失响应中已知的用量
 
-- 状态：2026-10-13 阶段审查发现，已离线复现，尚未修复；关联 s11 失败用量持久化。
+- 状态：2026-10-13 阶段审查发现，同日修复并通过离线回归；关联 s11 失败用量持久化。
 - 证据：OpenAI 阻塞响应包含 `prompt_tokens=100`、`completion_tokens=20`，但工具参数为不完整 JSON。s10 转换抛 `RuntimeError`，经 s11 `BlockingModelRequester` 产生的 `model_error.usage` 为 `None`，已返回的 120 Token 被记为未知。
 - 原因与归属：s10 在工具参数转换失败时没有把响应 usage 附在异常上；s11 只能读取异常或其 response 中的用量，无法找回被 Provider 丢弃的数据。流式结束后的参数转换也经过相同方法。
-- 待修边界：s10 的转换异常应携带已经获得的统一用量，s11 继续使用已有失败记录通道；不能伪造未收到的 Token，也不能重复计费。
-- 验证要求：阻塞和流式返回已知 usage 后转换失败，Trace、本轮统计和会话累计各计一次；确实无 usage 时仍标为未知。本次使用 SDK 替身，无实际 API 消费。
+- 修复边界：s10 阻塞转换先读取 usage，阻塞和流式参数转换失败均抛出 ModelResponseError；s11 复用原有异常用量读取、model_error 和 ModelErrorEntry 通道。不伪造缺失用量，不对异常自动重试。
+- 回归：s10 测试检查阻塞/流式异常携带 120 Token；`tests/test_runtime_recovery.py` 验证 Trace、UsageTracker 与恢复后的 SessionStats 只计一次，缺 usage 时仍为未知。本次使用 SDK 替身，无实际 API 消费。
 
 ## B021：紧凑 Trace 丢掉任务停止原因
 
-- 状态：2026-10-13 阶段审查发现，已离线复现，尚未修复。
+- 状态：2026-10-13 阶段审查发现，同日修复并通过离线回归。
 - 证据：`agent_end` 事件含 `reason="max_rounds"`，s11 `_trace_event_data()` 的输出却只有 `{"message_count": 0}`；`request_failed`、`persistence_failed` 等原因同样不会保留。
 - 原因与归属：s11 为避免将完整消息重复写入 Trace，只提取了消息数量，同时误删了短小但关键的停止原因；后续章节复用该投影。
-- 待修边界：保留可选 reason，不复制完整会话和工具状态，不改变事件名称及统计行为。
-- 验证要求：正常结束、限轮、请求失败及持久化失败的 Trace 可以区分；正文仍不重复保存。本次仅调用投影函数，尚未新增回归测试。
+- 修复边界：s11 紧凑投影保留可选 reason，不复制完整会话和工具状态，不改变事件名称及统计行为；没有 reason 的正常结束不增加空字段。
+- 回归：`tests/test_runtime_recovery.py` 实际写读 Trace，覆盖正常结束、限轮、请求失败、持久化失败及后端失败，断言正文没有重复保存。
 
 ## 记录新问题
 

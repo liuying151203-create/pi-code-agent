@@ -118,12 +118,12 @@ class TerminalEventSink:
         elif event.type == "tool_result":
             print(format_tool_result(event.data["output"]), flush=True)
         elif event.type == "compaction":
-            source = "模型摘要" if event.data["summary_kind"] == "model" else "确定性回退摘要"
+            # 来自 s07：保持；只展示已成功保存的模型摘要，空摘要不会产生压缩事件。
             print(
                 "会话  已压缩 "
                 f"{event.data['before_chars']} → {event.data['after_chars']} 字符，"
                 f"总结 {event.data['summarized_messages']} 条、"
-                f"保留 {event.data['retained_messages']} 条，使用{source}。",
+                f"保留 {event.data['retained_messages']} 条，使用模型摘要。",
                 flush=True,
             )
 

@@ -44,6 +44,8 @@ CompactedContextRequester = previous.CompactedContextRequester
 BlockingModelRequester = previous.BlockingModelRequester
 StreamingModelRequester = previous.StreamingModelRequester
 EventDispatcher = previous.EventDispatcher
+# 来自 s11：保持；观察层故障必须停止入口，不与普通模型错误混用。
+EventDispatchError = previous.EventDispatchError
 TerminalEventSink = previous.TerminalEventSink
 JsonlTraceRecorder = previous.JsonlTraceRecorder
 UsageTracker = previous.UsageTracker
@@ -230,6 +232,9 @@ def agent_loop(
                 tools=active_tools,
                 max_tokens=max_tokens,
             )
+        except EventDispatchError:
+            # 来自 s11：保持；观察链失败后不再次广播结束事件。
+            raise
         except (RuntimeError, ValueError):
             emit(
                 AgentEvent(
@@ -435,6 +440,9 @@ def main(arguments: Sequence[str] | None = None) -> None:
                 # 来自 s11：保持；未配置上限时不会在第 12 轮直接退出。
                 max_rounds=round_limit,
             )
+        except EventDispatchError:
+            # 来自 s11：保持；不带半截工具交互继续接受任务。
+            raise
         except (RuntimeError, ValueError) as error:
             print(format_error(str(error)), file=sys.stderr)
         finally:
