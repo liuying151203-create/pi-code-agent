@@ -185,6 +185,30 @@
 - 修复边界：s16 用 `source_lines()` 统一检索证据、read_file 和 grep 的 LF 行号，保留原始字节计算哈希。不调整旧章、不改 Zoekt 算法、不执行目标源码。
 - 回归：`test_lf_line_numbers_match_zoekt_even_with_crlf_and_unicode_separators` 验证 CRLF 与 Unicode 分隔符下的读取/证据位置；真实 Zoekt 镜像集成仍需用户手动构建后显式执行，离线协议替身不证明容器行为。
 
+## B023：把目录传给单文件工具，却被说成权限不足
+
+- 状态：2026-10-15，根据用户 s16 运行记录复现并修复；关联 B007/B011，但不是 shell 审批再次失控。
+- 证据：`session-20261015-071936.jsonl` 中两次 `grep(path="s15_stateful_extensions", ...)` 返回 `Permission denied: 路径不在允许读取的文件清单中`；模型随后改用 `search_code`。离线用根目录和 `src` 复现，旧实现四个目录参数用例都误报权限。
+- 原因：允许清单只列文件，目录不在其中；`permission_hook()` 又把所有路径 `ValueError` 统一包装成权限拒绝。单文件 grep 的能力边界本身没有问题，错误在于拒绝理由混淆。
+- 修复边界：仅 s16 区分安全拒绝与参数错误。先检查边界、保护名称和重定向，再对目录返回工具用法提示；不递归搜索、不自动转工具、不放宽真实权限。同步 s16 grep 描述和 50 条上限，不修改 s03 的定义。
+- 回归：`test_directory_argument_reports_tool_guidance_not_permission_denied` 走真实注册层验证 grep/read_file 的目录提示；`test_directory_guidance_does_not_relax_outside_or_protected_paths` 保证越界和保护目录仍拒绝。
+
+## B024：一次基础读取重复枚举三遍仓库文件清单
+
+- 状态：2026-10-15，根据 s16 调用链及离线计数确认并修复；属于重复工作，不是读出了错误内容。
+- 证据：用户本次读文件通常约 0.4–0.5 秒，单靠日志不能断言全部耗时来源。离线替身统计真实 `ExtensionAPI.dispatch()` 调用 `_eligible_paths()` 的次数，一次 read_file 或 grep 均为 3 次。
+- 原因：注册层权限检查、工作区分发检查、实际 handler 都复用了同时负责路径边界与完整清单枚举的 `_relative_file()`。
+- 修复边界：仅 s16 将轻量 `_relative_path()` 与最终 `_relative_file()` 分开。前置检查不枚举，实际读取前核对一次当前清单；不长期缓存权限，不删除打开文件时的链接、类型、硬链接和大小检查。agent_loop、s14/s15 注册层和索引构建方式不变。
+- 回归：`test_registered_file_tool_checks_current_allowlist_once_per_call` 验证每次调用为 1 次、再次调用仍重新枚举；`test_gitignore_change_is_checked_again_before_next_read`、`test_final_read_still_rejects_file_replaced_with_hardlink` 验证忽略规则变化和清单检查后的文件替换仍不能绕过。未据此宣称真实模型轮数或总耗时必然下降。
+
+## B025：模型省略可选指纹，搜索后的补读没有检查旧位置是否过期
+
+- 状态：2026-10-15，根据 s16 参数记录确认防错缺口，离线构造文件变化复现并修复；本次用户运行未观察到实际版本冲突。
+- 证据：用户会话中 8 次 read_file 均未携带 expected_hash。离线先 search_code，再修改命中文件、无指纹 read_file，旧实现直接返回新版正文，未报告搜索位置已过期。
+- 原因：模型看见 content_hash 后还需自行复制到下一次调用；该参数可选，且运行时只在非 None 时校验。工具之间原先没有自动传递版本依据。
+- 修复边界：仅 s16 在复核和正文预算裁剪后，将成功返回文件的指纹记入 `workspace.search_hashes`。read_file 未传指纹时自动使用，显式值保持原行为；重新成功搜索同一文件会更新，失败/过期结果不会更新。该字典只在当前进程中保存，不复制源码、不恢复权限或从摘要猜测状态；未搜索文件仍可直接读取，原文件允许清单检查保持执行。
+- 回归：`test_search_then_read_without_explicit_hash_rejects_changed_file` 走真实工具注册链验证省略参数仍拒绝新版正文；另测重新搜索、显式/空指纹、绝对路径、不同文件搜索、部分结果、正文预算移除和失败/过期结果。离线后端与模型替身不证明真实 API 的轮数和计费改善。
+
 ## 记录新问题
 
 新增条目时只写已复现的问题，并补齐以下信息：

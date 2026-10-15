@@ -46,7 +46,7 @@ Remove-Item Env:ZERO2PI_TEST_ZOEKT
 
 ## 组件与方法
 
-- [workspace.py](workspace.py) `RepositoryWorkspace`：`scan()` 得到合规 UTF-8 快照；`dispatch()` 将基础读取绑定到同一目标；`read_file(expected_hash=...)` 拒绝用旧位置读取新版本。
+- [workspace.py](workspace.py) `RepositoryWorkspace`：`scan()` 得到合规 UTF-8 快照；`dispatch()` 将基础读取绑定到同一目标；`permission_hook()` 只做轻量前置检查，完整允许清单在读取前核对一次；`read_file()` 自动检查搜索过的文件指纹，也支持显式 `expected_hash`。
 - [index.py](index.py) `RepositoryIndex.prepare()`：管理索引的复用与重建，返回 `PreparedIndex`。新建时先写过滤副本，再调用 Zoekt 建分片，成功后发布；s16 是整代重建，不是逐文件增量更新。
 - [zoekt.py](zoekt.py) `ZoektBackend`：`build_index()` 调用官方索引器，`search_index()` 查询磁盘索引。短容器无网络，只挂载过滤副本/缓存，不挂载原项目或 Docker socket。
 - [retrieval.py](retrieval.py) `CodeRetriever.search()`：组织一次完整检索。`_build_file_results()` 用同版源码核验 Zoekt 的位置并组装片段，不重新搜索或排序。
@@ -66,6 +66,7 @@ Remove-Item Env:ZERO2PI_TEST_ZOEKT
 | `zoekt_result` | Python 内存 | 后端返回的位置与完整性标记，用于组织结果，不直接整份保存到会话。 |
 | `search_result` / `search_metrics` | Python 内存；通过返回值交给会话/事件层 | 前者序列化为给模型的正文；后者通过 `ToolResult.details` 传递耗时等指标。 |
 | `latest_snapshot` | Python 内存 | 查询结束前再次扫描的源码，只用整体指纹检查查询期间是否有变化。 |
+| `workspace.search_hashes` | 当前 Python 进程的内存 | 只登记成功返回过的“文件路径 → 指纹”，用于补读时自动检查；不保存源码、不当作权限清单，也不从历史会话恢复。 |
 
 磁盘缓存统一位于 **zero2pi 根目录**，不跟随 `--workspace` 移到外部目标项目。以 zero2pi 位于 `D:\dev\Agent\zero2pi` 为例，构建成功后是：
 
@@ -89,7 +90,7 @@ D:\dev\Agent\zero2pi\.indexes\s16\<项目ID>\<索引代次>\
 3. **查询索引**：`backend.search_index(prepared_index.index_dir, query, scope, limit)` 读取磁盘索引；[search.go](search.go) 打开 `/index`，构造字面查询并调用 Zoekt 的 `Search()`。返回的 `zoekt_result` 主要是排序文件、行号和完整性标记，不是整份源码。
 4. **核验并组织片段**：`_build_file_results()` 将后端位置与第一次扫描的 `source_snapshot` 对照，检查该行确实包含查询，再截取显示片段、附上文件哈希；不重新搜索或排名，也不改用新版源码解释旧位置。
 5. **检查期间是否变化**：再次 `workspace.scan()` 得到 `latest_snapshot`，与第一次快照比较指纹。不同则清空结果并返回 `stale`；这次扫描只检查变化，不会再次建索引或搜索。
-6. **返回结果**：限制 JSON 正文大小，返回 `ToolResult(content=正文, details=指标)`。交互模式沿用 s15 保存会话、发送事件；模型只得到少量位置和片段，需要更多源码时再用 `read_file` 补读原项目，传 `expected_hash` 可再次检查版本。
+6. **登记指纹并返回**：限制 JSON 正文大小，只把通过复核、实际返回的文件指纹记入 `workspace.search_hashes`，再返回 `ToolResult(content=正文, details=指标)`；失败、过期或被预算移除的结果不登记。交互模式沿用 s15 保存会话、发送事件，模型按需用 `read_file` 补读原项目。未传 `expected_hash` 时自动使用已登记指纹；显式传入时仍按传入值校验。
 
 ```mermaid
 flowchart TD
@@ -101,13 +102,17 @@ flowchart TD
     C --> Z
     Z --> B[_build_file_results：用首次内存源码核验并截取片段]
     B --> V[再次 scan → latest_snapshot，比较两次指纹]
-    V -->|源码未变| R[返回文件 行号 哈希和有界片段]
+    V -->|源码未变| R[裁剪结果预算 登记实际返回文件的指纹 再返回结果]
     V -->|源码变化| F[返回 stale 不使用旧证据]
     R --> P[沿用 s15 保存正文和指标后发送事件]
     P --> M[模型按需 read_file 并回答]
 ```
 
 例如目标是 `D:\dev\my-app`，其中 `src/calc.py` 第 1 行为 `def add(a, b):`。首次搜索 `add` 时：该行字节进入内存快照 → 写入 zero2pi 缓存副本的 `source/src/calc.py` → Zoekt 建索引并找到 `src/calc.py:1` → Python 从首次快照取出 `def add(a, b):`，附上哈希 → 再扫描确认未变后返回。若期间被改成 `subtract`，则返回 `stale`，不提供旧证据。此例是流程示意，不是运行日志。
+
+若文件在搜索返回后才被修改，`read_file` 即使没带指纹也会发现版本变化，拒绝返回新版正文；重新搜索该文件后才更新自动校验依据。未搜索过的文件仍可直接读取。指纹只说明“上次搜到的内容是什么”，不能让已被忽略或禁止的文件获得读取权限。
+
+基础读取的错误也分开处理：`grep(path="src", ...)` 是把目录当文件，返回 `Error` 并提示使用 `search_code(query=..., scope="src")`，不再说成权限不足，也不自动替模型执行搜索；越界、保护路径和不在允许清单中的文件仍然拒绝。注册层和分发层只做轻量路径检查，真正读取前才枚举一次当前文件清单；下次调用仍重新检查 `.gitignore`，打开文件时的链接、类型和大小检查也保留。
 
 随后搜索 `return`，只要允许文件的路径/内容、后端版本等没变，就复用同一版索引，不重写副本；索引不是专门为 `add` 建立的。当前实现每次正常检索前后仍会完整读取允许范围内的源码，索引没有省掉版本检查所需的扫描。两份快照可能同时占用内存，32 MiB 是单次源码字节上限，不是进程总内存上限。
 

@@ -84,7 +84,7 @@ class RepositoryWorkspace:
     """
 
     def __init__(self, root: Path, harness_root: Path) -> None:
-        """计算路径与项目身份，不创建目录或索引。
+        """计算路径与项目身份，初始化空的搜索指纹记录，不创建目录或索引。
 
         输入：目标和 Harness 路径；输出：独立工作区组件。
         流程：拒绝磁盘根目录 → 用规范路径哈希分组 → 绑定三类记录位置。
@@ -100,14 +100,23 @@ class RepositoryWorkspace:
         self.trace_root = harness_root / ".traces" / "s16" / self.workspace_id
         for directory in (self.index_root, self.session_root, self.trace_root):
             checked_cache_path(directory)
+        # s16 新增：只记住成功返回过的文件指纹；这是补读依据，不是权限清单或源码缓存。
+        self.search_hashes: dict[str, str] = {}
         # s16 修改：相对 s15，只开放同一目标内的三种基础只读工具，不加载 Todo/Skills。
         self.tools = deepcopy(READ_ONLY_TOOLS)
         read_tool = next(tool for tool in self.tools if tool["name"] == "read_file")
         read_tool["input_schema"]["properties"]["expected_hash"] = {"type": "string"}
         read_tool["description"] = (
             "读取目标项目 UTF-8 文件，返回行号与内容哈希；最多 2000 行 / 50 KiB。"
-            "start_line 从 1 开始；可用 search_code 的 content_hash 作为 expected_hash 校验版本。"
+            "start_line 从 1 开始；搜索过的文件自动校验指纹，也可显式传 expected_hash。"
         )
+        # s16 修改：本章只搜索单文件且最多 50 条，定义不再沿用 s03 的 100 条说明。
+        grep_tool = next(tool for tool in self.tools if tool["name"] == "grep")
+        grep_tool["description"] = (
+            "在单个 UTF-8 文件中搜索字面文本，返回路径与行号；最多 50 条 / 50 KiB。"
+            "path 必须是文件；搜索目录请用 search_code(query=文本, scope=相对目录)。"
+        )
+        grep_tool["input_schema"]["properties"]["limit"]["maximum"] = 50
 
     def scan(self) -> SourceSnapshot:
         """读取本次允许索引的文件，未提交修改同样计入版本。
@@ -148,7 +157,8 @@ class RepositoryWorkspace:
         """允许本章基础只读工具，拒绝 shell、写入和未知基础工具。
 
         输入：真实基础工具名和参数；输出：None 或拒绝原因。
-        流程：检查名称/参数 → 文件操作检查目标范围；handler 再检查实际内容与容量。
+        流程：检查名称/参数 → 轻量检查路径边界和文件/目录类型。
+        s16 修改：不在这里枚举整个仓库；完整允许清单由实际 handler 在读取前核对。
         扩展 search_code 自己通过同一个 workspace 扫描，不借旧章的全局权限放行。
         """
         if name not in {"read_file", "grep", "glob"}:
@@ -157,9 +167,21 @@ class RepositoryWorkspace:
             return "Error: 工具参数必须是对象"
         if name in {"read_file", "grep"}:
             try:
-                self._relative_file(arguments.get("path"))
-            except (ValueError, OSError) as error:
+                # s16 修改：前置检查不生成完整清单，避免注册层和分发层各扫描一遍。
+                relative = self._relative_path(arguments.get("path"))
+                if (self.root / relative).is_dir():
+                    # s16 修改：路径安全后再识别目录误用，不把参数错误说成权限不足。
+                    if name == "grep":
+                        scope = "" if relative == "." else relative
+                        return (
+                            "Error: grep 只能搜索单个文件；搜索目录请用 "
+                            f"search_code(query=搜索文本, scope={scope!r})"
+                        )
+                    return "Error: read_file 只能读取单个文件；列出文件请用 glob"
+            except PermissionError as error:
                 return f"Permission denied: {error}"
+            except (ValueError, OSError) as error:
+                return f"Error: {error}"
         return None
 
     def dispatch(self, name: str, arguments: dict[str, Any]) -> str:
@@ -174,6 +196,9 @@ class RepositoryWorkspace:
         handlers = {"read_file": self.read_file, "grep": self.grep, "glob": self.glob}
         try:
             return handlers[name](**arguments)
+        # s16 修改：最终清单拒绝仍是安全拒绝，不能因前置检查变轻而放行忽略文件。
+        except PermissionError as error:
+            return f"Permission denied: {error}"
         except (TypeError, ValueError, OSError, UnicodeError) as error:
             return f"Error: {error}"
 
@@ -186,14 +211,19 @@ class RepositoryWorkspace:
     ) -> str:
         """补读检索命中的源码，可显式拒绝旧行号对应的新版本。
 
-        输入：路径、行窗口、可选预期哈希；输出：当前哈希和带行号的完整行。
-        流程：检查允许文件 → 有界读取/计算哈希 → 校验版本 → 按行和字节预算返回。
+        输入：路径、行窗口、可选预期哈希，以及本进程已登记的搜索指纹。
+        输出：当前哈希和带行号的完整行；版本变化时拒绝返回新版正文。
+        流程：核对一次当前允许清单 → 有界读取 → 显式或自动指纹校验 → 按预算返回。
+        边界：未搜索过的文件仍可直接读取；搜索指纹不替代权限校验，也不从会话恢复。
         """
         relative = self._relative_file(path)
         data = self._read_bytes(relative)
         if b"\x00" in data:
             raise ValueError("不读取二进制文件")
         content_hash = hashlib.sha256(data).hexdigest()
+        # s16 新增：模型省略参数时使用最近成功搜索的指纹；显式值仍按调用者要求校验。
+        if expected_hash is None:
+            expected_hash = self.search_hashes.get(relative)
         if expected_hash is not None and expected_hash != content_hash:
             raise ValueError("源码版本已变化；请重新 search_code，不沿用旧行号")
         if type(start_line) is not int or type(limit) is not int or min(start_line, limit) < 1:
@@ -277,17 +307,32 @@ class RepositoryWorkspace:
 
     # ===== s16 新增：底层路径、文件清单与读取检查 =====
     # s16 新增：这些检查由扫描与读取共用，避免两条路径开放不同文件。
-    def _relative_file(self, value: Any) -> str:
-        """检查路径及当前文件清单；绝对路径也必须属于同一目标。"""
+    # s16 新增：边界检查不扫描仓库，供前置权限和最终读取共同使用。
+    def _relative_path(self, value: Any) -> str:
+        """规范化目标内路径，拒绝越界、保护名称及链接重定向，不判断清单成员。"""
         if not isinstance(value, str) or not value:
             raise ValueError("path 必须是非空字符串")
         path = (self.root / value).absolute()
         if not path.is_relative_to(self.root) or ".." in path.parts:
-            raise ValueError("路径超出目标工作区")
-        relative = path.relative_to(self.root).as_posix()
+            raise PermissionError("路径超出目标工作区")
+        relative_path = path.relative_to(self.root)
+        if any(
+            is_protected_name(part) or part.lower() in EXCLUDED_DIRS for part in relative_path.parts
+        ):
+            raise PermissionError("不能读取凭证、运行记录、依赖或其他保护路径")
+        if self.root.resolve() != self.root or not self.root.is_dir() or path.resolve() != path:
+            raise PermissionError("目标工作区或文件路径已重定向或消失")
+        return relative_path.as_posix()
+
+    # s16 修改：完整文件清单只在实际读取入口核对一次；每次调用都重新核对，不长期缓存。
+    def _relative_file(self, value: Any) -> str:
+        """检查当前允许文件；直接调用 read_file/grep 也必须经过该检查。"""
+        relative = self._relative_path(value)
+        if (self.root / relative).is_dir():
+            raise ValueError("path 必须指向单个文件；搜索目录请用 search_code，列出文件请用 glob")
         paths, _ = self._eligible_paths()
         if relative not in paths:
-            raise ValueError("路径不在允许读取的文件清单中")
+            raise PermissionError("路径不在允许读取的文件清单中")
         return relative
 
     def _eligible_paths(self) -> tuple[list[str], dict[str, int]]:

@@ -25,7 +25,8 @@ class CodeRetriever:
 
     输入：workspace、index_manager，以及字面查询、目录范围和文件数量。
     输出：ToolResult；正文为有界 JSON，details 只携带紧凑检索指标。
-    流程：校验 → 扫描 → 确保索引 → 搜索 → 组织片段 → 复核源码 → 返回。
+    流程：校验 → 扫描 → 确保索引 → 搜索 → 组织片段 → 复核源码 → 限制预算
+    → 在 workspace 登记返回文件指纹 → 返回。
     边界：不回答代码问题、不生成向量、不扩展调用图、不把后端故障变成空结果。
     """
 
@@ -41,9 +42,11 @@ class CodeRetriever:
 
         输入：区分大小写的字面文本、相对目录和 1–20 个文件的上限。
         输出：ok/empty/partial/stale/failed/invalid 状态，以及哈希、行号和指标。
-        流程：扫描源码 → 准备索引 → 查询位置 → 组装文件结果 → 检查源码变化 → 返回。
+        流程：扫描源码 → 准备索引 → 查询位置 → 组装文件结果 → 检查源码变化
+        → 限制正文预算 → 登记成功返回的文件指纹 → 返回。
         source_snapshot 始终表示查询所用的内存源码；prepared_index 只提供磁盘索引位置。
         latest_snapshot 仅用于结束前检查变化；不会拿新版源码解释旧索引的位置。
+        s16 新增：指纹交给 workspace 自动校验补读；失败或过期结果不更新登记记录。
         """
         request_started_at = perf_counter()
         # s16 新增：模型结果与观测指标分开命名，避免把两者都理解为搜索命中。
@@ -134,6 +137,10 @@ class CodeRetriever:
             search_result["files"].pop()
             search_result["truncated"] = True
             content = json.dumps(search_result, ensure_ascii=False)
+        # s16 新增：复核和预算裁剪后，只登记实际成功返回的文件，补读不再靠模型复制指纹。
+        if search_result["status"] in {"ok", "partial"}:
+            for file_result in search_result["files"]:
+                self.workspace.search_hashes[file_result["path"]] = file_result["content_hash"]
         search_metrics.update(
             status=search_result["status"],
             returned_files=len(search_result["files"]),

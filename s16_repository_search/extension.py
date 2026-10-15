@@ -16,10 +16,11 @@ from s16_repository_search.workspace import checked_cache_path
 # s16 新增：模型只提交字面查询和有界范围，不能调用宿主 shell 或任意后端参数。
 SEARCH_TOOL = {
     "name": "search_code",
+    # s16 修改：补读校验由 workspace 自动执行，不再只提醒模型复制可选指纹。
     "description": (
         "在目标项目中用 Zoekt 搜索区分大小写的字面文本，返回排序文件、行号和内容哈希。"
         "用单个标识符或错误文本定位；scope 可指定相对目录；不是自然语言语义搜索。"
-        "返回最多 20 个文件 / 16 KiB；需要更多源码时用 read_file 并传 expected_hash。"
+        "返回最多 20 个文件 / 16 KiB；用 read_file 补读，程序自动核对已搜索文件的指纹。"
     ),
     "input_schema": {
         "type": "object",

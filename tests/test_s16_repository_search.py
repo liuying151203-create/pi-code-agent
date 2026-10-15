@@ -165,6 +165,170 @@ def test_file_paths_cannot_escape_or_bypass_allowlist(tmp_path, value):
     assert workspace.permission_hook("read_file", {"path": value}) is not None
 
 
+# s16 回归 B023：目录是参数用错，不应误报权限不足或自动切换工具执行。
+@pytest.mark.parametrize("tool_name", ["grep", "read_file"])
+@pytest.mark.parametrize("directory", [".", "src"])
+def test_directory_argument_reports_tool_guidance_not_permission_denied(
+    tmp_path, tool_name, directory
+):
+    workspace, _, _, _ = make_components(tmp_path, files={"src/app.py": "needle\n"})
+    session = SessionManager.open(workspace.select_session(None))
+    api = make_api(workspace, session)
+    arguments = {"path": directory}
+    if tool_name == "grep":
+        arguments["pattern"] = "needle"
+    output = api.dispatch(tool_name, arguments)
+    assert output.startswith("Error:")
+    assert "单个文件" in output and "Permission denied" not in output
+    assert ("search_code" if tool_name == "grep" else "glob") in output
+    assert "1: needle" not in output
+
+
+def test_directory_guidance_does_not_relax_outside_or_protected_paths(tmp_path):
+    workspace, _, _, _ = make_components(tmp_path)
+    (workspace.root / ".aws").mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    for path in (str(outside), ".aws"):
+        output = workspace.dispatch("grep", {"path": path, "pattern": "needle"})
+        assert output.startswith("Permission denied:")
+
+
+# s16 回归 B024：走真实注册层和工作区分发时，每次读取只枚举一次，下一次仍重新检查。
+@pytest.mark.parametrize("tool_name", ["read_file", "grep"])
+def test_registered_file_tool_checks_current_allowlist_once_per_call(
+    tmp_path, monkeypatch, tool_name
+):
+    workspace, _, _, _ = make_components(tmp_path)
+    session = SessionManager.open(workspace.select_session(None))
+    api = make_api(workspace, session)
+    original_eligible_paths = workspace._eligible_paths
+    enumerations = []
+
+    def eligible_paths():
+        enumerations.append(True)
+        return original_eligible_paths()
+
+    monkeypatch.setattr(workspace, "_eligible_paths", eligible_paths)
+    arguments = {"path": "app.py"}
+    if tool_name == "grep":
+        arguments["pattern"] = "add"
+    assert "def add" in api.dispatch(tool_name, arguments)
+    assert len(enumerations) == 1
+    assert "def add" in api.dispatch(tool_name, arguments)
+    assert len(enumerations) == 2
+
+
+def test_gitignore_change_is_checked_again_before_next_read(tmp_path):
+    workspace, _, _, _ = make_components(tmp_path)
+    subprocess.run(["git", "init", "--quiet", str(workspace.root)], check=True, capture_output=True)
+    session = SessionManager.open(workspace.select_session(None))
+    api = make_api(workspace, session)
+    assert "def add" in api.dispatch("read_file", {"path": "app.py"})
+    (workspace.root / ".gitignore").write_text("app.py\n", encoding="utf-8")
+    output = api.dispatch("read_file", {"path": "app.py"})
+    assert output.startswith("Permission denied:") and "def add" not in output
+
+
+# s16 回归 B025：通过真实扩展先搜后读，模型省略指纹时也应拒绝变化后的源码。
+def test_search_then_read_without_explicit_hash_rejects_changed_file(tmp_path):
+    workspace, _, _, retriever = make_components(tmp_path)
+    session = SessionManager.open(workspace.select_session(None))
+    api = make_api(workspace, session)
+    RepositoryExtension(
+        retriever=retriever, metrics_path=workspace.trace_root / "metrics.jsonl"
+    ).register(api)
+    assert payload(api.dispatch("search_code", {"query": "add"}))["status"] == "ok"
+    assert "def add" in api.dispatch("read_file", {"path": "app.py"})
+    (workspace.root / "app.py").write_text("def add(): return 9\n", encoding="utf-8")
+    output = api.dispatch("read_file", {"path": "app.py"})
+    assert output.startswith("Error:") and "版本已变化" in output
+    assert "return 9" not in output
+
+
+def test_final_read_still_rejects_file_replaced_with_hardlink(tmp_path, monkeypatch):
+    workspace, _, _, _ = make_components(tmp_path)
+    outside = tmp_path / "outside.txt"
+    outside.write_text("outside-secret", encoding="utf-8")
+    original_eligible_paths = workspace._eligible_paths
+
+    def replace_after_listing():
+        paths, skipped = original_eligible_paths()
+        (workspace.root / "app.py").unlink()
+        os.link(outside, workspace.root / "app.py")
+        return paths, skipped
+
+    monkeypatch.setattr(workspace, "_eligible_paths", replace_after_listing)
+    output = workspace.dispatch("read_file", {"path": "app.py"})
+    assert output.startswith("Error:") and "outside-secret" not in output
+
+
+def test_grep_definition_matches_s16_limit_without_mutating_s03(tmp_path):
+    from s03_permission import code as old
+
+    workspace, _, _, _ = make_components(tmp_path)
+    grep_tool = next(tool for tool in workspace.tools if tool["name"] == "grep")
+    old_grep = next(tool for tool in old.READ_ONLY_TOOLS if tool["name"] == "grep")
+    assert "单个" in grep_tool["description"] and "search_code" in grep_tool["description"]
+    assert grep_tool["input_schema"]["properties"]["limit"]["maximum"] == 50
+    assert "maximum" not in old_grep["input_schema"]["properties"]["limit"]
+
+
+# s16 新增：指纹只是搜索证据，不能扩大权限；未搜索文件不被强制要求先搜一次。
+def test_unsearched_file_can_be_read_and_other_search_does_not_forget_old_evidence(tmp_path):
+    workspace, _, _, retriever = make_components(
+        tmp_path, files={"app.py": "add\n", "other.py": "needle\n"}
+    )
+    retriever.search("add")
+    saved_hash = workspace.search_hashes["app.py"]
+    assert "needle" in workspace.read_file("other.py")
+    assert "other.py" not in workspace.search_hashes
+    (workspace.root / "app.py").write_text("changed\n", encoding="utf-8")
+    retriever.search("needle")
+    assert workspace.search_hashes["app.py"] == saved_hash
+    with pytest.raises(ValueError, match="版本已变化"):
+        workspace.read_file("app.py")
+
+
+def test_new_successful_search_refreshes_hash_and_new_workspace_does_not_restore_it(tmp_path):
+    workspace, _, _, retriever = make_components(tmp_path)
+    retriever.search("add")
+    old_hash = workspace.search_hashes["app.py"]
+    (workspace.root / "app.py").write_text("def add(): return 9\n", encoding="utf-8")
+    retriever.search("add")
+    assert workspace.search_hashes["app.py"] != old_hash
+    assert "return 9" in workspace.read_file(str(workspace.root / "app.py"))
+    restarted = RepositoryWorkspace(workspace.root, tmp_path / "harness")
+    assert restarted.search_hashes == {}
+
+
+def test_explicit_hash_keeps_precedence_and_empty_hash_is_not_silently_replaced(tmp_path):
+    workspace, _, _, retriever = make_components(tmp_path)
+    retriever.search("add")
+    with pytest.raises(ValueError, match="版本已变化"):
+        workspace.read_file("app.py", expected_hash="")
+    (workspace.root / "app.py").write_text("new\n", encoding="utf-8")
+    current_hash = hashlib.sha256((workspace.root / "app.py").read_bytes()).hexdigest()
+    assert "1: new" in workspace.read_file("app.py", expected_hash=current_hash)
+    with pytest.raises(ValueError, match="版本已变化"):
+        workspace.read_file("app.py")
+
+
+def test_verified_partial_results_also_register_hashes(tmp_path, monkeypatch):
+    workspace, backend, _, retriever = make_components(tmp_path)
+    original_search = backend.search_index
+
+    def incomplete_search(*arguments):
+        result = original_search(*arguments)
+        result["exhaustive"] = False
+        return result
+
+    monkeypatch.setattr(backend, "search_index", incomplete_search)
+    result = payload(retriever.search("add"))
+    assert result["status"] == "partial"
+    assert workspace.search_hashes["app.py"] == result["files"][0]["content_hash"]
+
+
 def test_large_files_are_skipped_total_budget_fails_and_scan_errors_do_not_disappear(
     tmp_path, monkeypatch
 ):
@@ -323,6 +487,7 @@ def test_failed_build_is_not_published_and_previous_generation_is_not_returned(
 ):
     workspace, backend, _, retriever = make_components(tmp_path)
     assert payload(retriever.search("add"))["status"] == "ok"
+    saved_hashes = dict(workspace.search_hashes)
     (workspace.root / "app.py").write_text("changed", encoding="utf-8")
 
     def fail(source_dir, index_dir):
@@ -335,6 +500,7 @@ def test_failed_build_is_not_published_and_previous_generation_is_not_returned(
     assert payload(result)["status"] == "failed"
     assert payload(result)["files"] == []
     assert len(list(workspace.index_root.iterdir())) == 1
+    assert workspace.search_hashes == saved_hashes
 
 
 def test_corrupt_manifest_or_missing_shards_are_not_empty_results(tmp_path):
@@ -410,13 +576,18 @@ def test_same_file_many_matches_does_not_occupy_multiple_file_ranks(tmp_path):
 
 def test_long_matching_line_keeps_evidence_and_json_remains_within_budget(tmp_path):
     files = {f"{n:02}.py": "a" * 2000 + "needle" + "中文" * 1000 + "\n" for n in range(20)}
-    _, _, _, retriever = make_components(tmp_path, files=files)
+    workspace, _, _, retriever = make_components(tmp_path, files=files)
     result = retriever.search("needle", limit=20)
     output = payload(result)
     assert len(result.content.encode()) <= MAX_RESULT_BYTES
     assert output["truncated"] is True
+    assert len(output["files"]) < len(files)
     assert "needle" in output["files"][0]["hits"][0]["snippet"]
     assert output["files"][0]["hits"][0]["snippet_truncated"] is True
+    # s16 新增：因正文预算被移除的文件不能被登记为模型已收到的搜索证据。
+    assert workspace.search_hashes == {
+        file["path"]: file["content_hash"] for file in output["files"]
+    }
 
 
 @pytest.mark.parametrize(
@@ -450,6 +621,7 @@ def test_source_change_during_search_returns_stale_not_old_evidence(tmp_path, mo
     monkeypatch.setattr(backend, "search_index", change)
     result = payload(retriever.search("add"))
     assert result["status"] == "stale" and result["files"] == []
+    assert workspace.search_hashes == {}
 
 
 def test_newly_protected_or_unreadable_source_is_failure_not_complete_empty(tmp_path, monkeypatch):
@@ -615,7 +787,7 @@ def test_main_offline_provider_completes_search_then_reads_same_target(
                     "name": "read_file",
                     "input": {
                         "path": file["path"],
-                        "expected_hash": file["content_hash"],
+                        # s16 修改：模拟模型遗漏可选指纹，验证真实 main 仍能完成自动校验链路。
                         "limit": 2,
                     },
                 }
