@@ -177,6 +177,14 @@
 - 修复边界：s11 紧凑投影保留可选 reason，不复制完整会话和工具状态，不改变事件名称及统计行为；没有 reason 的正常结束不增加空字段。
 - 回归：`tests/test_runtime_recovery.py` 实际写读 Trace，覆盖正常结束、限轮、请求失败、持久化失败及后端失败，断言正文没有重复保存。
 
+## B022：Python 的行拆分规则与 Zoekt 匹配位置不一致
+
+- 状态：2026-10-14，s16 开发期检查发现并修复；不是用户模型日志或真实容器运行结果。
+- 证据：测试串 `first\u2028still-first\nneedle\n` 中，Python `splitlines()` 把 Unicode 行分隔符也作为换行，得到 `needle` 在第 3 行；按 Zoekt 的 LF 位置规则则在第 2 行。相同字节会产生不同位置，导致证据复核误报失败或补读偏移。
+- 原因与归属：s16 将外部搜索引擎位置映射回 Python 源码时，不能沿用与引擎不同的通用文本拆分规则；CRLF 也需要只去掉行尾 CR，而不是改变行数。
+- 修复边界：s16 用 `source_lines()` 统一检索证据、read_file 和 grep 的 LF 行号，保留原始字节计算哈希。不调整旧章、不改 Zoekt 算法、不执行目标源码。
+- 回归：`test_lf_line_numbers_match_zoekt_even_with_crlf_and_unicode_separators` 验证 CRLF 与 Unicode 分隔符下的读取/证据位置；真实 Zoekt 镜像集成仍需用户手动构建后显式执行，离线协议替身不证明容器行为。
+
 ## 记录新问题
 
 新增条目时只写已复现的问题，并补齐以下信息：

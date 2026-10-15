@@ -1,8 +1,8 @@
 # 代码仓库理解与检索：第二阶段总体设计
 
-版本：v0.1；更新：2026-10-14；状态：待评审的实现方案，不代表功能已经完成。
+版本：v0.2；更新：2026-10-14；状态：s16 已实现 Python 编排与离线回归，真实 Zoekt 验证待手动准备镜像；s17–s19 尚未开发。
 
-本阶段围绕一个问题：收到代码维护任务后，如何用更少的无效浏览，找到有源码证据的相关文件和函数。先确定数据、检索、更新和评测边界，再开发 s16–s19；本文的组件名称和接口均为设计名称，不提前添加空类、未使用方法或新依赖。
+本阶段围绕一个问题：收到代码维护任务后，如何用更少的无效浏览，找到有源码证据的相关文件和函数。先确定数据、检索、更新和评测边界，再开发 s16–s19；s16 组件已落地，其余能力仍为规划，不提前添加空类、未使用方法或新依赖。
 
 ## 目标与范围
 
@@ -18,7 +18,7 @@
 
 | 参考 | 本次核对的入口 | 借鉴与取舍 | 验证章节 |
 | --- | --- | --- | --- |
-| Sourcebot | [zoektSearcher.ts](https://github.com/sourcebot-dev/sourcebot/blob/main/packages/web/src/features/search/zoektSearcher.ts) | 搜索范围、带文件/行号的片段、结果上限和完整性反馈；不照搬 Zoekt 服务与 Web 平台 | s16 |
+| Sourcebot / Zoekt | [zoektSearcher.ts](https://github.com/sourcebot-dev/sourcebot/blob/main/packages/web/src/features/search/zoektSearcher.ts)、[Zoekt 算法](https://github.com/sourcegraph/zoekt/blob/27517a30ae6df16c6e768623847fdab8f6a3bbcf/doc/design.md) | 复用位置 trigram 索引和搜索，保留范围、位置与完整性；Python 编排改用短容器，不引入整个 Web 平台 | s16 |
 | Potpie 当前 Context Graph | [查询架构](https://github.com/potpie-ai/potpie/blob/main/docs/context-graph/querying.md)、[组件架构](https://github.com/potpie-ai/potpie/blob/main/docs/context-graph/architecture.md) | 返回带来源、可解释的排序证据，Agent 负责推理；保留检索与存储边界，不复制其完整知识和部署体系 | s18、s19 |
 | Potpie 历史代码解析路径 | [官方发布记录](https://github.com/potpie-ai/potpie/releases)中的 1.0.2 | 作为结构解析与混合检索的专项走读对象，不把历史实现当成当前主线；具体源码与参数尚需在 s17/s18 开发前核对 | s17、s18 |
 | Pi | 同级 `../pi/packages/coding-agent/examples/extensions/todo.ts` | 通过注册 API 接入工具和观察者，正文与结构化 details 分工；索引不作为 Todo 那样的会话状态恢复 | s16 起 |
@@ -26,7 +26,7 @@
 
 Sourcebot 的上述搜索路径通过 Zoekt 提供索引搜索，不能将其直接描述为向量 RAG。Potpie 当前查询文档强调排序证据，其 Context Graph 范围也不等同于早期代码关系图；两条来源分开使用。
 
-参考版本记录：Pi 本地 HEAD 为 `e4c75a73222ae2c72abb5f5314fa35ee8effc508`；lcc 本地 HEAD 为 `0dcafa2ae053a1ddd6a72f265431104b08a5aa13`。上游在线材料为本次查阅的 main 页面，尚未取得统一固定 commit；开始相关章节前补充固定版本及具体走读文件，不能把主线变化或文档中的未实现能力当成已验证实现。研究设计，不复制上游大段源码；采用外部组件前另行核对依赖和许可。
+参考版本记录：Pi 本地 HEAD 为 `e4c75a73222ae2c72abb5f5314fa35ee8effc508`；lcc 本地 HEAD 为 `0dcafa2ae053a1ddd6a72f265431104b08a5aa13`。s16 固定 Zoekt 提交 `27517a30ae6df16c6e768623847fdab8f6a3bbcf`，走读目录索引器、查询类型、SearchOptions 和索引构建选项；镜像标签与实际镜像 ID 参与版本检查。Sourcebot/Potpie 的在线材料仍需在对应章节补充固定版本，不能把主线变化或文档中的未实现能力当成已验证实现。研究设计，不复制上游大段源码；镜像保留 Zoekt LICENSE，其他依赖在采用时核对。
 
 ## 数据与证据
 
@@ -74,12 +74,12 @@ Sourcebot 的上述搜索路径通过 Zoekt 提供索引搜索，不能将其直
 
 ## 组件职责与组装
 
-只保留四个上层职责。下面是拟采用的组件名，不要求每项都拆出接口层或多个辅助类：
+只保留四个上层职责。s16 已使用以下组件；另外用 `ZoektBackend` 封装外部进程，不增加一套 Provider 注册体系：
 
 | 组件 | 职责 | 不负责 |
 | --- | --- | --- |
 | `RepositoryWorkspace` | 目标根目录、源码访问规则、仓库身份和缓存位置 | 模型请求、排名、导入目标项目 Python |
-| `RepositoryIndex` | 文件扫描、指纹、增量更新及实际启用的索引读写 | Agent 决策、权限确认、编写最终答案 |
+| `RepositoryIndex` | 接收扫描快照，管理索引版本、复用和成功发布 | Agent 决策、权限确认、编写最终答案 |
 | `CodeRetriever` | 查询、调用已实现通道、去重排序、按预算组织证据 | 修改源码、改变会话压缩算法 |
 | `RepositoryExtension` | 将检索 handler 和指标观察者注册到现有 API | 另建核心循环、保存整份索引到会话 |
 
@@ -87,11 +87,11 @@ Sourcebot 的上述搜索路径通过 Zoekt 提供索引搜索，不能将其直
 
 ```mermaid
 flowchart LR
-    W[workspace: RepositoryWorkspace] -->|workspace| I[index: RepositoryIndex]
+    W[workspace: RepositoryWorkspace] -->|workspace| I[index_manager: RepositoryIndex]
     W -->|workspace 与访问规则| R[retriever: CodeRetriever]
-    I -->|index| R
+    I -->|index_manager| R
     R -->|retriever| X[retrieval_extension: RepositoryExtension]
-    X -->|register_tool: search handler| A[extensions: 现有 ExtensionAPI]
+    X -->|register_tool: handle_search| A[extensions: 现有 ExtensionAPI]
     X -->|on tool_result: 指标观察者| A
     A -->|tools / hooks / dispatch| L[本章 agent_loop]
     A -->|subscribe: handle_event| E[现有 EventDispatcher]
@@ -100,7 +100,9 @@ flowchart LR
 
 main 按“workspace 与索引 → retriever → extension → 现有运行时 → 交互入口”显式组装。建议让已注入 retriever 的扩展组件执行 `register(api)`，内部调用现有 `api.register_tool()`；不修改模块加载器为隐式依赖注入器，也不通过全局变量传目标仓库。
 
-每章继续完整展开 agent_loop。到 s17/s18/s19 时，只增加该章真正使用的索引内容、检索能力与参数；不用在 s16 先写空的 SemanticRetriever、关系查询接口或 Provider 注册表。
+s16 中，`workspace.scan()` 返回内存源码 `SourceSnapshot`，`index_manager.prepare()` 返回不含源码的索引信息 `PreparedIndex`。扩展入口叫 `handle_search()`，完整检索流程叫 `CodeRetriever.search()`，引擎查询叫 `ZoektBackend.search_index()`；三者职责不同，不共用一个含糊的 `search` 名称。
+
+每章继续完整展开 agent_loop。s16 的真实组装见 [章节 README](../s16_repository_search/README.md#组装结构)，上图是阶段职责概览。到 s17/s18/s19 时，只增加该章真正使用的索引内容、检索能力与参数；不用在 s16 先写空的 SemanticRetriever、关系查询接口或 Provider 注册表。
 
 ## 检索流程与算法
 
@@ -124,7 +126,7 @@ flowchart TD
 - 语义：把自然语言需求与代码片段匹配。先嵌入源码、路径、签名和已有文档字符串，不默认给所有代码调用 LLM 生成描述。
 - 关系：从已知符号或文件有限扩展。先支持 import、继承和明确可解析的调用；动态分派、反射及无法绑定的调用标为 unresolved，不能作为已确认的依赖边。
 
-初版只注册一个 `search_code` 工具，s16 参数保持关键词、范围和返回上限的最小组合；以后有实际能力时才添加语义模式、符号或关系查询。默认不把模型参数当 SQL、FTS 表达式或 shell 执行。
+初版只注册一个 `search_code` 工具，s16 参数是 `query` 字面文本、`scope` 相对目录、`limit` 文件上限；以后有实际能力时才添加语义模式、符号或关系查询。适配器构造 Zoekt Substring，不把模型参数当查询表达式、正则或 shell 执行。
 
 s18 多路融合先采用按排名合并的 RRF 作为基线，避免直接相加 BM25 与向量相似度；保留原排名和通道来源。参数、路径/符号优先规则在开发集确定，不根据测试集调权重。RRF 是实验起点，不保证一定优于文本检索。[原始论文](https://cormack.uwaterloo.ca/cormacksigir09-rrf.pdf)
 
@@ -136,11 +138,9 @@ s19 关系扩展先限制一跳，设置邻居数量和总输出上限；返回�
 
 ### 初始选型
 
-s16 建议使用 SQLite 保存文件清单与文本索引，FTS5 用于文本候选召回，命中片段再对源码确认。FTS5 的查询和 tokenizer 行为按[官方说明](https://www.sqlite.org/fts5.html)验证，尤其是下划线、驼峰、中文和短标识符；必要时用有界字面扫描补充，必须在结果与耗时中标明扫描模式。
+s16 改为直接复用 Zoekt，SQLite FTS5 不再是主文本搜索方案。Zoekt 保存三字符出现位置，先筛选候选再验证文本；本项目的 Go 薄适配器只构造查询和返回排序位置，索引/匹配由上游执行。Python 使用同版快照核验位置、组织有界片段。短容器只挂载过滤源码与缓存，禁止联网和自动拉取镜像；固定镜像需由用户手动构建。
 
-本次只读检查确认当前虚拟环境的 SQLite 为 3.49.1，编译选项启用 FTS5；没有创建磁盘索引或安装扩展。这不代表其他机器同样支持，启动时要检查；不能静默改变算法后仍声称在比较同一索引方案。
-
-s17 在同一缓存存储中增加实际使用的符号数据；s18 的 embedding 模型、调用方式和向量后端暂不锁定。小样本可先用精确相似度检索作为正确性基线，规模测试后再决定是否引入近似索引。s19 可先用关系表表达有限图遍历，不要求部署 Neo4j。
+s16 使用 JSON manifest 与 Zoekt 分片，不增加数据库依赖。s17 按实际符号数据需要再决定存储，SQLite 可作为元数据/关系表选择，不等同于检索算法。s18 的 embedding 模型、调用方式和向量后端暂不锁定；参考 Potpie 的结构化切分和混合召回，先建立普通 embedding 基线，再决定是否比较 ColBERT。s19 可先用关系表表达有限图遍历，不要求部署 Neo4j。
 
 聊天模型与 embedding 模型分别配置。远程 embedding 会额外发送代码，必须明确授权和记录成本；没有配置时语义能力不启用。模型下载、数据库服务和 API 调用不自动执行，选型与准备命令在对应章节给出。
 
@@ -150,21 +150,21 @@ s17 在同一缓存存储中增加实际使用的符号数据；s18 的 embeddin
 
 1. 启动绑定唯一目标目录，生成允许读取的文件清单及内容指纹。
 2. 每次查询前核对允许文件的内容指纹，识别新增、修改、删除；时间戳只作辅助信息。
-3. 只重建内容变化文件的片段、符号、向量或关系；未变化数据复用缓存。
+3. s16 首次或允许源码变化时整代重建 Zoekt 分片；未变化复用缓存。后续符号/向量章节再按实际能力缓存变化文件，不将 s16 描述为逐文件增量索引。
 4. 一批更新成功才激活新索引代次。中途失败不把一半旧数据、一半新数据称为更新成功。
 5. 返回片段前复核命中文件指纹；来源变化则有界重试或明确失败，不无限刷新。
 
-“增量”是少重新解析和嵌入，不代表初版完全不读取其他文件；完整指纹核对的磁盘成本必须测量。后续优化扫描或使用监控前，要保留同等更新正确性测试。文件系统不是原子快照，不承诺并发修改时整个仓库强一致；稳定评测使用冻结工作树。
+缓存复用不代表不扫描源码：s16 查询前、返回前各核对一次允许文件内容，磁盘成本单列。后续逐文件更新、扫描优化或使用监控前，要保留同等正确性测试。文件系统不是原子快照，不承诺并发修改时整个仓库强一致；稳定评测使用冻结工作树。
 
 文件删除时清除对应片段及关系；语义缓存按“片段内容＋embedding 模型/版本＋输入表示版本”区分。向量更新尚未完成时，不能将语义通道标为 ready；不混用不同维度或旧模型结果。
 
 ### 目录隔离与读取安全
 
-索引拟保存于 Harness 的 `.indexes/<索引格式版本>/<workspace_id>/<source_view_id>/`，不放进目标仓库或 Session。源码版本、过滤规则和实际启用的解析/embedding 配置决定缓存是否可复用；对应章节才增加缓存忽略规则和必要字段。
+索引保存于 Harness 的 `.indexes/s16/<workspace_id>/<generation>/`，不放进外部目标仓库或 Session。代次包含源码哈希、目标身份、适配器格式与实际镜像 ID；每代次有过滤源码副本、Zoekt 分片和 manifest，旧代次保留为可重建缓存。后续增加不同源码视图或解析/embedding 配置时再定义对应缓存身份。
 
 复用 s13 的“路径规范化＋仓库身份”思路，不直接修改它限定 A/B/C 的 WorkspaceLayout。目标仓库、Harness、执行视图分别明确；新章的会话和 Trace 也必须按目标隔离，不能恢复另一个仓库的授权。
 
-现有 s03 文件工具依赖全局 WORKDIR。因此 s16 的关键前置工作是将新章基础读取、路径权限和检索绑定到同一个 RepositoryWorkspace，复用底层有界读取函数，而不是修改旧章全局变量或只给 search_code 传另一目录。
+现有 s03 文件工具依赖全局 WORKDIR。s16 已将基础读取、路径权限与检索绑定到同一个 RepositoryWorkspace，不修改旧章全局变量。读取继续遵循行/字节预算，增加行号、内容哈希和 expected_hash 校验，避免沿用检索旧行号读取新源码。
 
 索引服务自身强制检查工作区边界和排除规则，不因为“是只读扩展”就自动安全：拒绝路径越界、链接/硬链接别名；排除凭证、Git 内部数据、依赖、运行记录、索引和评测答案。Git ignore 与大小、数量和读取时限共同限定扫描范围；返回跳过数量与原因，但不泄露秘密正文。只解析文本/AST，不 import 或执行目标项目代码。
 
@@ -246,4 +246,4 @@ Recall 的 gold 必须是 base commit 中实际存在、可以检索的文件或
 - 索引可删除重建，恢复会话不恢复授权或强行复用旧索引；保护规则和源码版本每次重新校验。
 - 沙箱检索同源验证与正式性能提升结论均未完成，不提前写进已实现能力。
 
-下一步是评审本方案并冻结 s16 的输入输出与测试案例；得到开发指令后再创建章节源码。
+下一步由用户手动准备镜像，执行 s16 的真实 Zoekt 小样本测试和运行案例，再评审 s17。普通离线回归使用后端/模型替身，不证明真实引擎或 Agent 的性能提升；正式数据和费用预算仍需单独确认。

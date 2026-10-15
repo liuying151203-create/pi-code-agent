@@ -21,6 +21,9 @@ dist/
 # Runtime trace data
 .traces/
 
+# s16 的过滤源码副本和 Zoekt 索引（按目标项目分组，可重建）
+.indexes/
+
 # Sandbox input snapshots and review reports
 .sandboxes/
 
