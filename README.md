@@ -89,8 +89,12 @@ python -m s15_stateful_extensions.code --mode read-only
 python -X utf8 -m s16_repository_search.code
 # 不调用模型，单独验证检索；--workspace 可指定其他已有项目
 python -X utf8 -m s16_repository_search.code --search latest_tool_details --scope s15_stateful_extensions
+# 第十七章：按章节 README 单独构建含 ctags 的镜像，再查询符号定义与实体范围
+python -X utf8 -m s17_repository_symbols.code --search restore_state --search-mode symbol --scope s15_stateful_extensions
+# 第十七章只读 Agent：文本/符号模式由 search_code 工具参数选择
+python -X utf8 -m s17_repository_symbols.code
 # 运行测试
 python -m pytest
 # 检查代码规范
-ruff check s01_agent_loop s02_tool_use s03_permission s04_hooks s05_session_persistence s06_session_context s07_session_compaction s08_runtime_events s09_runtime_streaming s10_model_provider s11_runtime_observability s12_skill_loading s13_a_sandbox_copy s13_b_sandbox_workspace s13_c_sandbox_native s14_extensions s15_stateful_extensions s16_repository_search src tests
+ruff check s01_agent_loop s02_tool_use s03_permission s04_hooks s05_session_persistence s06_session_context s07_session_compaction s08_runtime_events s09_runtime_streaming s10_model_provider s11_runtime_observability s12_skill_loading s13_a_sandbox_copy s13_b_sandbox_workspace s13_c_sandbox_native s14_extensions s15_stateful_extensions s16_repository_search s17_repository_symbols src tests
 ```

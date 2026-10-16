@@ -1,8 +1,8 @@
 # 代码仓库理解与检索：第二阶段总体设计
 
-版本：v0.2；更新：2026-10-14；状态：s16 已实现 Python 编排与离线回归，真实 Zoekt 验证待手动准备镜像；s17–s19 尚未开发。
+版本：v0.3；更新：2026-10-16；状态：s16 文本检索、s17 符号查询与 Python 实体已实现编排和离线回归；真实引擎验证需手动准备对应镜像，s18–s19 尚未开发。
 
-本阶段围绕一个问题：收到代码维护任务后，如何用更少的无效浏览，找到有源码证据的相关文件和函数。先确定数据、检索、更新和评测边界，再开发 s16–s19；s16 组件已落地，其余能力仍为规划，不提前添加空类、未使用方法或新依赖。
+本阶段围绕一个问题：收到代码维护任务后，如何用更少的无效浏览，找到有源码证据的相关文件和函数。s16–s17 已落地，语义与关系能力仍为规划，不提前添加空类、未使用方法或新依赖。
 
 ## 目标与范围
 
@@ -18,9 +18,9 @@
 
 | 参考 | 本次核对的入口 | 借鉴与取舍 | 验证章节 |
 | --- | --- | --- | --- |
-| Sourcebot / Zoekt | [zoektSearcher.ts](https://github.com/sourcebot-dev/sourcebot/blob/main/packages/web/src/features/search/zoektSearcher.ts)、[Zoekt 算法](https://github.com/sourcegraph/zoekt/blob/27517a30ae6df16c6e768623847fdab8f6a3bbcf/doc/design.md) | 复用位置 trigram 索引和搜索，保留范围、位置与完整性；Python 编排改用短容器，不引入整个 Web 平台 | s16 |
+| Sourcebot / Zoekt | [zoektSearcher.ts](https://github.com/sourcebot-dev/sourcebot/blob/main/packages/web/src/features/search/zoektSearcher.ts)、[Zoekt 算法](https://github.com/sourcegraph/zoekt/blob/27517a30ae6df16c6e768623847fdab8f6a3bbcf/doc/design.md) | 复用位置 trigram 与 ctags 符号检索；s17 通过 `Symbol(Substring)` 查询同一分片，另用 Python AST 补完整定义范围；短容器代替整个 Web 平台 | s16、s17 |
 | Potpie 当前 Context Graph | [查询架构](https://github.com/potpie-ai/potpie/blob/main/docs/context-graph/querying.md)、[组件架构](https://github.com/potpie-ai/potpie/blob/main/docs/context-graph/architecture.md) | 返回带来源、可解释的排序证据，Agent 负责推理；保留检索与存储边界，不复制其完整知识和部署体系 | s18、s19 |
-| Potpie 历史代码解析路径 | [官方发布记录](https://github.com/potpie-ai/potpie/releases)中的 1.0.2 | 作为结构解析与混合检索的专项走读对象，不把历史实现当成当前主线；具体源码与参数尚需在 s17/s18 开发前核对 | s17、s18 |
+| Potpie 历史代码解析路径 | [官方发布记录](https://github.com/potpie-ai/potpie/releases)中的 1.0.2 | 参考实体切分与混合检索的职责划分；s17 用标准库 AST 自行实现 Python 范围，Potpie 的图/向量查询参数留待 s18 专项核对，不把历史实现当成当前主线 | s17、s18 |
 | Pi | 同级 `../pi/packages/coding-agent/examples/extensions/todo.ts` | 通过注册 API 接入工具和观察者，正文与结构化 details 分工；索引不作为 Todo 那样的会话状态恢复 | s16 起 |
 | lcc | 同级 `../learn-claude-code/s02_tool_use/code.py` | 稳定循环、显式工具分发和渐进章节；不直接复制其代码，也不把多路检索塞进循环 | s16 起 |
 
@@ -35,7 +35,7 @@ Sourcebot 的上述搜索路径通过 Zoekt 提供索引搜索，不能将其直
 | 数据 | 最少信息 | 首次使用 |
 | --- | --- | --- |
 | 文件记录 | 仓库身份、相对路径、内容指纹、字节数、索引代次 | s16 |
-| 代码片段 | 文件、起止行、该文件内容指纹、片段 ID | s16；s17 改为优先按符号边界组织 |
+| 代码片段 | 文件、匹配行、内容指纹；s17 增加关联实体的完整范围与 ID | s16、s17 |
 | 符号 | 模块、限定名称、种类、定义位置、内容版本 | s17 |
 | 语义向量 | 片段 ID、模型/版本、维度、输入表示版本 | s18 |
 | 关系 | 起点、终点、关系类型、证据位置、源码版本、解析状态 | s19 |
@@ -74,7 +74,7 @@ Sourcebot 的上述搜索路径通过 Zoekt 提供索引搜索，不能将其直
 
 ## 组件职责与组装
 
-只保留四个上层职责。s16 已使用以下组件；另外用 `ZoektBackend` 封装外部进程，不增加一套 Provider 注册体系：
+保留四个上层职责和 `ZoektBackend` 进程边界；s17 另有实际使用的 `CodeEntity`/`EntityCatalog` 保存结构元数据，不增加一套 Provider 注册体系：
 
 | 组件 | 职责 | 不负责 |
 | --- | --- | --- |
@@ -82,6 +82,8 @@ Sourcebot 的上述搜索路径通过 Zoekt 提供索引搜索，不能将其直
 | `RepositoryIndex` | 接收扫描快照，管理索引版本、复用和成功发布 | Agent 决策、权限确认、编写最终答案 |
 | `CodeRetriever` | 查询、调用已实现通道、去重排序、按预算组织证据 | 修改源码、改变会话压缩算法 |
 | `RepositoryExtension` | 将检索 handler 和指标观察者注册到现有 API | 另建核心循环、保存整份索引到会话 |
+
+s17 中 `RepositoryIndex.prepare()` 将 `source/`、`shards/`、`entities.sqlite` 和 manifest 在同一临时目录完成后整体发布；命中由 `CodeRetriever` 关联 `PreparedIndex.entity_catalog`。SQLite 只保存实体和解析错误，不存另一份源码，也没有预建向量/关系表。s17 记录隔离到 `.indexes/s17/<项目ID>/`、`.sessions/s17/<项目ID>/`、`.traces/s17/<项目ID>/`；两种查询模式共用同一代分片。
 
 结构图的箭头统一表示左侧向右侧提供依赖或数据，标签标明参数或注册方式，不表示调用顺序。
 
@@ -148,7 +150,7 @@ s19 关系扩展先限制一跳，设置邻居数量和总输出上限；返回�
 
 s16 改为直接复用 Zoekt，SQLite FTS5 不再是主文本搜索方案。Zoekt 保存三字符出现位置，先筛选候选再验证文本；本项目的 Go 薄适配器只构造查询和返回排序位置，索引/匹配由上游执行。Python 使用同版快照核验位置、组织有界片段。短容器只挂载过滤源码与缓存，禁止联网和自动拉取镜像；固定镜像需由用户手动构建。
 
-s16 使用 JSON manifest 与 Zoekt 分片，不增加数据库依赖。s17 按实际符号数据需要再决定存储，SQLite 可作为元数据/关系表选择，不等同于检索算法。s18 的 embedding 模型、调用方式和向量后端暂不锁定；参考 Potpie 的结构化切分和混合召回，先建立普通 embedding 基线，再决定是否比较 ColBERT。s19 可先用关系表表达有限图遍历，不要求部署 Neo4j。
+s16 使用 JSON manifest 与 Zoekt 分片。s17 已采用标准库 SQLite 保存实体元数据，不增加 Python 包依赖；关键词/符号查询仍由 Zoekt 实现，不将数据库存储称为检索算法。s18 再确认 embedding 模型、调用方式与向量后端；参考 Potpie 的结构化切分和混合召回，先建立普通 embedding 基线，再决定是否比较 ColBERT。s19 可先用关系表表达有限图遍历，不要求部署 Neo4j。
 
 聊天模型与 embedding 模型分别配置。远程 embedding 会额外发送代码，必须明确授权和记录成本；没有配置时语义能力不启用。模型下载、数据库服务和 API 调用不自动执行，选型与准备命令在对应章节给出。
 
@@ -209,7 +211,7 @@ s16 用 `todo`、`latest_tool_details` 等关键词召回带行号的文件；s1
 | 章节 | 一个主要机制 | 当章必须闭合的验证 |
 | --- | --- | --- |
 | s16：仓库系统 · 文本检索 | 同一目标范围内的索引文本定位 | 外部目标读取一致、指纹更新/删除、候选排序与预算、只读访问、无 LLM 组件测试与基础工具基线 |
-| s17：仓库系统 · 符号索引 | Python AST 定义和符号边界 | 嵌套/同名/异步函数、行号、解析失败反馈、变化文件重建、文本＋符号消融 |
+| s17：仓库系统 · 符号索引 | Zoekt+ctags 定义查询，Python AST 补实体边界 | 已实现离线验证：嵌套/同名/异步、范围、解析错误、同代更新与失败不发布；真实文本/符号区别需手动启用引擎测试，正式消融仍待评测 |
 | s18：仓库系统 · 语义与混合检索 | 语义候选与多路排名融合 | 独立 embedding 配置、版本/维度与缓存、已知/未知成本、排名去重、语义故障与文本模式区别 |
 | s19：仓库系统 · 关系扩展 | 有限、可核验的关联代码导航 | import/继承/可解析调用、unresolved、不跨版本、循环关系和邻居预算、关系消融 |
 
@@ -254,4 +256,4 @@ Recall 的 gold 必须是 base commit 中实际存在、可以检索的文件或
 - 索引可删除重建，恢复会话不恢复授权或强行复用旧索引；保护规则和源码版本每次重新校验。
 - 沙箱检索同源验证与正式性能提升结论均未完成，不提前写进已实现能力。
 
-下一步由用户手动准备镜像，执行 s16 的真实 Zoekt 小样本测试和运行案例，再评审 s17。普通离线回归使用后端/模型替身，不证明真实引擎或 Agent 的性能提升；正式数据和费用预算仍需单独确认。
+下一步由用户手动准备对应镜像，执行 s16/s17 真实 Zoekt 小样本测试与运行案例，再评审 s18。s17 固定 Universal Ctags v6.1.0，并沿用相同 Zoekt 提交；AST 解释器主/次版本、格式版本和实际镜像 ID 均参与缓存代次。普通离线回归使用后端/模型替身，不证明真实引擎或 Agent 的性能提升；正式数据和费用预算仍需单独确认。
