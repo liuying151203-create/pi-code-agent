@@ -8,6 +8,12 @@ Python 在宿主机组织检索，Zoekt 在短容器中建索引和查询。Dock
 
 相对 s15，新增 `search_code`；与 `glob`、`grep`、`read_file` 共用一个目标项目。检索返回排序文件、行号和 `content_hash`，模型再按需读取源码。完整 `agent_loop` 保留在 [code.py](code.py)，没有检索业务分支。
 
+## 整体工作示意
+
+![s16：Agent、仓库检索模块、目标项目、Zoekt 容器与本地缓存之间的任务和数据流](architecture.svg)
+
+按①–⑥看一次搜索到源码补读的过程；方框表示运行区域，箭头标明请求或数据去向。虚线只在需要重建时发生。检索模块对应 `RepositoryExtension`、`CodeRetriever`、`RepositoryIndex`；`ZoektBackend` 负责调用容器内的程序。
+
 ## 运行与验证
 
 在 zero2pi 根目录、已有虚拟环境下运行。先手动启动 Docker Desktop 的 Linux 服务，再**构建一次**镜像：
@@ -83,30 +89,23 @@ D:\dev\Agent\zero2pi\.indexes\s16\<项目ID>\<索引代次>\
 
 ## 运行流程
 
-一次 `search_code` 调用经 `RepositoryExtension.handle_search()` 进入 [CodeRetriever.search()](retrieval.py)。直接使用 `--search` 也会进入同一检索方法，只是不经过模型和扩展。以下以允许范围内存在源码文件为例：
-
-1. **扫描源码到内存**：`workspace.scan()` 先过滤再读文件，得到 `source_snapshot`。此时尚未写磁盘副本，也没有调用索引器；未提交修改同样包含在快照中。
-2. **准备索引**：`index_manager.prepare(source_snapshot)` 根据快照和后端版本查缓存。同代次缓存存在且校验通过就复用；无对应代次则把内存字节写成临时 `source/`，调用 `backend.build_index()`。它运行官方 `/zoekt-index`，将真正的索引写入 `shards/`，成功后发布并返回 `PreparedIndex`。已有缓存损坏会明确报错，不自动覆盖。
-3. **查询索引**：`backend.search_index(prepared_index.index_dir, query, scope, limit)` 读取磁盘索引；[search.go](search.go) 打开 `/index`，构造字面查询并调用 Zoekt 的 `Search()`。返回的 `zoekt_result` 主要是排序文件、行号和完整性标记，不是整份源码。
-4. **核验并组织片段**：`_build_file_results()` 将后端位置与第一次扫描的 `source_snapshot` 对照，检查该行确实包含查询，再截取显示片段、附上文件哈希；不重新搜索或排名，也不改用新版源码解释旧位置。
-5. **检查期间是否变化**：再次 `workspace.scan()` 得到 `latest_snapshot`，与第一次快照比较指纹。不同则清空结果并返回 `stale`；这次扫描只检查变化，不会再次建索引或搜索。
-6. **登记指纹并返回**：限制 JSON 正文大小，只把通过复核、实际返回的文件指纹记入 `workspace.search_hashes`，再返回 `ToolResult(content=正文, details=指标)`；失败、过期或被预算移除的结果不登记。交互模式沿用 s15 保存会话、发送事件，模型按需用 `read_file` 补读原项目。未传 `expected_hash` 时自动使用已登记指纹；显式传入时仍按传入值校验。
+本章的工作流程是：Agent 先搜索定位，再按需读取源码，最后根据证据回答。箭头表示执行先后，只画正常工作主线。
 
 ```mermaid
 flowchart TD
-    Q[retriever.search] --> S[scan：原项目磁盘 → 内存快照]
-    S --> I[prepare：查找同代次缓存]
-    I -->|已有缓存校验通过| Z[search_index：查询磁盘 shards → 文件与行号]
-    I -->|无对应代次| W[内存字节 → 临时 source 副本]
-    W --> C[build_index：Zoekt 生成 shards 后发布]
-    C --> Z
-    Z --> B[_build_file_results：用首次内存源码核验并截取片段]
-    B --> V[再次 scan → latest_snapshot，比较两次指纹]
-    V -->|源码未变| R[裁剪结果预算 登记实际返回文件的指纹 再返回结果]
-    V -->|源码变化| F[返回 stale 不使用旧证据]
-    R --> P[沿用 s15 保存正文和指标后发送事件]
-    P --> M[模型按需 read_file 并回答]
+    task["用户提出代码问题"] --> search["Agent 提取关键词，调用 search_code"]
+    search --> prepare{"有可复用的索引？"}
+    prepare -->|有| query_index["Zoekt 搜索索引"]
+    prepare -->|首次或源码变化| build_index["为允许的源码建立索引"]
+    build_index --> query_index
+    query_index --> results["返回相关文件、行号和代码片段"]
+    results --> read_source["Agent 按需读取相关源码"]
+    read_source --> answer["结合源码证据回答用户"]
 ```
+
+建索引覆盖整个允许范围；`scope` 只限制查询，换关键词不会重建索引。完整源码不会因此全部发送给模型，模型只得到搜索片段，再按需补读。
+
+这条检索流程由 `CodeRetriever.search()` 组织。命令行 `--search` 可直接验证它，打印结果后退出，不经过 Agent，也不创建会话。源码副本与索引的位置见上面的“数据与存放位置”；版本校验、输出预算和指标记录不在流程图中展开。
 
 例如目标是 `D:\dev\my-app`，其中 `src/calc.py` 第 1 行为 `def add(a, b):`。首次搜索 `add` 时：该行字节进入内存快照 → 写入 zero2pi 缓存副本的 `source/src/calc.py` → Zoekt 建索引并找到 `src/calc.py:1` → Python 从首次快照取出 `def add(a, b):`，附上哈希 → 再扫描确认未变后返回。若期间被改成 `subtract`，则返回 `stale`，不提供旧证据。此例是流程示意，不是运行日志。
 
@@ -120,22 +119,25 @@ flowchart TD
 
 ## 组装结构
 
-箭头表示左侧向右侧提供依赖或数据；标签对应真实参数/注册方法，不表示执行先后。
+只看工作流程时无需展开；对照代码时再看主要组件。箭头表示提供依赖或注册能力，不表示执行先后。
+
+<details>
+<summary>主要组件的组装关系</summary>
 
 ```mermaid
 flowchart LR
-    W[workspace: RepositoryWorkspace] -->|workspace| I[index_manager: RepositoryIndex]
-    B[zoekt_backend: ZoektBackend] -->|backend| I
-    W -->|workspace| R[retriever: CodeRetriever]
-    I -->|index_manager| R
-    R -->|retriever| X[retrieval_extension: RepositoryExtension]
-    P[metrics_path] -->|metrics_path| X
-    X -->|register_tool: search_code / on: tool_result| A[extensions: s15 ExtensionAPI]
-    W -->|base_tools / base_dispatch / permission_hook| A
-    A -->|tools / dispatch / hooks| L[本章 agent_loop]
-    A -->|subscribe: handle_event| E[events: EventDispatcher]
-    E -->|emit| L
+    workspace["目标项目<br/>RepositoryWorkspace"] -->|workspace| index_manager["索引管理<br/>RepositoryIndex"]
+    zoekt_backend["搜索引擎<br/>ZoektBackend"] -->|backend| index_manager
+    workspace -->|workspace| retriever["检索流程<br/>CodeRetriever"]
+    index_manager -->|index_manager| retriever
+    retriever -->|retriever| retrieval_extension["检索扩展<br/>RepositoryExtension"]
+    retrieval_extension -->|register_tool| extensions["工具注册<br/>ExtensionAPI"]
+    extensions -->|"tools / dispatch / hooks"| agent_loop["Agent 循环<br/>agent_loop"]
 ```
+
+`main()` 先组装索引和检索器，再通过扩展注册 `search_code`，循环本身不增加检索业务分支。基础读取同样绑定 `workspace`，指标观察仍沿用已有事件机制，图中不展开。
+
+</details>
 
 运行记录按目标规范路径哈希分组：`.sessions/s16/<项目ID>/`、`.traces/s16/<项目ID>/`、`.indexes/s16/<项目ID>/`。检索指标在 Trace 旁的 `*.retrieval.jsonl`，普通 Trace 不重复保存完整 details。恢复会话不恢复授权或索引状态；旧缓存留作可重建数据，不写回原仓库。
 
