@@ -84,12 +84,18 @@ def parse_args(arguments: Sequence[str] | None = None) -> argparse.Namespace:
     流程：验证参数形状 → main 选择直接检索或 Agent 交互；本章始终只读。
     """
     parser = argparse.ArgumentParser(description="s17：仓库系统 · 符号索引与代码实体（只读）")
-    # 来自 s16：保持；不改 cwd，不让旧章全局 WORKDIR 决定目标；省略时分析 zero2pi。
-    parser.add_argument("--workspace", type=Path, default=HARNESS_ROOT, help="已有目标项目目录")
+    # 来自 s16：保持；两个章节默认使用同一独立示例，便于对照文本和符号检索。
+    default_workspace = HARNESS_ROOT / "example_project" / "retrieval_demo"
+    parser.add_argument(
+        "--workspace",
+        type=Path,
+        default=default_workspace,
+        help="已有目标项目目录（默认 example_project/retrieval_demo）",
+    )
     parser.add_argument("--session", type=Path, help="恢复同一目标的 s17 会话")
     parser.add_argument("--zoekt-image", default=DEFAULT_IMAGE, help="预先构建的本地镜像")
     parser.add_argument("--search", help="直接检索，不读取模型配置、不创建会话")
-    parser.add_argument("--scope", default="", help="相对目录，例如 src/zero2pi")
+    parser.add_argument("--scope", default="", help="目标内的相对目录，例如 math_ops")
     parser.add_argument("--limit", type=int, default=10, help="直接检索返回文件数，1–20")
     # s17 新增：直接检索也能验证符号模式；交互时模式由 search_code 参数指定。
     parser.add_argument(

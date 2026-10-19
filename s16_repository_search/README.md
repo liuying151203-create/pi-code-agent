@@ -21,21 +21,21 @@ Python 在宿主机组织检索，Zoekt 在短容器中建索引和查询。Dock
 ```powershell
 # 手动下载基础镜像、固定版本 Zoekt 和 Go 构建依赖；只把 search.go 发入构建上下文
 docker build -t zero2pi-zoekt:s16 s16_repository_search
-# 不调用模型：检索当前项目中 latest_tool_details 的定义或引用
-python -X utf8 -m s16_repository_search.code --search latest_tool_details --scope s15_stateful_extensions
+# 不调用模型：检索独立示例中 add 的定义或引用
+python -X utf8 -m s16_repository_search.code --workspace example_project/retrieval_demo --search add
 # 启动只读 Agent；复用根目录 .env 中的 Provider 与实际上下文窗口配置
-python -X utf8 -m s16_repository_search.code
+python -X utf8 -m s16_repository_search.code --workspace example_project/retrieval_demo
 ```
 
 在 `s16 >>` 输入：
 
 ```text
-只读分析：先搜索 latest_tool_details，再读取相关源码，解释 Todo 状态从哪里恢复。给出文件和行号。
+只读分析：搜索 add，补读 math_ops/calc.py、storage.py 和 workflow.py 的相关源码，解释两个同名方法的职责以及直接调用与别名调用的区别。给出文件和行号。
 ```
 
 观察：`search_code` 返回位置和哈希，`read_file` 补读后模型解释；不会请求 bash 审批，因为本章不开放 shell 或写入工具。返回次序由模型和 Zoekt 决定，此处不是实测日志。
 
-默认目标是 zero2pi；其他已有项目使用 `--workspace "D:\dev\my-app"`。`--session "<启动时打印的 JSONL 路径>"` 只恢复同一目标的 s16 会话。无需 `--mode`，本章固定只读。
+默认目标是 `example_project/retrieval_demo`，即使从其他目录启动也不变；不是 zero2pi 根目录。示例结构、业务运行和观察位置见 [示例说明](../example_project/README.md)。其他示例或已有项目使用 `--workspace "D:\dev\my-app"`。`--session "<启动时打印的 JSONL 路径>"` 只恢复同一目标的 s16 会话。无需 `--mode`，本章固定只读。
 
 修改目标源码**不需要重建镜像**：首次检索或允许文件内容变化时重建索引，未变化时复用。只有 Dockerfile、search.go 或固定 Zoekt 版本变化才需重新构建镜像；程序不自动下载、构建或启动 Docker 服务。
 
@@ -64,7 +64,7 @@ Remove-Item Env:ZERO2PI_TEST_ZOEKT
 
 | 数据 | 存放位置 | 用途 |
 | --- | --- | --- |
-| 目标原始源码 | `--workspace` 指定的宿主机目录，默认是 zero2pi | 用户实际维护的项目，`scan()` 和 `read_file()` 从这里读取。 |
+| 目标原始源码 | `--workspace` 指定的宿主机目录，默认 `example_project/retrieval_demo` | 被检索的独立项目，`scan()` 和 `read_file()` 从这里读取；不是 Harness 源码目录。 |
 | `source_snapshot: SourceSnapshot` | Python 内存 | 第一次扫描的合规源码；`file_contents` 保存完整字节，`file_hashes` 保存逐文件哈希，`fingerprint` 是整体指纹，`skipped_counts` 是跳过计数。不是磁盘副本。 |
 | 过滤后的源码副本 | 缓存的 `source/` 目录，宿主机硬盘 | 将快照字节写成文件，供 Zoekt 索引程序读取；不是完整 Git 克隆。 |
 | Zoekt 索引分片 | 缓存的 `shards/` 目录，宿主机硬盘 | Zoekt 生成的真正检索数据，不是 Python 字典或源码路径清单。 |
@@ -107,7 +107,7 @@ flowchart TD
 
 这条检索流程由 `CodeRetriever.search()` 组织。命令行 `--search` 可直接验证它，打印结果后退出，不经过 Agent，也不创建会话。源码副本与索引的位置见上面的“数据与存放位置”；版本校验、输出预算和指标记录不在流程图中展开。
 
-例如目标是 `D:\dev\my-app`，其中 `src/calc.py` 第 1 行为 `def add(a, b):`。首次搜索 `add` 时：该行字节进入内存快照 → 写入 zero2pi 缓存副本的 `source/src/calc.py` → Zoekt 建索引并找到 `src/calc.py:1` → Python 从首次快照取出 `def add(a, b):`，附上哈希 → 再扫描确认未变后返回。若期间被改成 `subtract`，则返回 `stale`，不提供旧证据。此例是流程示意，不是运行日志。
+例如默认示例中 `math_ops/calc.py` 第 8 行是运算方法定义。首次搜索 `add` 时：完整文件字节进入内存快照 → 写入 zero2pi 缓存副本的 `source/math_ops/calc.py` → Zoekt 建索引并找到第 8 行等位置 → Python 从首次快照取出匹配行并附哈希 → 再扫描确认未变后返回。若期间修改文件，则返回 `stale`，不提供旧证据。此例是流程示意，不是运行日志。
 
 若文件在搜索返回后才被修改，`read_file` 即使没带指纹也会发现版本变化，拒绝返回新版正文；重新搜索该文件后才更新自动校验依据。未搜索过的文件仍可直接读取。指纹只说明“上次搜到的内容是什么”，不能让已被忽略或禁止的文件获得读取权限。
 

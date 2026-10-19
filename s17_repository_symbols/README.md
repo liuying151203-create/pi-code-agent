@@ -21,23 +21,23 @@ s16 回答“哪些文件、哪些行出现了这个词”；s17 进一步回答
 ```powershell
 # 手动下载构建依赖，编译固定 Zoekt 与 Universal Ctags 6.1.0；不包含目标项目
 docker build -t zero2pi-zoekt:s17 s17_repository_symbols
-# 不调用模型：查 Todo 状态恢复方法的定义，不查对它的调用
-python -X utf8 -m s17_repository_symbols.code --search restore_state --search-mode symbol --scope s15_stateful_extensions
+# 不调用模型：查独立示例中两个 add 的定义，不查调用行
+python -X utf8 -m s17_repository_symbols.code --workspace example_project/retrieval_demo --search add --search-mode symbol
 # 对照文本模式：定义和引用都可能命中；两种模式复用同一代索引
-python -X utf8 -m s17_repository_symbols.code --search restore_state --scope s15_stateful_extensions
+python -X utf8 -m s17_repository_symbols.code --workspace example_project/retrieval_demo --search add
 # 启动只读 Agent；复用根目录 .env 的 Provider 和上下文预算
-python -X utf8 -m s17_repository_symbols.code
+python -X utf8 -m s17_repository_symbols.code --workspace example_project/retrieval_demo
 ```
 
 在 `s17 >>` 输入：
 
 ```text
-只读分析：用符号模式查 s15_stateful_extensions 中的 restore_state 定义，按返回的实体范围补读，解释 Todo 状态恢复的过程。给出限定名、文件和行号。
+只读分析：用符号模式查 add 的两个定义，按实体范围补读；再用文本模式查 workflow.py 中的使用位置。解释同名方法、normalize 嵌套函数与 operation 别名的区别，给出限定名、文件和行号，不把文本匹配当作已解析的调用关系。
 ```
 
 观察 `search_code` 的 `entity.qualified_name/start_line/end_line`，以及随后 `read_file` 的补读范围。这里没有 bash 或写入工具，不需要逐条批准 shell。运行结果由当前源码和模型决定，上述任务不是实测日志。
 
-目标默认是 zero2pi；其他已有项目加 `--workspace "D:\dev\my-app"`。`--session "<启动打印的 JSONL 路径>"` 只恢复同一目标的 s17 会话。修改目标源码不用重建镜像；修改 Dockerfile、search.go 或固定后端版本才需要重新构建。
+目标默认是 `example_project/retrieval_demo`，不随启动目录改变，也不默认索引 Harness。多个独立示例统一放在 `example_project/`，源码结构与业务运行见 [示例说明](../example_project/README.md)。其他示例或已有项目加 `--workspace "D:\dev\my-app"`。`--session "<启动打印的 JSONL 路径>"` 只恢复同一目标的 s17 会话。修改目标源码不用重建镜像；修改 Dockerfile、search.go 或固定后端版本才需要重新构建。
 
 ```powershell
 # 离线回归：后端和模型使用替身，不下载、不启动容器、不产生 API 费用
@@ -80,40 +80,30 @@ flowchart TD
 
 ### 查询示例
 
-假设 `app.py` 是下面的代码，左侧数字只是说明行号：
+真实示例源码位于 [retrieval_demo](../example_project/retrieval_demo/)，不再以 Harness 本身为运行目标。`Calculator.add` 包含装饰器和局部函数 `normalize`，`Store.add` 是另一个同名方法；`checkout` 直接调用，`preview` 通过 `operation` 别名调用。
 
-```text
-1  class Store:
-2      @decorator
-3      async def restore_state(self):
-4          return 'restored'
-5
-6  def caller():
-7      return Store().restore_state()
-```
-
-搜索 `restore_state`：文本模式可能返回第 3、7 行；符号模式返回定义所在的第 3 行，不返回调用行。第 3 行关联到 `Store.restore_state`，实体范围是 **2–4 行**（包括装饰器）；文本模式中的第 7 行关联到 `caller`，表示“这条匹配在 caller 内”，不表示已解析出调用关系。
+搜索 `add`：符号模式查到运算方法的定义行 `math_ops/calc.py:8`，以及存储方法的定义行 `storage.py:7`；文本模式还可能返回 `workflow.py:13`、`:14`、`:24`。第 25 行只有别名调用，不会直接命中这个文本。完整观察表见 [示例说明](../example_project/README.md#观察位置)，实际排序和省略以引擎为准。
 
 相应命中的关键字段如下，省略了 ID 和哈希的实际值：
 
 ```json
 {
-  "start_line": 3,
-  "end_line": 3,
+  "start_line": 8,
+  "end_line": 8,
   "reason": "符号定义匹配",
   "entity": {
-    "path": "app.py",
-    "name": "restore_state",
-    "qualified_name": "Store.restore_state",
-    "kind": "async_function",
-    "start_line": 2,
-    "definition_line": 3,
-    "end_line": 4
+    "path": "math_ops/calc.py",
+    "name": "add",
+    "qualified_name": "Calculator.add",
+    "kind": "function",
+    "start_line": 7,
+    "definition_line": 8,
+    "end_line": 19
   }
 }
 ```
 
-外层行号是**命中位置**，`entity` 内是**完整定义范围**。补读时调用 `read_file(path="app.py", start_line=2, limit=3)`；程序自动对照搜索指纹，文件已变化就拒绝沿用旧位置。符号查询是区分大小写的名称片段，例如 `restore_state`，不是 `Store.restore_state` 这种限定名表达式；限定名由结果提供，用于区分同名定义。
+外层行号是**命中位置**，`entity` 内是**完整定义范围**。补读时调用 `read_file(path="math_ops/calc.py", start_line=7, limit=13)`；程序自动对照搜索指纹，文件已变化就拒绝沿用旧位置。文本命中局部函数第 15 行时关联到 `Calculator.add.normalize`；命中第 19 行则关联到外层 `Calculator.add`。关联只说明匹配位于谁的范围内，不建立调用关系。符号查询用区分大小写的名称片段 `add`，不是 `Calculator.add` 这种限定名表达式；限定名由结果提供，用于区分同名定义。
 
 ## 数据与组装结构
 
@@ -153,5 +143,5 @@ flowchart LR
 最多 20 文件、每文件 3 个命中行、正文 16 KiB；扫描、路径保护和基础读取预算沿用 s16，AST 元数据另外限制 50000 个实体 / 64 MiB 数据库。超出容量明确失败；Python 语法错误有单独说明，其他语言可能有 Zoekt 符号结果但没有 AST 完整范围。ctags 不是完整编译器，不能保证识别所有语言或定义；`-require_ctags` 保证解析器可用及非超时解析故障不被静默忽略，但 Zoekt 的单文件解析超时仍可能跳过，`search_exhaustive` 不是符号覆盖率保证。
 
 - [Sourcebot 的 Zoekt 搜索入口](https://github.com/sourcebot-dev/sourcebot/blob/main/packages/web/src/features/search/zoektSearcher.ts)利用同一引擎提供文本和符号定位；本章保留这一分工，不另写一套符号倒排搜索。固定 [Zoekt 提交](https://github.com/sourcegraph/zoekt/tree/27517a30ae6df16c6e768623847fdab8f6a3bbcf)，镜像加入 [Universal Ctags v6.1.0](https://github.com/universal-ctags/ctags/tree/v6.1.0)，保留相应许可证；s17 真实引擎测试验证定义与引用区别。
-- ctags 位置不足以表达完整 Python 函数范围，所以本章加 AST 实体目录，并从同一快照整体发布；没有把它误称为调用图或向量库。s18 用这些实体组织语义候选与混合检索，s19 再实现有证据的关系扩展。
+- 本章薄适配器只导出路径和命中行，完整 Python 范围由 AST 实体目录提供并同代发布；这是本项目的分工，不代表 ctags 本身不能提供作用域或结束位置。s18 用实体组织语义候选与混合检索，s19 再实现有证据的关系扩展。
 - Pi 的扩展边界与 lcc 的渐进表达保持：工具接入不改循环，新增机制只在本章落地；s17 回归验证指标事件、只读补读及与 s16 相同的本地完整循环。

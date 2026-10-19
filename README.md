@@ -2,7 +2,7 @@
 
 `zero2pi` 是一个从零实现 Agent 的学习与实践项目：以 `learn-claude-code` 的渐进式方式组织开发，参考 `pi` 的 Agent loop、工具调用和运行时设计，逐步构建一个清晰、可运行、可扩展的 Agent Harness。
 
-第二阶段：[代码仓库理解与检索设计](docs/repository-retrieval-design.md)；[s16：Zoekt 文本检索](s16_repository_search/README.md)。
+第二阶段：[总体设计](docs/repository-retrieval-design.md)、[s16 文本检索](s16_repository_search/README.md)、[s17 符号索引](s17_repository_symbols/README.md)。独立目标项目统一放在 [example_project/](example_project/README.md)，s16 起默认检索 `retrieval_demo`，不索引 Harness 根目录。
 
 ## 基础环境
 
@@ -20,7 +20,7 @@ Copy-Item .env.example .env
 
 在 `.env` 中填写模型密钥。若 PowerShell 不允许激活虚拟环境，可直接使用 `.venv\Scripts\python.exe`。
 
-s07–s16 的模型交互还需填写实际 `MODEL_CONTEXT_WINDOW_TOKENS`；预算迁移与示例见 [s07 配置](s07_session_compaction/README.md#运行)，不要直接复制未经服务确认的模型容量。
+s07–s17 的模型交互还需填写实际 `MODEL_CONTEXT_WINDOW_TOKENS`；预算迁移与示例见 [s07 配置](s07_session_compaction/README.md#运行)，不要直接复制未经服务确认的模型容量。
 
 s13-A 另需手动准备 Docker Linux 服务和本地镜像，命令见 [Sandbox 教程](s13_a_sandbox_copy/README.md#运行与验证)；程序不自动拉取镜像或安装依赖。
 
@@ -85,16 +85,18 @@ python -m s13_c_sandbox_native.code --workspace ".\example_project\c_demo" --all
 python -m s14_extensions.code --mode read-only
 # 第十五章：Todo 扩展，自然语言查询清单、事件自动提示进度
 python -m s15_stateful_extensions.code --mode read-only
-# 第十六章：先按章节 README 手动构建 Zoekt 镜像，再只读定位源码
+# 先验证检索示例的业务输出，不需要模型或 Docker
+python -B -X utf8 example_project/retrieval_demo/workflow.py
+# 第十六章：先手动准备 Zoekt 镜像，默认只读检索 retrieval_demo
 python -X utf8 -m s16_repository_search.code
-# 不调用模型，单独验证检索；--workspace 可指定其他已有项目
-python -X utf8 -m s16_repository_search.code --search latest_tool_details --scope s15_stateful_extensions
+# 不调用模型；--workspace 仍可指定其他示例或已有项目
+python -X utf8 -m s16_repository_search.code --workspace example_project/retrieval_demo --search add
 # 第十七章：按章节 README 单独构建含 ctags 的镜像，再查询符号定义与实体范围
-python -X utf8 -m s17_repository_symbols.code --search restore_state --search-mode symbol --scope s15_stateful_extensions
+python -X utf8 -m s17_repository_symbols.code --workspace example_project/retrieval_demo --search add --search-mode symbol
 # 第十七章只读 Agent：文本/符号模式由 search_code 工具参数选择
 python -X utf8 -m s17_repository_symbols.code
 # 运行测试
 python -m pytest
 # 检查代码规范
-ruff check s01_agent_loop s02_tool_use s03_permission s04_hooks s05_session_persistence s06_session_context s07_session_compaction s08_runtime_events s09_runtime_streaming s10_model_provider s11_runtime_observability s12_skill_loading s13_a_sandbox_copy s13_b_sandbox_workspace s13_c_sandbox_native s14_extensions s15_stateful_extensions s16_repository_search s17_repository_symbols src tests
+ruff check s01_agent_loop s02_tool_use s03_permission s04_hooks s05_session_persistence s06_session_context s07_session_compaction s08_runtime_events s09_runtime_streaming s10_model_provider s11_runtime_observability s12_skill_loading s13_a_sandbox_copy s13_b_sandbox_workspace s13_c_sandbox_native s14_extensions s15_stateful_extensions s16_repository_search s17_repository_symbols example_project/retrieval_demo src tests
 ```
