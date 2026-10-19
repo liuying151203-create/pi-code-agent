@@ -209,6 +209,32 @@
 - 修复边界：仅 s16 在复核和正文预算裁剪后，将成功返回文件的指纹记入 `workspace.search_hashes`。read_file 未传指纹时自动使用，显式值保持原行为；重新成功搜索同一文件会更新，失败/过期结果不会更新。该字典只在当前进程中保存，不复制源码、不恢复权限或从摘要猜测状态；未搜索文件仍可直接读取，原文件允许清单检查保持执行。
 - 回归：`test_search_then_read_without_explicit_hash_rejects_changed_file` 走真实工具注册链验证省略参数仍拒绝新版正文；另测重新搜索、显式/空指纹、绝对路径、不同文件搜索、部分结果、正文预算移除和失败/过期结果。离线后端与模型替身不证明真实 API 的轮数和计费改善。
 
+## B026：不同 Windows 账户共用 pytest 目录，导致 517 项测试准备失败
+
+- 状态：2026-10-19，根据用户完整堆栈和本机目录权限定位；尚待用户终端验证隔离运行。不是 s16/s17 检索逻辑的 517 个独立错误。
+- 证据：首条 ERROR 在 `tmp_path` 准备阶段，`os.scandir` 访问 `C:\Users\liuying\AppData\Local\Temp\pytest-of-liuying` 时出现 `WinError 5`；另外两条警告来自项目 `.pytest_cache/v/cache` 不可写。收集结果中，不依赖 `tmp_path` 的 170 项恰好对应通过项；依赖它的 520 项中，3 项提前跳过，其余 517 项报错。
+- 原因：只读检查确认代理进程身份为 `CodexSandboxOffline`，但继承的 `USERNAME` 和 `getpass.getuser()` 都是 `liuying`，pytest 因而选择了与用户终端相同的临时根目录。该目录和项目 `.pytest_cache` 的实际所有者均为 `CodexSandboxOffline`，权限继承关闭，只给目录所有者、SYSTEM 和 Administrators 完全控制。此前代理测试生成的私有目录挡住了用户终端；代理侧通过不代表另一账户能使用这些目录。
+- 修复边界：不改业务代码，不重装依赖，不自动修改 ACL、取得所有权或删除原缓存。代理今后使用全新的专用 `--basetemp` 并禁用 cacheprovider；用户可先用相同方法绕开两个不可访问的目录。恢复旧目录归属/权限是独立配置操作，须另获用户授权。
+- 验证：已核对两处目录的 Owner、继承和访问规则。代理使用全新短目录及 `-p no:cacheprovider` 后，离线回归为 `684 passed, 6 skipped, 4 deselected`，无缓存权限警告；用户终端仍待验证，不能把代理通过冒充用户已恢复。
+
+在项目根目录的 PowerShell 中运行以下命令。它只使用本次新路径，不清理旧目录，也不写项目 pytest 缓存：
+
+```powershell
+$pytestRunDir = Join-Path ([System.IO.Path]::GetTempPath()) ("zpt-" + [guid]::NewGuid().ToString("N").Substring(0, 8))
+if (Test-Path -LiteralPath $pytestRunDir) { throw "测试目录必须是全新路径" }
+.\.venv\Scripts\python.exe -X utf8 -m pytest -k "not real_zoekt" -p no:cacheprovider --basetemp "$pytestRunDir"
+```
+
+`--basetemp` 会清空指定目录，所以不能改成项目根目录、系统 TEMP 根目录或任何已有数据目录。本命令每次生成全新专用路径；测试产物留在该路径，后续需要清理时只处理确认过的对应目录。
+
+## B027：Windows 超长缓存路径使容量统计失败
+
+- 状态：2026-10-19，验证 B026 的隔离命令时发现，已定位，尚未修改运行时代码；与用户的 517 个权限错误分开处理。
+- 证据：较长的专用临时目录下，`test_target_cache_is_excluded_from_scan_and_model_tools[s16]` 返回 `failed`。进一步直接调用 `cache_directory_bytes()`，失败点是 `_iter_cache_files()` 的 `path.lstat()`；目标是某代次下 `source/math_ops/calc.py`，完整路径 262 字符。普通路径 stat 报 `WinError 3`，同一文件用 Windows 扩展路径格式 stat 则成功，大小为 707 字节，确认不是文件真的丢失。
+- 原因与归属：代次哈希和源码相对目录会拉长发布后的缓存路径；新容量枚举在当前 Windows 环境中使用普通路径，遇到长路径限制而失败。pytest 临时目录名过长也会触发此问题，不能把它再次说成权限不足或过滤清单错误。
+- 处理边界：B026 的隔离运行先使用短随机目录名，绕开已知触发条件，但这不是长路径运行时修复。后续应在 s16 的缓存 I/O 边界支持 Windows 长路径，供 s17 复用，同时保留标准路径的归属、链接和容量检查；不自动改系统注册表、不放宽校验，不以短目录测试通过宣称长路径已支持。
+- 验证：已对同一 262 字符文件对比普通路径与扩展路径 stat；长路径回归和运行时修复仍待执行。短路径隔离回归不能替代这项验证。
+
 ## 记录新问题
 
 新增条目时只写已复现的问题，并补齐以下信息：
