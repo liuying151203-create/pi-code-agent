@@ -41,6 +41,19 @@ python -X utf8 -m s16_repository_search.code --workspace example_project/retriev
 
 修改目标源码**不需要重建镜像**：首次检索或允许文件内容变化时重建索引，未变化时复用。只有 Dockerfile、search.go 或固定 Zoekt 版本变化才需重新构建镜像；程序不自动下载、构建或启动 Docker 服务。
 
+直接 `--search` 的标准输出仍是结果 JSON，标准错误另外打印 `retrieval_metrics`；交互查询沿用事件写入 `*.retrieval.jsonl`。先后执行同一条查询，可观察 `rebuilt=true/false` 的新建与复用路径（不代表操作系统缓存的严格冷/热测试）。`source_bytes` 是本次合规源码字节数，`cache_bytes` 是当前代次全部普通文件的逻辑大小，包含 `source/`、`shards/` 和 manifest，不含旧代次。缓存只枚举元数据，不读正文；这项观测的开销单列为 `cache_stat_ms`，其他阶段仍有 `scan_ms/index_ms/search_ms/verify_ms`，尚未执行的阶段为 `null`。
+
+需要释放旧索引空间时，单独运行：
+
+```powershell
+# 不需要 Docker 或模型：先列出候选和容量，输入 y 才删除；其余回答取消
+python -X utf8 -m s16_repository_search.code --workspace example_project/retrieval_demo --clean-indexes
+# 可选：除当前源码对应代次外，保留最近 3 个有效代次
+python -X utf8 -m s16_repository_search.code --workspace example_project/retrieval_demo --clean-indexes --keep-indexes 3
+```
+
+默认保留当前源码对应的全部代次及最近 1 个有效代次（可能是同一个），未知、损坏、链接、临时目录保持不动。清理仅限本目标的 `.indexes/s16/`，不是模型工具；确认后再次核对源码和清单，变化就要求重新预览。不要与索引或其他清理进程并行运行，复核不是文件系统锁。删除不进回收站，历史过滤副本也会删除；可按当前源码重建索引，但不能恢复已丢失的旧源码。业务源码、Session 和 Trace 不受影响。
+
 ```powershell
 # 离线回归：使用后端/模型替身，不启动容器、不产生 API 费用
 python -m pytest tests/test_s16_repository_search.py
@@ -54,11 +67,12 @@ Remove-Item Env:ZERO2PI_TEST_ZOEKT
 
 ## 组件与方法
 
-- [workspace.py](workspace.py) `RepositoryWorkspace`：`prepare_index_directory()` 在启动时验证目标缓存可写；`scan()` 得到合规 UTF-8 快照；`dispatch()` 将基础读取绑定到同一目标；`permission_hook()` 只做轻量前置检查；`read_file()` 自动检查搜索指纹，也支持显式 `expected_hash`。
+- [workspace.py](workspace.py) `RepositoryWorkspace`：`prepare_index_directory()` 验证目标缓存可写；`scan()` 保存合规源码，`compute_fingerprint()` 只计算复核指纹；`dispatch()` 将读取绑定到同一目标；`permission_hook()` 做轻量检查；`read_file()` 自动校验搜索指纹，也支持显式 `expected_hash`。
 - [index.py](index.py) `RepositoryIndex.prepare()`：管理索引的复用与重建，返回 `PreparedIndex`。新建时先写过滤副本，再调用 Zoekt 建分片，成功后发布；s16 是整代重建，不是逐文件增量更新。
 - [zoekt.py](zoekt.py) `ZoektBackend`：`build_index()` 调用官方索引器，`search_index()` 查询磁盘索引。短容器无网络，只挂载过滤副本/缓存，不挂载原项目或 Docker socket。
 - [retrieval.py](retrieval.py) `CodeRetriever.search()`：组织一次完整检索。`_build_file_results()` 用同版源码核验 Zoekt 的位置并组装片段，不重新搜索或排序。
 - [extension.py](extension.py) `RepositoryExtension`：`register()` 注册工具与事件；`handle_search()` 接收工具参数并调用检索器。`content` 进入模型，`details` 保存检索指标。
+- [cache_cleanup.py](cache_cleanup.py)：独立用户入口 `run_cache_cleanup()` 显式执行“计划 → 确认 → 复核删除”；`CacheCleanupPlan` 只是预览数据，不注册到 Agent。容量观测与清理预检共用 [cache.py](cache.py) 的有界目录检查。
 
 阅读顺序：`main()` 看组件组装 → `CodeRetriever.search()` 看完整流程 → `RepositoryIndex.prepare()` 看缓存复用/构建两条路径；最后再看过滤和容器细节。
 
@@ -73,7 +87,7 @@ Remove-Item Env:ZERO2PI_TEST_ZOEKT
 | `prepared_index: PreparedIndex` | Python 内存 | 只保存分片路径 `index_dir`、代次 `generation` 和本次是否重建 `rebuilt`；不保存源码或索引本体。 |
 | `zoekt_result` | Python 内存 | 后端返回的位置与完整性标记，用于组织结果，不直接整份保存到会话。 |
 | `search_result` / `search_metrics` | Python 内存；通过返回值交给会话/事件层 | 前者序列化为给模型的正文；后者通过 `ToolResult.details` 传递耗时等指标。 |
-| `latest_snapshot` | Python 内存 | 查询结束前再次扫描的源码，只用整体指纹检查查询期间是否有变化。 |
+| `latest_fingerprint` | Python 内存中的指纹字符串 | 查询结束前逐文件重读并计算，不保留第二份全部正文；用于检查查询期间是否有变化。 |
 | `workspace.search_hashes` | 当前 Python 进程的内存 | 只登记成功返回过的“文件路径 → 指纹”，用于补读时自动检查；不保存源码、不当作权限清单，也不从历史会话恢复。 |
 
 磁盘缓存跟随实际目标项目。默认在 `example_project/retrieval_demo/.indexes/s16/`；指定 `--workspace "D:\dev\my-app"` 后，构建成功时是：
@@ -115,7 +129,7 @@ flowchart TD
 
 基础读取的错误也分开处理：`grep(path="src", ...)` 是把目录当文件，返回 `Error` 并提示使用 `search_code(query=..., scope="src")`，不再说成权限不足，也不自动替模型执行搜索；越界、保护路径和不在允许清单中的文件仍然拒绝。注册层和分发层只做轻量路径检查，真正读取前才枚举一次当前文件清单；下次调用仍重新检查 `.gitignore`，打开文件时的链接、类型和大小检查也保留。
 
-随后搜索 `return`，只要允许文件的路径/内容、后端版本等没变，就复用同一版索引，不重写副本；索引不是专门为 `add` 建立的。当前实现每次正常检索前后仍会完整读取允许范围内的源码，索引没有省掉版本检查所需的扫描。两份快照可能同时占用内存，32 MiB 是单次源码字节上限，不是进程总内存上限。
+随后搜索 `return`，只要允许文件的路径/内容、后端版本等没变，就复用同一版索引，不重写副本；索引不是专门为 `add` 建立的。`scan()` 保留首次正文供建索引和组织片段；末尾 `compute_fingerprint()` 逐文件重读，只保留文件哈希和整体指纹。两者共用过滤、读取与容量检查，不再积攒第二份全部正文；仍有两轮完整读取，32 MiB 不是进程总内存上限。
 
 无匹配是 `empty`；搜索不完整是 `partial`；源码变化是 `stale`；扫描、构建或协议错误是 `failed`；参数错误是 `invalid`。`truncated` 表示显示内容有省略，`search_exhaustive` 表示后端是否完成搜索，二者不同。`empty` 仅针对允许索引的范围，跳过计数另列。
 

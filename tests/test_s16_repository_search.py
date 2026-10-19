@@ -292,7 +292,8 @@ def test_unsearched_file_can_be_read_and_other_search_does_not_forget_old_eviden
 
 def test_new_successful_search_refreshes_hash_and_new_workspace_does_not_restore_it(tmp_path):
     workspace, _, _, retriever = make_components(tmp_path)
-    retriever.search("add")
+    result = retriever.search("add")
+    assert payload(result)["status"] == "ok", result.content
     old_hash = workspace.search_hashes["app.py"]
     (workspace.root / "app.py").write_text("def add(): return 9\n", encoding="utf-8")
     retriever.search("add")
@@ -420,15 +421,21 @@ def test_retriever_flow_scans_prepares_queries_builds_results_then_verifies(tmp_
     steps = []
     snapshots = []
     original_scan = workspace.scan
+    original_fingerprint = workspace.compute_fingerprint
     original_prepare = index_manager.prepare
     original_search_index = backend.search_index
     original_build_file_results = retriever._build_file_results
 
     def scan():
-        steps.append("scan" if not snapshots else "verify")
+        steps.append("scan")
         snapshot = original_scan()
         snapshots.append(snapshot)
         return snapshot
+
+    def compute_fingerprint():
+        steps.append("verify")
+        assert original_fingerprint() == snapshots[0].fingerprint
+        return snapshots[0].fingerprint
 
     def prepare(source_snapshot):
         steps.append("prepare")
@@ -446,13 +453,13 @@ def test_retriever_flow_scans_prepares_queries_builds_results_then_verifies(tmp_
         return original_build_file_results(file_matches, source_snapshot, query, scope, limit)
 
     monkeypatch.setattr(workspace, "scan", scan)
+    monkeypatch.setattr(workspace, "compute_fingerprint", compute_fingerprint)
     monkeypatch.setattr(index_manager, "prepare", prepare)
     monkeypatch.setattr(backend, "search_index", search_index)
     monkeypatch.setattr(retriever, "_build_file_results", build_file_results)
     result = retriever.search("add")
     assert steps == ["scan", "prepare", "query", "build_results", "verify"]
-    assert snapshots[0] is not snapshots[1]
-    assert snapshots[0].fingerprint == snapshots[1].fingerprint
+    assert len(snapshots) == 1
     assert payload(result)["status"] == "ok"
     assert payload(result)["files"][0]["content_hash"] == snapshots[0].file_hashes["app.py"]
     assert all(

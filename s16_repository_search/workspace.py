@@ -9,6 +9,7 @@ import os
 import stat
 import subprocess
 import tempfile
+from collections.abc import Iterator
 from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path
@@ -148,23 +149,11 @@ class RepositoryWorkspace:
         流程：列出合规文件 → 应用 Git ignore → 读取 UTF-8 字节 → 生成逐文件和整体哈希。
         超出总容量直接失败；二进制、超大单文件和已排除路径只计数，不伪造完整覆盖。
         """
-        paths, skipped_counts = self._eligible_paths()
+        skipped_counts: dict[str, int] = {}
         file_contents: dict[str, bytes] = {}
         file_hashes: dict[str, str] = {}
-        total_bytes = 0
-        for relative in paths:
-            try:
-                data = self._read_bytes(relative)
-                data.decode("utf-8")
-            except UnicodeError:
-                skipped_counts["non_utf8"] = skipped_counts.get("non_utf8", 0) + 1
-                continue
-            if b"\x00" in data:
-                skipped_counts["binary"] = skipped_counts.get("binary", 0) + 1
-                continue
-            total_bytes += len(data)
-            if total_bytes > MAX_SOURCE_BYTES:
-                raise ValueError("允许索引的源码超过 32 MiB；请指定更小的目标目录")
+        # s16 修改：安全读取和容量检查共用迭代器；首次扫描才积攒全部正文。
+        for relative, data in self._iter_source_files(skipped_counts):
             file_contents[relative] = data
             file_hashes[relative] = hashlib.sha256(data).hexdigest()
         fingerprint = hashlib.sha256(json.dumps(file_hashes, sort_keys=True).encode()).hexdigest()
@@ -175,6 +164,19 @@ class RepositoryWorkspace:
             skipped_counts=skipped_counts,
             fingerprint=fingerprint,
         )
+
+    # s16 新增：复核只需要版本，避免再次构造含全部正文的 SourceSnapshot。
+    def compute_fingerprint(self) -> str:
+        """重新读取允许范围并计算指纹，不积攒源码正文。
+
+        输入：绑定的目标和当前过滤规则；输出：与 scan().fingerprint 同口径的字符串。
+        流程：逐文件安全读取 → 计算文件哈希 → 按路径排序计算整体指纹。
+        边界：仍完整读取允许文件，保持新增/删除、Git ignore 和容量检查；不锁定文件系统。
+        """
+        file_hashes: dict[str, str] = {}
+        for relative, data in self._iter_source_files({}):
+            file_hashes[relative] = hashlib.sha256(data).hexdigest()
+        return hashlib.sha256(json.dumps(file_hashes, sort_keys=True).encode()).hexdigest()
 
     def permission_hook(self, name: str, arguments: dict[str, Any]) -> str | None:
         """允许本章基础只读工具，拒绝 shell、写入和未知基础工具。
@@ -330,6 +332,27 @@ class RepositoryWorkspace:
 
     # ===== s16 新增：底层路径、文件清单与读取检查 =====
     # s16 新增：这些检查由扫描与读取共用，避免两条路径开放不同文件。
+    # s16 修改：首次快照和末尾指纹复核共用过滤、读取与总容量检查，不分叉规则。
+    def _iter_source_files(self, skipped_counts: dict[str, int]) -> Iterator[tuple[str, bytes]]:
+        """逐个交出合规路径和字节，并向调用方提供的字典累计跳过原因。"""
+        paths, excluded = self._eligible_paths()
+        skipped_counts.update(excluded)
+        total_bytes = 0
+        for relative in paths:
+            try:
+                data = self._read_bytes(relative)
+                data.decode("utf-8")
+            except UnicodeError:
+                skipped_counts["non_utf8"] = skipped_counts.get("non_utf8", 0) + 1
+                continue
+            if b"\x00" in data:
+                skipped_counts["binary"] = skipped_counts.get("binary", 0) + 1
+                continue
+            total_bytes += len(data)
+            if total_bytes > MAX_SOURCE_BYTES:
+                raise ValueError("允许索引的源码超过 32 MiB；请指定更小的目标目录")
+            yield relative, data
+
     # s16 新增：边界检查不扫描仓库，供前置权限和最终读取共同使用。
     def _relative_path(self, value: Any) -> str:
         """规范化目标内路径，拒绝越界、保护名称及链接重定向，不判断清单成员。"""

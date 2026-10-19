@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import sys
 from collections.abc import Callable, Sequence
@@ -29,6 +30,7 @@ from s15_stateful_extensions.session import (
     ToolDetails,
     ToolResultSaver,
 )
+from s16_repository_search.cache_cleanup import run_cache_cleanup
 
 # 来自 s16：保持；检索业务是显式组件依赖，不添加循环参数或全局工作区切换。
 from s17_repository_symbols.extension import RepositoryExtension
@@ -79,9 +81,9 @@ TOOLS = previous.permissions.READ_ONLY_TOOLS
 def parse_args(arguments: Sequence[str] | None = None) -> argparse.Namespace:
     """解析目标和运行方式，不索引、不调用模型、不创建运行记录。
 
-    输入：可选 workspace/session，或 --search 字面查询。
+    输入：可选 workspace/session、--search 查询，或 --clean-indexes 独立清理。
     输出：Namespace；--help 在所有运行组件创建之前退出。
-    流程：验证参数形状 → main 选择直接检索或 Agent 交互；本章始终只读。
+    流程：验证互斥参数 → main 选择清理、直接检索或 Agent 交互；模型工具始终只读。
     """
     parser = argparse.ArgumentParser(description="s17：仓库系统 · 符号索引与代码实体（只读）")
     # 来自 s16：保持；两个章节默认使用同一独立示例，便于对照文本和符号检索。
@@ -97,11 +99,19 @@ def parse_args(arguments: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--search", help="直接检索，不读取模型配置、不创建会话")
     parser.add_argument("--scope", default="", help="目标内的相对目录，例如 math_ops")
     parser.add_argument("--limit", type=int, default=10, help="直接检索返回文件数，1–20")
+    # 来自 s16：保持；清理只由用户预览、确认，不作为模型工具注册。
+    parser.add_argument("--clean-indexes", action="store_true", help="预览并确认清理本目标的旧代次")
+    parser.add_argument("--keep-indexes", type=int, help="清理时额外保留最近 N 个有效代次，默认 1")
     # s17 新增：直接检索也能验证符号模式；交互时模式由 search_code 参数指定。
     parser.add_argument(
         "--search-mode", choices=("text", "symbol"), help="直接检索的模式，默认 text"
     )
     options = parser.parse_args(arguments)
+    if options.clean_indexes and (options.search is not None or options.session is not None):
+        parser.error("--clean-indexes 不能与 --search 或 --session 同用")
+    if options.keep_indexes is not None and (not options.clean_indexes or options.keep_indexes < 1):
+        parser.error("--keep-indexes 只用于 --clean-indexes，且必须至少为 1")
+    options.keep_indexes = options.keep_indexes if options.keep_indexes is not None else 1
     if options.search is None and options.search_mode is not None:
         parser.error("--search-mode 只用于 --search")
     options.search_mode = options.search_mode or "text"
@@ -295,15 +305,19 @@ def agent_loop(
 def main(arguments: Sequence[str] | None = None) -> None:
     """启动直接检索或只读仓库定位 Agent。
 
-    输入：目标项目、预构建镜像、可选历史与模型配置，或 --search。
-    输出：带版本的检索结果；交互时另保存按目标隔离的会话、Trace 和检索指标。
-    流程：基础依赖 → 检索组件 → 扩展注册 → 模型/压缩/观察层 → 交互入口。
+    输入：目标项目、镜像和可选历史，或 --search / --clean-indexes 独立入口。
+    输出：检索结果和指标；交互时保存会话、Trace；清理时预览并等待用户确认。
+    流程：绑定目标 → 清理入口独立退出；否则组装检索、扩展和运行时 → 查询或交互。
     边界：不下载、不构建镜像、不修改源码；未准备 Zoekt 时明确停止，不偷偷退回 grep。
     """
     options = parse_args(arguments)
 
     # ===== 来自 s16：保持；基础依赖与检索组件 =====
     workspace = RepositoryWorkspace(options.workspace, HARNESS_ROOT)
+    # 来自 s16：保持；复用清理流程，但工作区已经绑定 s17，不操作其他章节缓存。
+    if options.clean_indexes:
+        run_cache_cleanup(workspace, options.keep_indexes)
+        return
     # 来自 s16：保持；先验证目标缓存可写，失败时不启动后端、模型或会话。
     workspace.prepare_index_directory()
     # 来自 s16：保持；后端调用 Zoekt，管理器准备缓存，检索器组织一次查询；不把三者都叫索引。
@@ -320,6 +334,10 @@ def main(arguments: Sequence[str] | None = None) -> None:
             options.search, scope=options.scope, limit=options.limit, mode=options.search_mode
         )
         print(result.content)
+        # 来自 s16：保持；直接检索的指标走 stderr，stdout 继续只放结果 JSON。
+        print(
+            json.dumps({"retrieval_metrics": result.details}, ensure_ascii=False), file=sys.stderr
+        )
         if result.content.startswith("Error:"):
             raise SystemExit(1)
         return

@@ -10,6 +10,7 @@ from time import perf_counter
 from typing import Any
 
 from s15_stateful_extensions.result import ToolResult
+from s16_repository_search.cache import cache_directory_bytes
 from s16_repository_search.index import RepositoryIndex
 from s16_repository_search.workspace import RepositoryWorkspace, SourceSnapshot, source_lines
 
@@ -45,7 +46,7 @@ class CodeRetriever:
         流程：扫描源码 → 准备索引 → 查询位置 → 组装文件结果 → 检查源码变化
         → 限制正文预算 → 登记成功返回的文件指纹 → 返回。
         source_snapshot 始终表示查询所用的内存源码；prepared_index 只提供磁盘索引位置。
-        latest_snapshot 仅用于结束前检查变化；不会拿新版源码解释旧索引的位置。
+        latest_fingerprint 仅用于结束前检查变化，不保存第二份正文或解释旧索引的位置。
         s16 新增：指纹交给 workspace 自动校验补读；失败或过期结果不更新登记记录。
         """
         request_started_at = perf_counter()
@@ -60,6 +61,10 @@ class CodeRetriever:
             "index_ms": None,
             "search_ms": None,
             "verify_ms": None,
+            # s16 新增：容量和观测耗时独立记录，不把未知阶段伪装成零。
+            "source_bytes": None,
+            "cache_bytes": None,
+            "cache_stat_ms": None,
         }
         search_result: dict[str, Any] = {
             "status": "invalid",
@@ -79,6 +84,8 @@ class CodeRetriever:
             search_metrics["scan_ms"] = (perf_counter() - stage_started) * 1000
             search_result["indexed_files"] = len(source_snapshot.file_contents)
             search_result["skipped"] = source_snapshot.skipped_counts
+            # s16 新增：只累加已有快照字节，不为统计再次读取源码。
+            search_metrics["source_bytes"] = sum(map(len, source_snapshot.file_contents.values()))
 
             # s16 新增：2. 准备同版索引；未变化则复用，变化则写过滤副本并交给 Zoekt 重建。
             stage_started = perf_counter()
@@ -87,6 +94,11 @@ class CodeRetriever:
             search_result["index_generation"] = prepared_index.generation
             search_metrics["rebuilt"] = prepared_index.rebuilt
             search_metrics["generation"] = prepared_index.generation
+
+            # s16 新增：只测本次代次的缓存；元数据枚举开销单列，不隐藏在搜索耗时里。
+            stage_started = perf_counter()
+            search_metrics["cache_bytes"] = cache_directory_bytes(prepared_index.index_dir.parent)
+            search_metrics["cache_stat_ms"] = (perf_counter() - stage_started) * 1000
 
             # s16 新增：3. 查询磁盘索引；Zoekt 返回排序后的文件/行号，不返回源码快照。
             stage_started = perf_counter()
@@ -108,11 +120,11 @@ class CodeRetriever:
                 if any(hit["snippet_truncated"] for hit in file["hits"]):
                     search_result["truncated"] = True
 
-            # s16 新增：5. 再扫描只为比较版本；若查询期间发生变化，丢弃旧结果而非重试。
+            # s16 修改：5. 复核仍完整读取，但只保留指纹，避免第二份源码快照占用内存。
             stage_started = perf_counter()
-            latest_snapshot = self.workspace.scan()
+            latest_fingerprint = self.workspace.compute_fingerprint()
             search_metrics["verify_ms"] = (perf_counter() - stage_started) * 1000
-            if latest_snapshot.fingerprint != source_snapshot.fingerprint:
+            if latest_fingerprint != source_snapshot.fingerprint:
                 # s16 新增：匹配期间改动或删除源码，不把旧位置交给模型继续推理。
                 search_result.update(
                     status="stale",

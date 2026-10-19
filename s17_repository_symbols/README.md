@@ -41,6 +41,17 @@ python -X utf8 -m s17_repository_symbols.code --workspace example_project/retrie
 
 索引写入 `<目标项目>/.indexes/s17/`。沿用 s16 的 `prepare_index_directory()`，启动时实际写入、删除临时文件，验证失败即停止，不回退到其他目录。业务源码只读；缓存由 Harness 写入，并强制排除出扫描和模型工具。外部 Git 项目请将 `.indexes/` 加入自己的 `.gitignore`。
 
+直接 `--search` 的结果仍走标准输出，标准错误另外打印 `retrieval_metrics`；交互查询的指标仍由事件保存。`source_bytes` 为本次合规源码大小，`cache_bytes` 为当前代次的源码副本、分片、manifest 和 `entities.sqlite` 的逻辑大小，不含旧代次。缓存元数据枚举耗时单列为 `cache_stat_ms`；`rebuilt=true/false` 区分新建与复用，不将其当作严格冷/热测试，未执行阶段的指标为 `null`。
+
+清理旧缓存时独立运行，不需要 Docker 或模型：
+
+```powershell
+# 列出候选，输入 y 才删除；可加 --keep-indexes 3，默认最近保留 1 个
+python -X utf8 -m s17_repository_symbols.code --workspace example_project/retrieval_demo --clean-indexes
+```
+
+复用 s16 的 `run_cache_cleanup()` 与 `CacheCleanupPlan`，但目标只限 `.indexes/s17/`。保留当前源码对应的全部代次及最近 N 个有效代次，未知/损坏/链接/临时目录不动；确认后再次核对，变化就停止。清理不经 Agent、不创建 Session/Trace，不与建索引或其他清理并行运行。删除不进回收站，包含历史过滤副本；可按当前源码重建索引，但不能恢复已丢失的旧源码。业务源码不在删除范围。
+
 ```powershell
 # 离线回归：后端和模型使用替身，不下载、不启动容器、不产生 API 费用
 python -m pytest tests/test_s17_repository_symbols.py
@@ -123,7 +134,7 @@ D:/dev/my-app/.indexes/s17/<索引代次>/
 
 `source_snapshot` 在内存保存本次合规文件的完整字节；磁盘 `source/` 是建索引的过滤副本，不是完整 Git 克隆。`entity_catalog` 在内存只保存元数据，SQLite 是它的持久化形式，不是另一份代码副本，也不负责向量搜索。
 
-首次查询覆盖整个允许范围建立索引和实体目录；`scope` 只限制查询。未变化时复用，不因换词或换模式重建；源码变化时整代重建，不是逐文件增量。先在 `.build-*` 临时目录完成全部内容再改名，任何一步失败都不发布半成品或退回旧版本。查询前后仍扫描源码，开销边界沿用 s16。
+首次查询覆盖整个允许范围建立索引和实体目录；`scope` 只限制查询。未变化时复用，不因换词或换模式重建；源码变化时整代重建，不是逐文件增量。先在 `.build-*` 临时目录完成全部内容再改名，任何一步失败都不发布半成品或退回旧版本。沿用 s16 的 `scan()` 保存首次正文、`compute_fingerprint()` 只保留复核指纹；两轮都完整读取，末尾不再积攒第二份全部正文。
 
 `entity_id` 由项目、路径、限定名、定义行和文件哈希生成，所以同名定义不冲突，源码变化后 ID 也变化。数据库只存本章实际使用的实体和解析错误，没有提前加入向量或调用关系。
 
