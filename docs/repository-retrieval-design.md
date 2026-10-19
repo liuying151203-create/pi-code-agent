@@ -1,8 +1,8 @@
 # 代码仓库理解与检索：第二阶段总体设计
 
-版本：v0.6；更新：2026-10-19；状态：s16 文本检索、s17 符号查询与 Python 实体已实现离线回归，新增仅保留指纹的复核、容量指标和显式缓存清理。默认目标为独立示例，缓存跟随目标项目；真实引擎验证需手动准备镜像，s18–s19 尚未开发。
+版本：v0.7；更新：2026-10-19；状态：s16 文本、s17 符号、s18 语义与混合检索、s19 单跳关系导航已实现离线回归。默认目标为独立示例，缓存跟随目标；真实 Zoekt、embedding 服务和 Agent 质量仍需用户准备服务后验证。
 
-本阶段围绕一个问题：收到代码维护任务后，如何用更少的无效浏览，找到有源码证据的相关文件和函数。s16–s17 已落地，语义与关系能力仍为规划，不提前添加空类、未使用方法或新依赖。
+本阶段围绕一个问题：收到代码维护任务后，如何用更少的无效浏览，找到有源码证据的相关文件和函数。s18 复用 s17 的真实文本/符号通道，新增独立 embedding 协议、内容缓存、精确余弦和 RRF；s19 在同代实体上追加显式单跳关系工具。不提前添加 s20–s22 的空组件。
 
 ## 目标与范围
 
@@ -20,7 +20,7 @@
 | --- | --- | --- | --- |
 | Sourcebot / Zoekt | [zoektSearcher.ts](https://github.com/sourcebot-dev/sourcebot/blob/main/packages/web/src/features/search/zoektSearcher.ts)、[Zoekt 算法](https://github.com/sourcegraph/zoekt/blob/27517a30ae6df16c6e768623847fdab8f6a3bbcf/doc/design.md) | 复用位置 trigram 与 ctags 符号检索；s17 通过 `Symbol(Substring)` 查询同一分片，另用 Python AST 补完整定义范围；短容器代替整个 Web 平台 | s16、s17 |
 | Potpie 当前 Context Graph | [查询架构](https://github.com/potpie-ai/potpie/blob/main/docs/context-graph/querying.md)、[组件架构](https://github.com/potpie-ai/potpie/blob/main/docs/context-graph/architecture.md) | 返回带来源、可解释的排序证据，Agent 负责推理；保留检索与存储边界，不复制其完整知识和部署体系 | s18、s19 |
-| Potpie 历史代码解析路径 | [官方发布记录](https://github.com/potpie-ai/potpie/releases)中的 1.0.2 | 参考实体切分与混合检索的职责划分；s17 用标准库 AST 自行实现 Python 范围，Potpie 的图/向量查询参数留待 s18 专项核对，不把历史实现当成当前主线 | s17、s18 |
+| Potpie 历史代码解析路径 | [官方发布记录](https://github.com/potpie-ai/potpie/releases)中的 1.0.2 | 参考实体切分与混合检索的职责划分；s17 自行提取 Python 范围，s18 自行实现普通 dense 余弦与 RRF 基线，不把历史 Qdrant/ColBERT 路径当作当前主线或已复用算法 | s17、s18 |
 | Pi | 同级 `../pi/packages/coding-agent/examples/extensions/todo.ts` | 通过注册 API 接入工具和观察者，正文与结构化 details 分工；索引不作为 Todo 那样的会话状态恢复 | s16 起 |
 | lcc | 同级 `../learn-claude-code/s02_tool_use/code.py` | 稳定循环、显式工具分发和渐进章节；不直接复制其代码，也不把多路检索塞进循环 | s16 起 |
 
@@ -138,9 +138,9 @@ flowchart TD
 
 初版只注册一个 `search_code` 工具，s16 参数是 `query` 字面文本、`scope` 相对目录、`limit` 文件上限；以后有实际能力时才添加语义模式、符号或关系查询。适配器构造 Zoekt Substring，不把模型参数当查询表达式、正则或 shell 执行。
 
-s18 多路融合先采用按排名合并的 RRF 作为基线，避免直接相加 BM25 与向量相似度；保留原排名和通道来源。参数、路径/符号优先规则在开发集确定，不根据测试集调权重。RRF 是实验起点，不保证一定优于文本检索。[原始论文](https://cormack.uwaterloo.ca/cormacksigir09-rrf.pdf)
+s18 多路融合采用按排名合并的 RRF（常数 60）作为基线，避免直接相加 Zoekt 排名与向量相似度；保留各通道名次。hybrid 的自然语言 query 与代码 keywords 分开传入；同一实体在一路只贡献一次，按文件限制配额。不额外调用聊天模型改写关键词，也不宣称已经过开发集调优。RRF 不保证一定优于文本检索。[原始论文](https://cormack.uwaterloo.ca/cormacksigir09-rrf.pdf)
 
-s19 关系扩展先限制一跳，设置邻居数量和总输出上限；返回起点、关系证据和关联代码，不能递归展开整个仓库。必要时是否增加第二跳，由消融结果决定。
+s19 关系扩展限制一跳，以 related_code 作为独立工具，与 s18 search_code 并列注册；实体 ID 关联两步，不把关系分数隐式加入 RRF。返回双方节点、关系表达式、证据位置与 unresolved；单次最多 20 条 / 16 KiB。是否自动扩展或增加第二跳，由消融结果决定，不提前写入实现。
 
 文件排名与片段排名分别保留。同一文件占满所有前排片段时，要限制其配额；File Recall@10 按最终去重后的十个文件计算，不按十个片段计算。
 
@@ -150,7 +150,9 @@ s19 关系扩展先限制一跳，设置邻居数量和总输出上限；返回�
 
 s16 改为直接复用 Zoekt，SQLite FTS5 不再是主文本搜索方案。Zoekt 保存三字符出现位置，先筛选候选再验证文本；本项目的 Go 薄适配器只构造查询和返回排序位置，索引/匹配由上游执行。Python 使用同版快照核验位置、组织有界片段。短容器只挂载过滤源码与缓存，禁止联网和自动拉取镜像；固定镜像需由用户手动构建。
 
-s16 使用 JSON manifest 与 Zoekt 分片。s17 已采用标准库 SQLite 保存实体元数据，不增加 Python 包依赖；关键词/符号查询仍由 Zoekt 实现，不将数据库存储称为检索算法。s18 再确认 embedding 模型、调用方式与向量后端；参考 Potpie 的结构化切分和混合召回，先建立普通 embedding 基线，再决定是否比较 ColBERT。s19 可先用关系表表达有限图遍历，不要求部署 Neo4j。
+s16 使用 JSON manifest 与 Zoekt 分片。s17 用标准库 SQLite 保存实体，不把存储叫作检索算法。s18 实现 OpenAI 兼容 embedding 接口，模型由用户单独配置；SQLite 仅保存内容哈希/向量，当前块内精确余弦召回，不部署向量数据库或自动下载模型。s19 用 SQLite 节点/关系表实现 Python 单跳导航，不要求 Neo4j，也不复制 Potpie 的完整知识图谱体系。
+
+2026-10-19 走读 Potpie 当前查询文档（文档自述 main@8dd175bc），借鉴“证据返回、Agent 推理”的职责划分；其项目记忆、六因素排名与本项目的代码关系表/RRF 不相同。历史发布路径只作为结构切分与混合检索动机，不将普通 dense 余弦描述成 Qdrant/ColBERT 实现。Sourcebot 原 Zoekt 路径由 s17 复用，s18 不更换其索引算法。
 
 聊天模型与 embedding 模型分别配置。远程 embedding 会额外发送代码，必须明确授权和记录成本；没有配置时语义能力不启用。模型下载、数据库服务和 API 调用不自动执行，选型与准备命令在对应章节给出。
 
@@ -167,6 +169,8 @@ s16 使用 JSON manifest 与 Zoekt 分片。s17 已采用标准库 SQLite 保存
 缓存复用不代表不扫描源码：s16/s17 查询前用 `scan()` 保存源码快照，返回前用 `compute_fingerprint()` 逐文件重读，只累积哈希而不保存第二份全部正文；过滤与容量检查共用。该优化减少复核正文的内存占用，不省掉第二轮读取，磁盘成本仍单列。后续逐文件更新或使用监控前，要保留同等正确性测试。文件系统不是原子快照，不承诺并发修改时整个仓库强一致；稳定评测使用冻结工作树。
 
 文件删除时清除对应片段及关系；语义缓存按“片段内容＋embedding 模型/版本＋输入表示版本”区分。向量更新尚未完成时，不能将语义通道标为 ready；不混用不同维度或旧模型结果。
+
+s18/s19 的实际向量布局为 `.indexes/<章节>/emb-<模型配置身份>/vectors.sqlite`：身份目录是模型缓存代次，不代表某次源码快照；行键取实际 embedding 输入哈希，旧行可留存复用，但候选只从当前快照构建。s19 关系位于 `rel-<源码与解析版本身份>/relations.sqlite`，不复制另一份源码。纯 semantic 或独立 related 查询不需要 Zoekt；交互同时开放文本/符号，仍要求已准备 s17 镜像。s16/s17 的 --clean-indexes 尚未扩展到新章布局，新章不公布此入口。
 
 ### 目录隔离与读取安全
 
@@ -264,4 +268,4 @@ Recall 的 gold 必须是 base commit 中实际存在、可以检索的文件或
 - 索引可删除重建，恢复会话不恢复授权或强行复用旧索引；保护规则和源码版本每次重新校验。
 - 沙箱检索同源验证与正式性能提升结论均未完成，不提前写进已实现能力。
 
-下一步由用户手动准备对应镜像，执行 s16/s17 真实 Zoekt 小样本测试与运行案例，再评审 s18。s17 固定 Universal Ctags v6.1.0，并沿用相同 Zoekt 提交；AST 解释器主/次版本、格式版本和实际镜像 ID 均参与缓存代次。普通离线回归使用后端/模型替身，不证明真实引擎或 Agent 的性能提升；正式数据和费用预算仍需单独确认。
+下一步由用户准备 s17 镜像与实际 embedding 服务，按 s18/s19 README 验证真实召回和关系工具选择，再评审 s20 的 Git 任务上下文。s17 固定 Universal Ctags v6.1.0，并沿用相同 Zoekt 提交；s18/s19 不新增镜像。普通离线替身不证明真实引擎或 Agent 的性能提升；正式数据、服务许可和费用预算仍需单独确认。

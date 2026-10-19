@@ -95,8 +95,12 @@ python -X utf8 -m s16_repository_search.code --workspace example_project/retriev
 python -X utf8 -m s17_repository_symbols.code --workspace example_project/retrieval_demo --search add --search-mode symbol
 # 第十七章只读 Agent：文本/符号模式由 search_code 工具参数选择
 python -X utf8 -m s17_repository_symbols.code
+# 第十八章：按章节教程填写独立 embedding 配置；显式允许源码发送，可能计费
+python -X utf8 -m s18_semantic_retrieval.code --search "负数如何归零" --search-mode semantic --allow-remote-embedding
+# 第十九章：复用 s17 镜像；先搜实体，再查询一跳关系，默认不启用 embedding
+python -X utf8 -m s19_relationship_navigation.code
 # 运行测试
 python -m pytest
 # 检查代码规范
-ruff check s01_agent_loop s02_tool_use s03_permission s04_hooks s05_session_persistence s06_session_context s07_session_compaction s08_runtime_events s09_runtime_streaming s10_model_provider s11_runtime_observability s12_skill_loading s13_a_sandbox_copy s13_b_sandbox_workspace s13_c_sandbox_native s14_extensions s15_stateful_extensions s16_repository_search s17_repository_symbols example_project/retrieval_demo src tests
+ruff check s01_agent_loop s02_tool_use s03_permission s04_hooks s05_session_persistence s06_session_context s07_session_compaction s08_runtime_events s09_runtime_streaming s10_model_provider s11_runtime_observability s12_skill_loading s13_a_sandbox_copy s13_b_sandbox_workspace s13_c_sandbox_native s14_extensions s15_stateful_extensions s16_repository_search s17_repository_symbols s18_semantic_retrieval s19_relationship_navigation example_project/retrieval_demo src tests
 ```

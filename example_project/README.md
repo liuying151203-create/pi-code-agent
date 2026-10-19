@@ -52,6 +52,8 @@ python -X utf8 -m s17_repository_symbols.code --workspace example_project/retrie
 
 搜索 `add` 的文本模式会命中定义和 `workflow.py` 第 13、14、24 行；第 25 行没有这个文本，不会直接命中。按 `preview` 的范围补读可以看到别名调用，但 s17 尚未建立它到具体定义的调用关系。实际排名、省略与解析覆盖以引擎返回为准，这些说明不是实测日志或性能成绩。
 
+s18 用“负数如何归零”观察语义召回，再通过 `normalize` 关键词观察混合排名；运行需要独立 embedding 配置与授权，见 [s18](../s18_semantic_retrieval/README.md)。s19 搜到 `Calculator.add` 的实体 ID 后，incoming/calls 应能给出 checkout 第 13 行与 preview 第 25 行的调用证据，见 [s19](../s19_relationship_navigation/README.md)。预期答案保留在本文件和测试中，不放进目标源码，不能把替身规则当成真实 embedding 质量结论。
+
 相同源码复用同一代缓存。若要观察修改后的重建，可修改示例业务源码后重新搜索；不要手改索引。改回旧内容且相应缓存仍在时可复用旧代次。原先 zero2pi 根目录中的旧缓存不会自动迁移或清理。
 
 ## 自动化验证
