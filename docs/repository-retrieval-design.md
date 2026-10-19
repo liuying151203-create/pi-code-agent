@@ -1,6 +1,6 @@
 # 代码仓库理解与检索：第二阶段总体设计
 
-版本：v0.4；更新：2026-10-19；状态：s16 文本检索、s17 符号查询与 Python 实体已实现编排和离线回归，默认目标统一为独立检索示例；真实引擎验证需手动准备对应镜像，s18–s19 尚未开发。
+版本：v0.5；更新：2026-10-19；状态：s16 文本检索、s17 符号查询与 Python 实体已实现编排和离线回归，默认目标统一为独立检索示例，索引缓存跟随目标项目；真实引擎验证需手动准备对应镜像，s18–s19 尚未开发。
 
 本阶段围绕一个问题：收到代码维护任务后，如何用更少的无效浏览，找到有源码证据的相关文件和函数。s16–s17 已落地，语义与关系能力仍为规划，不提前添加空类、未使用方法或新依赖。
 
@@ -83,7 +83,7 @@ Sourcebot 的上述搜索路径通过 Zoekt 提供索引搜索，不能将其直
 | `CodeRetriever` | 查询、调用已实现通道、去重排序、按预算组织证据 | 修改源码、改变会话压缩算法 |
 | `RepositoryExtension` | 将检索 handler 和指标观察者注册到现有 API | 另建核心循环、保存整份索引到会话 |
 
-s17 中 `RepositoryIndex.prepare()` 将 `source/`、`shards/`、`entities.sqlite` 和 manifest 在同一临时目录完成后整体发布；命中由 `CodeRetriever` 关联 `PreparedIndex.entity_catalog`。SQLite 只保存实体和解析错误，不存另一份源码，也没有预建向量/关系表。s17 记录隔离到 `.indexes/s17/<项目ID>/`、`.sessions/s17/<项目ID>/`、`.traces/s17/<项目ID>/`；两种查询模式共用同一代分片。
+s17 中 `RepositoryIndex.prepare()` 将 `source/`、`shards/`、`entities.sqlite` 和 manifest 在同一临时目录完成后整体发布；命中由 `CodeRetriever` 关联 `PreparedIndex.entity_catalog`。SQLite 只保存实体和解析错误，不存另一份源码，也没有预建向量/关系表。s17 索引位于目标项目的 `.indexes/s17/<代次>/`；运行记录仍在 Harness 的 `.sessions/s17/<项目ID>/`、`.traces/s17/<项目ID>/`；两种查询模式共用同一代分片。
 
 结构图的箭头统一表示左侧向右侧提供依赖或数据，标签标明参数或注册方式，不表示调用顺序。
 
@@ -170,7 +170,9 @@ s16 使用 JSON manifest 与 Zoekt 分片。s17 已采用标准库 SQLite 保存
 
 ### 目录隔离与读取安全
 
-索引保存于 Harness 的 `.indexes/s16/<workspace_id>/<generation>/`，不放进外部目标仓库或 Session。代次包含源码哈希、目标身份、适配器格式与实际镜像 ID；每代次有过滤源码副本、Zoekt 分片和 manifest，旧代次保留为可重建缓存。后续增加不同源码视图或解析/embedding 配置时再定义对应缓存身份。
+索引统一保存于实际目标的 `<workspace>/.indexes/<章节>/<generation>/`，项目由目录隔离，章节由子目录隔离。代次包含源码哈希、目标身份、适配器格式与实际镜像 ID；每代次有过滤源码副本、Zoekt 分片和 manifest，旧代次保留为可重建缓存。原先 Harness 内的缓存不自动迁移、复用或删除。后续增加不同源码视图或解析/embedding 配置时再定义对应缓存身份。
+
+`main()` 在启动后端或模型前调用 `workspace.prepare_index_directory()`：创建缓存目录，实际写入并清除临时文件；不可写就明确报错停止，不静默更换位置。业务源码对模型只读，Harness 可以写专用缓存；`.indexes/` 由扫描和基础工具强制排除，不依赖 Git ignore。外部 Git 项目应自行忽略此目录；Session、Trace 和检索指标仍位于 Harness 内，按章节和目标 ID 隔离。
 
 复用 s13 的“路径规范化＋仓库身份”思路，不直接修改它限定 A/B/C 的 WorkspaceLayout。目标仓库、Harness、执行视图分别明确；新章的会话和 Trace 也必须按目标隔离，不能恢复另一个仓库的授权。
 

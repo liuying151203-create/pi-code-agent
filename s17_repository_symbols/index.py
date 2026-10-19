@@ -129,7 +129,7 @@ class RepositoryIndex:
             staging.rename(destination)
         finally:
             if staging.exists():
-                # 来自 s16：保持；只清理本方法刚创建且未发布的临时目录，原仓库不在删除范围。
+                # 来自 s16：保持；只清理本方法刚创建且未发布的临时目录，业务源码不在删除范围。
                 if staging.parent != cache_root or staging.resolve() != staging:
                     raise RuntimeError("临时索引目录已重定向，停止清理")
                 shutil.rmtree(staging)

@@ -39,6 +39,8 @@ python -X utf8 -m s17_repository_symbols.code --workspace example_project/retrie
 
 目标默认是 `example_project/retrieval_demo`，不随启动目录改变，也不默认索引 Harness。多个独立示例统一放在 `example_project/`，源码结构与业务运行见 [示例说明](../example_project/README.md)。其他示例或已有项目加 `--workspace "D:\dev\my-app"`。`--session "<启动打印的 JSONL 路径>"` 只恢复同一目标的 s17 会话。修改目标源码不用重建镜像；修改 Dockerfile、search.go 或固定后端版本才需要重新构建。
 
+索引写入 `<目标项目>/.indexes/s17/`。沿用 s16 的 `prepare_index_directory()`，启动时实际写入、删除临时文件，验证失败即停止，不回退到其他目录。业务源码只读；缓存由 Harness 写入，并强制排除出扫描和模型工具。外部 Git 项目请将 `.indexes/` 加入自己的 `.gitignore`。
+
 ```powershell
 # 离线回归：后端和模型使用替身，不下载、不启动容器、不产生 API 费用
 python -m pytest tests/test_s17_repository_symbols.py
@@ -54,7 +56,7 @@ Remove-Item Env:ZERO2PI_TEST_ZOEKT_S17
 
 | 组件 / 方法 | 本章职责 | 与 s16 的关系 |
 | --- | --- | --- |
-| `RepositoryWorkspace.scan/read_file/dispatch` | 扫描、过滤、补读与搜索指纹校验 | 复用 s16；构造时将记录目录隔离到 s17 |
+| `RepositoryWorkspace.prepare_index_directory/scan/read_file/dispatch` | 启动缓存验证、扫描、过滤、补读与搜索指纹校验 | 复用 s16；目标内缓存和 Harness 内记录均按 s17 隔离 |
 | `ZoektBackend.build_index/search_index` | 开启 ctags；把 `mode` 传给薄 Go 适配器 | 修改：同一索引支持文本和符号查询 |
 | `CodeEntity` | 一个类或函数的名称、完整范围、文件版本与 ID | 新增：元数据，不保存源码 |
 | `EntityCatalog.parse/save/load/entity_at_line` | 解析定义、保存/恢复目录、按命中行找实体 | 新增：只做结构解析与关联，不重做关键词搜索 |
@@ -107,15 +109,17 @@ flowchart TD
 
 ## 数据与组装结构
 
-所有持久化数据仍在 zero2pi 内，目标项目只读：
+索引缓存放在实际目标项目中；例如 `--workspace "D:\dev\my-app"`：
 
 ```text
-.indexes/s17/<项目ID>/<索引代次>/
+D:/dev/my-app/.indexes/s17/<索引代次>/
 ├─ source/          # 过滤后的源码副本，给 Zoekt 索引器读取
 ├─ shards/          # Zoekt 文本+符号分片，不是两份独立索引
 ├─ entities.sqlite  # Python 定义的身份、范围和解析错误；不保存源码正文
 └─ manifest.json    # 源码指纹、目标、实际镜像 ID、AST/数据格式版本
 ```
+
+默认缓存位于 `example_project/retrieval_demo/.indexes/s17/`，不再在路径中加项目 ID；不同项目的目录天然隔离，代次仍包含目标身份。原先 zero2pi 根目录下的缓存不会自动迁移、复用或删除。
 
 `source_snapshot` 在内存保存本次合规文件的完整字节；磁盘 `source/` 是建索引的过滤副本，不是完整 Git 克隆。`entity_catalog` 在内存只保存元数据，SQLite 是它的持久化形式，不是另一份代码副本，也不负责向量搜索。
 
@@ -136,7 +140,7 @@ flowchart LR
     results -->|hits.entity| output["search_code 的 ToolResult.content"]
 ```
 
-`main()` 的组装层次不变：`workspace + zoekt_backend → index_manager`，再将 `workspace + index_manager → retriever → retrieval_extension → extensions → agent_loop`。`EntityCatalog` 由管理器准备并放在 `PreparedIndex.entity_catalog` 中，不额外塞进循环。会话、Trace 和检索指标分别位于 `.sessions/s17/<项目ID>/`、`.traces/s17/<项目ID>/`，不与 s16 共用会话文件或索引缓存。
+`main()` 的组装层次不变：`workspace + zoekt_backend → index_manager`，再将 `workspace + index_manager → retriever → retrieval_extension → extensions → agent_loop`。`EntityCatalog` 由管理器准备并放在 `PreparedIndex.entity_catalog` 中，不额外塞进循环。会话、Trace 和检索指标仍放在 **zero2pi 根目录**的 `.sessions/s17/<项目ID>/`、`.traces/s17/<项目ID>/`，不与 s16 共用会话文件或索引缓存。
 
 ## 范围与参考
 

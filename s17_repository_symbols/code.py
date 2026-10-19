@@ -304,6 +304,8 @@ def main(arguments: Sequence[str] | None = None) -> None:
 
     # ===== 来自 s16：保持；基础依赖与检索组件 =====
     workspace = RepositoryWorkspace(options.workspace, HARNESS_ROOT)
+    # 来自 s16：保持；先验证目标缓存可写，失败时不启动后端、模型或会话。
+    workspace.prepare_index_directory()
     # 来自 s16：保持；后端调用 Zoekt，管理器准备缓存，检索器组织一次查询；不把三者都叫索引。
     zoekt_backend = ZoektBackend(options.zoekt_image)
     zoekt_backend.check_ready()
@@ -392,9 +394,11 @@ def main(arguments: Sequence[str] | None = None) -> None:
     # ===== 来自 s16：保持；交互入口显示真实目标与三类记录 =====
     print("s17：仓库系统 · 符号索引与代码实体")
     print(f"目标：{workspace.root}；模型：{provider.model}；模式：read-only")
+    # 来自 s16：保持；区分 Harness 的缓存写入与模型对业务源码的只读访问。
+    print(f"索引缓存：{workspace.index_root}（业务源码只读）")
     print(f"可用工具：{', '.join(tool['name'] for tool in active_tools)}")
     print(f"会话：{session.path}；Trace：{trace_path}；检索指标：{metrics_path}")
-    print("输入任务，输入 q 退出。不会执行 shell 或修改目标项目。\n")
+    print("输入任务，输入 q 退出。不会执行 shell 或修改业务源码。\n")
 
     # ===== 来自 s15：任务保存、循环和用量（保持） =====
     while True:

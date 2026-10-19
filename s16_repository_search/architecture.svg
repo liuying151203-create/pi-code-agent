@@ -49,7 +49,7 @@
   </g>
   <g id="workspace">
     <rect class="box" x="922" y="254" width="270" height="150" rx="8"/>
-    <text class="node-title" x="1057" y="290" text-anchor="middle">目标项目 · 只读</text>
+    <text class="node-title" x="1057" y="290" text-anchor="middle">目标项目 · 源码只读</text>
     <text class="body" x="1057" y="327" text-anchor="middle">--workspace 指定</text>
     <text class="body" x="1057" y="364" text-anchor="middle">真实源码 / 文档 / 测试</text>
   </g>
@@ -61,11 +61,11 @@
   </g>
   <g id="index-cache">
     <rect class="box" x="922" y="530" width="270" height="152" rx="8"/>
-    <text class="node-title" x="1057" y="568" text-anchor="middle">本地缓存 · 宿主机硬盘</text>
+    <text class="node-title" x="1057" y="568" text-anchor="middle">目标内缓存 · 宿主机硬盘</text>
     <text class="body" x="1057" y="606" text-anchor="middle">source/：过滤源码副本</text>
     <text class="body" x="1057" y="643" text-anchor="middle">shards/：Zoekt 索引</text>
-    <text class="note" x="1057" y="710" text-anchor="middle">zero2pi/.indexes/s16/</text>
-    <text class="note" x="1057" y="735" text-anchor="middle">&lt;项目ID&gt;/&lt;代次&gt;/</text>
+    <text class="note" x="1057" y="710" text-anchor="middle">&lt;目标项目&gt;/.indexes/s16/</text>
+    <text class="note" x="1057" y="735" text-anchor="middle">&lt;代次&gt;/</text>
   </g>
 
   <g id="task-and-answer">

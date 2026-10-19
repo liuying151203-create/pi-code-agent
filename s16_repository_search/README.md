@@ -4,7 +4,7 @@
 
 Zoekt 把源码建立为带位置的 trigram（三字符）倒排索引，搜索时筛选候选并验证匹配。Python 负责目标范围、缓存更新、结果预算和扩展接入，不重写搜索算法。
 
-Python 在宿主机组织检索，Zoekt 在短容器中建索引和查询。Docker 镜像准备的是 Zoekt 程序，不是目标仓库的源码或索引；模型只提供查询并阅读结果，不参与索引构建。`main()` 启动时只组装组件、检查后端，第一次调用 `retriever.search()` 才准备索引。
+Python 在宿主机组织检索，Zoekt 在短容器中建索引和查询。Docker 镜像准备的是 Zoekt 程序，不是目标仓库的源码或索引；模型只提供查询并阅读结果，不参与索引构建。`main()` 启动时验证目标缓存可写、检查后端并组装组件，第一次调用 `retriever.search()` 才构建或复用索引。
 
 相对 s15，新增 `search_code`；与 `glob`、`grep`、`read_file` 共用一个目标项目。检索返回排序文件、行号和 `content_hash`，模型再按需读取源码。完整 `agent_loop` 保留在 [code.py](code.py)，没有检索业务分支。
 
@@ -37,6 +37,8 @@ python -X utf8 -m s16_repository_search.code --workspace example_project/retriev
 
 默认目标是 `example_project/retrieval_demo`，即使从其他目录启动也不变；不是 zero2pi 根目录。示例结构、业务运行和观察位置见 [示例说明](../example_project/README.md)。其他示例或已有项目使用 `--workspace "D:\dev\my-app"`。`--session "<启动时打印的 JSONL 路径>"` 只恢复同一目标的 s16 会话。无需 `--mode`，本章固定只读。
 
+索引写入 `<目标项目>/.indexes/s16/`。启动会创建目录并实际写入、删除一个临时验证文件；失败就报出路径并停止，不回退到其他位置。“只读”指业务源码和模型工具，Harness 仍需写专用缓存。`.indexes/` 强制排除，不参与检索，也不向模型开放读取；外部 Git 项目请将它加入自己的 `.gitignore`。
+
 修改目标源码**不需要重建镜像**：首次检索或允许文件内容变化时重建索引，未变化时复用。只有 Dockerfile、search.go 或固定 Zoekt 版本变化才需重新构建镜像；程序不自动下载、构建或启动 Docker 服务。
 
 ```powershell
@@ -52,7 +54,7 @@ Remove-Item Env:ZERO2PI_TEST_ZOEKT
 
 ## 组件与方法
 
-- [workspace.py](workspace.py) `RepositoryWorkspace`：`scan()` 得到合规 UTF-8 快照；`dispatch()` 将基础读取绑定到同一目标；`permission_hook()` 只做轻量前置检查，完整允许清单在读取前核对一次；`read_file()` 自动检查搜索过的文件指纹，也支持显式 `expected_hash`。
+- [workspace.py](workspace.py) `RepositoryWorkspace`：`prepare_index_directory()` 在启动时验证目标缓存可写；`scan()` 得到合规 UTF-8 快照；`dispatch()` 将基础读取绑定到同一目标；`permission_hook()` 只做轻量前置检查；`read_file()` 自动检查搜索指纹，也支持显式 `expected_hash`。
 - [index.py](index.py) `RepositoryIndex.prepare()`：管理索引的复用与重建，返回 `PreparedIndex`。新建时先写过滤副本，再调用 Zoekt 建分片，成功后发布；s16 是整代重建，不是逐文件增量更新。
 - [zoekt.py](zoekt.py) `ZoektBackend`：`build_index()` 调用官方索引器，`search_index()` 查询磁盘索引。短容器无网络，只挂载过滤副本/缓存，不挂载原项目或 Docker socket。
 - [retrieval.py](retrieval.py) `CodeRetriever.search()`：组织一次完整检索。`_build_file_results()` 用同版源码核验 Zoekt 的位置并组装片段，不重新搜索或排序。
@@ -74,16 +76,16 @@ Remove-Item Env:ZERO2PI_TEST_ZOEKT
 | `latest_snapshot` | Python 内存 | 查询结束前再次扫描的源码，只用整体指纹检查查询期间是否有变化。 |
 | `workspace.search_hashes` | 当前 Python 进程的内存 | 只登记成功返回过的“文件路径 → 指纹”，用于补读时自动检查；不保存源码、不当作权限清单，也不从历史会话恢复。 |
 
-磁盘缓存统一位于 **zero2pi 根目录**，不跟随 `--workspace` 移到外部目标项目。以 zero2pi 位于 `D:\dev\Agent\zero2pi` 为例，构建成功后是：
+磁盘缓存跟随实际目标项目。默认在 `example_project/retrieval_demo/.indexes/s16/`；指定 `--workspace "D:\dev\my-app"` 后，构建成功时是：
 
 ```text
-D:\dev\Agent\zero2pi\.indexes\s16\<项目ID>\<索引代次>\
+D:\dev\my-app\.indexes\s16\<索引代次>\
 ├─ source\          # 过滤后的源码副本，保留相对目录结构
 ├─ shards\          # Zoekt 索引文件（.zoekt）
 └─ manifest.json    # 对应的源码哈希、目标身份和后端版本
 ```
 
-项目 ID 根据目标规范路径生成，用于隔离项目；索引代次根据源码及后端版本等计算，用于复用同一版数据。构建时先写临时 `.build-*` 目录，成功后再改名发布，避免把半成品当作有效索引。
+项目由各自的目录隔离，章节由 `s16/` 隔离；索引代次根据目标身份、源码及后端版本等计算，用于复用同一版数据。构建时先写临时 `.build-*` 目录，成功后再改名发布，避免把半成品当作有效索引。原先 zero2pi 根目录下的缓存不会自动迁移、复用或删除。
 
 容器不挂载目标原项目：建索引时把临时源码副本只读挂为 `/source`，索引输出目录可写挂为 `/index`；查询时只把已发布的 `shards/` 只读挂为 `/index`。这些是宿主机目录的挂载，不会打进镜像，容器退出后已发布缓存仍保留。
 
@@ -107,7 +109,7 @@ flowchart TD
 
 这条检索流程由 `CodeRetriever.search()` 组织。命令行 `--search` 可直接验证它，打印结果后退出，不经过 Agent，也不创建会话。源码副本与索引的位置见上面的“数据与存放位置”；版本校验、输出预算和指标记录不在流程图中展开。
 
-例如默认示例中 `math_ops/calc.py` 第 8 行是运算方法定义。首次搜索 `add` 时：完整文件字节进入内存快照 → 写入 zero2pi 缓存副本的 `source/math_ops/calc.py` → Zoekt 建索引并找到第 8 行等位置 → Python 从首次快照取出匹配行并附哈希 → 再扫描确认未变后返回。若期间修改文件，则返回 `stale`，不提供旧证据。此例是流程示意，不是运行日志。
+例如默认示例中 `math_ops/calc.py` 第 8 行是运算方法定义。首次搜索 `add` 时：完整文件字节进入内存快照 → 写入目标项目 `.indexes/s16/<索引代次>/source/math_ops/calc.py` → Zoekt 建索引并找到第 8 行等位置 → Python 从首次快照取出匹配行并附哈希 → 再扫描确认未变后返回。若期间修改文件，则返回 `stale`，不提供旧证据。此例是流程示意，不是运行日志。
 
 若文件在搜索返回后才被修改，`read_file` 即使没带指纹也会发现版本变化，拒绝返回新版正文；重新搜索该文件后才更新自动校验依据。未搜索过的文件仍可直接读取。指纹只说明“上次搜到的内容是什么”，不能让已被忽略或禁止的文件获得读取权限。
 
@@ -139,7 +141,7 @@ flowchart LR
 
 </details>
 
-运行记录按目标规范路径哈希分组：`.sessions/s16/<项目ID>/`、`.traces/s16/<项目ID>/`、`.indexes/s16/<项目ID>/`。检索指标在 Trace 旁的 `*.retrieval.jsonl`，普通 Trace 不重复保存完整 details。恢复会话不恢复授权或索引状态；旧缓存留作可重建数据，不写回原仓库。
+Session、Trace 仍留在 **zero2pi 根目录**，按目标规范路径哈希分组：`.sessions/s16/<项目ID>/`、`.traces/s16/<项目ID>/`。检索指标在 Trace 旁的 `*.retrieval.jsonl`，普通 Trace 不重复保存完整 details。恢复会话不恢复授权或索引状态；旧索引代次保留为目标内的可重建缓存，不改写业务源码。
 
 ## 范围与参考
 

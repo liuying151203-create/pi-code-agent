@@ -8,6 +8,7 @@ import json
 import os
 import stat
 import subprocess
+import tempfile
 from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path
@@ -41,7 +42,7 @@ EXCLUDED_DIRS = {
 
 
 def checked_cache_path(path: Path) -> Path:
-    """拒绝运行记录路径被链接重定向；调用方提供 Harness 内的专用目录。"""
+    """拒绝专用缓存或运行记录路径被链接重定向。"""
     if path.resolve() != path:
         raise ValueError("缓存或运行记录目录不能通过链接重定向")
     return path
@@ -76,11 +77,11 @@ class SourceSnapshot:
 # ===== s16 新增：目标绑定与基础只读工具 =====
 # s16 新增：借鉴 s13 的目标绑定；不修改只支持 A/B/C 的 WorkspaceLayout。
 class RepositoryWorkspace:
-    """绑定目标仓库，以及 Harness 内按项目隔离的缓存和运行记录。
+    """绑定目标仓库、目标内索引缓存和 Harness 内的运行记录。
 
     输入：已有目标目录、Harness 根目录；输出：扫描、只读分发和会话路径入口。
-    流程：规范化目标 → 枚举并过滤 → 有界读取 → 返回源码或快照。
-    边界：不执行目标项目、不改变 s03.WORKDIR，不将只读策略称为 OS 沙箱。
+    流程：规范化目标 → 启动时验证缓存可写 → 枚举并过滤 → 返回源码或快照。
+    边界：业务源码只读，Harness 可写专用缓存；不执行项目或提供 OS 沙箱。
     """
 
     def __init__(self, root: Path, harness_root: Path) -> None:
@@ -95,7 +96,8 @@ class RepositoryWorkspace:
             raise ValueError("目标必须是已有项目目录，不能是磁盘根目录")
         identity = os.path.normcase(str(self.root))
         self.workspace_id = hashlib.sha256(identity.encode()).hexdigest()[:16]
-        self.index_root = harness_root / ".indexes" / "s16" / self.workspace_id
+        # s16 修改：缓存跟随实际目标；项目由目录隔离，代次仍包含目标身份。
+        self.index_root = self.root / ".indexes" / "s16"
         self.session_root = harness_root / ".sessions" / "s16" / self.workspace_id
         self.trace_root = harness_root / ".traces" / "s16" / self.workspace_id
         for directory in (self.index_root, self.session_root, self.trace_root):
@@ -117,6 +119,27 @@ class RepositoryWorkspace:
             "path 必须是文件；搜索目录请用 search_code(query=文本, scope=相对目录)。"
         )
         grep_tool["input_schema"]["properties"]["limit"]["maximum"] = 50
+
+    # s16 新增：启动时实际写入验证，而不是用可读权限推断缓存也可写。
+    def prepare_index_directory(self) -> None:
+        """创建并验证目标内的索引目录，不扫描源码或构建索引。
+
+        输入：已绑定的 index_root；输出：可写的缓存目录，验证文件自动清除。
+        流程：拒绝链接重定向 → 创建目录 → 写入并刷新临时文件 → 关闭并删除。
+        失败时明确停止，不切换到 Harness 或其他目录；业务源码不被改写。
+        """
+        try:
+            checked_cache_path(self.index_root)
+            self.index_root.mkdir(parents=True, exist_ok=True)
+            checked_cache_path(self.index_root)
+            with tempfile.TemporaryFile(dir=self.index_root) as probe:
+                probe.write(b"zero2pi cache write check\n")
+                probe.flush()
+        except (OSError, ValueError) as error:
+            raise RuntimeError(
+                f"无法创建或写入目标项目的索引目录：{self.index_root}；"
+                "请检查目录写入权限和路径，未切换到其他缓存位置。"
+            ) from error
 
     def scan(self) -> SourceSnapshot:
         """读取本次允许索引的文件，未提交修改同样计入版本。

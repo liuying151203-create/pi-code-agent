@@ -8,11 +8,14 @@ import os
 import shutil
 import subprocess
 import sys
+from contextlib import contextmanager
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import pytest
 
 from s16_repository_search import code as text_chapter
+from s16_repository_search import workspace as workspace_module
 from s17_repository_symbols import code as symbol_chapter
 from s17_repository_symbols.entities import EntityCatalog
 
@@ -76,7 +79,8 @@ class ExampleBackend:
 def example_copy(tmp_path):
     """所有可变测试使用临时副本，避免把索引更新试验写回示例原件。"""
     target = tmp_path / "harness" / "example_project" / "retrieval_demo"
-    shutil.copytree(EXAMPLE_ROOT, target, ignore=shutil.ignore_patterns("__pycache__"))
+    # 示例运行后会生成目标内缓存，测试只复制源码，不携带旧项目的索引代次。
+    shutil.copytree(EXAMPLE_ROOT, target, ignore=shutil.ignore_patterns("__pycache__", ".indexes"))
     harness = tmp_path / "harness"
     original = {path: (EXAMPLE_ROOT / path).read_bytes() for path in SOURCE_PATHS}
     yield target, harness
@@ -112,6 +116,109 @@ def test_default_workspace_is_one_example_not_harness_or_example_parent(
     assert options.workspace.is_dir()
     assert options.workspace != PROJECT_ROOT and options.workspace != EXAMPLE_ROOT.parent
     assert chapter.parse_args(["--workspace", str(tmp_path)]).workspace == tmp_path
+
+
+@pytest.mark.parametrize("chapter", [text_chapter, symbol_chapter], ids=["s16", "s17"])
+def test_cache_follows_external_target_but_records_stay_in_harness(chapter, tmp_path):
+    target = tmp_path / "external-project"
+    harness = tmp_path / "harness"
+    target.mkdir()
+    harness.mkdir()
+    workspace = chapter.RepositoryWorkspace(target, harness)
+    chapter_id = chapter.__package__.split("_", 1)[0]
+    assert workspace.index_root == target / ".indexes" / chapter_id
+    assert workspace.session_root == harness / ".sessions" / chapter_id / workspace.workspace_id
+    assert workspace.trace_root == harness / ".traces" / chapter_id / workspace.workspace_id
+    # 构造只绑定路径；实际可写检查由 main 显式调用。
+    assert not workspace.index_root.exists()
+
+
+@pytest.mark.parametrize("chapter", [text_chapter, symbol_chapter], ids=["s16", "s17"])
+def test_prepare_index_directory_actually_writes_and_removes_probe(
+    chapter, example_copy, monkeypatch
+):
+    target, harness = example_copy
+    workspace = chapter.RepositoryWorkspace(target, harness)
+    original_temporary_file = workspace_module.tempfile.TemporaryFile
+    written = []
+
+    @contextmanager
+    def observe_probe(*args, **kwargs):
+        assert kwargs["dir"] == workspace.index_root
+        with original_temporary_file(*args, **kwargs) as probe:
+            yield probe
+            probe.seek(0)
+            written.append(probe.read())
+
+    monkeypatch.setattr(workspace_module.tempfile, "TemporaryFile", observe_probe)
+    workspace.prepare_index_directory()
+    assert written == [b"zero2pi cache write check\n"]
+    assert list(workspace.index_root.iterdir()) == []
+    assert not (harness / ".indexes").exists()
+
+
+@pytest.mark.parametrize("chapter", [text_chapter, symbol_chapter], ids=["s16", "s17"])
+@pytest.mark.parametrize("failure", ["directory", "create_file", "write_file"])
+def test_main_stops_on_unwritable_target_cache_without_fallback(
+    chapter, failure, example_copy, monkeypatch
+):
+    target, harness = example_copy
+    monkeypatch.setattr(chapter, "HARNESS_ROOT", harness)
+    if failure == "directory":
+        (target / ".indexes").write_text("已有普通文件，不得覆盖", encoding="utf-8")
+    else:
+        temporary_file = MagicMock()
+        if failure == "create_file":
+            temporary_file.side_effect = PermissionError("不允许创建验证文件")
+        else:
+            temporary_file.return_value.__enter__.return_value.write.side_effect = PermissionError(
+                "不允许写入验证文件"
+            )
+        monkeypatch.setattr(workspace_module.tempfile, "TemporaryFile", temporary_file)
+
+    def forbid_startup(*_args, **_kwargs):
+        pytest.fail("缓存不可写时，不应启动后端、读取模型配置或创建 Provider")
+
+    monkeypatch.setattr(chapter, "ZoektBackend", forbid_startup)
+    monkeypatch.setattr(chapter, "load_dotenv", forbid_startup)
+    monkeypatch.setattr(chapter, "create_model_provider", forbid_startup)
+    with pytest.raises(RuntimeError, match="无法创建或写入目标项目的索引目录") as caught:
+        chapter.main(["--search", "add"])
+    chapter_id = chapter.__package__.split("_", 1)[0]
+    assert str(target / ".indexes" / chapter_id) in str(caught.value)
+    assert isinstance(caught.value.__cause__, OSError)
+    assert not (harness / ".indexes").exists()
+    assert not (harness / ".sessions").exists() and not (harness / ".traces").exists()
+    if failure == "directory":
+        assert (target / ".indexes").read_text(encoding="utf-8") == "已有普通文件，不得覆盖"
+
+
+@pytest.mark.parametrize("chapter", [text_chapter, symbol_chapter], ids=["s16", "s17"])
+def test_target_cache_is_excluded_from_scan_and_model_tools(chapter, example_copy):
+    target, harness = example_copy
+    workspace = chapter.RepositoryWorkspace(target, harness)
+    before = workspace.scan()
+    workspace.prepare_index_directory()
+    backend = ExampleBackend()
+    index = chapter.RepositoryIndex(workspace=workspace, backend=backend)
+    retriever = chapter.CodeRetriever(workspace=workspace, index_manager=index)
+    first = payload(retriever.search("add"))
+    second = payload(retriever.search("add"))
+    assert first["status"] == second["status"] == "ok" and backend.builds == 1
+    assert first["index_generation"] == second["index_generation"]
+    generation_dir = workspace.index_root / first["index_generation"]
+    assert (generation_dir / "source/workflow.py").is_file()
+    assert not (generation_dir / "source/.indexes").exists()
+    after = workspace.scan()
+    assert after.file_contents == before.file_contents and after.fingerprint == before.fingerprint
+    assert set(after.file_contents) == SOURCE_PATHS
+    assert ".indexes" not in workspace.dispatch("glob", {"pattern": "**/*"})
+    cache_file = (generation_dir / "manifest.json").relative_to(target).as_posix()
+    for name, arguments in [
+        ("read_file", {"path": cache_file}),
+        ("grep", {"path": cache_file, "pattern": "workspace"}),
+    ]:
+        assert workspace.dispatch(name, arguments).startswith("Permission denied:")
 
 
 def test_example_scan_and_entities_match_documented_positions(example_copy):
@@ -220,7 +327,9 @@ def test_direct_default_entry_uses_example_without_loading_model(
     result = json.loads(capsys.readouterr().out)
     assert result["status"] == "ok" and {file["path"] for file in result["files"]} == SOURCE_PATHS
     assert not (harness / ".sessions").exists() and not (harness / ".traces").exists()
-    assert target.is_dir()
+    chapter_id = chapter.__package__.split("_", 1)[0]
+    assert (target / ".indexes" / chapter_id / result["index_generation"]).is_dir()
+    assert not (harness / ".indexes").exists()
 
 
 @pytest.mark.skipif(

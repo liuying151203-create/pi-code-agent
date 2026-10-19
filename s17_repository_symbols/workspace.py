@@ -14,14 +14,14 @@ from s16_repository_search.workspace import RepositoryWorkspace as TextWorkspace
 from s16_repository_search.workspace import checked_cache_path
 
 
-# ===== 来自 s16：保持；扫描、过滤、读文件、自动指纹校验与基础工具分发直接复用 =====
+# ===== 来自 s16：保持；缓存可写验证、扫描、过滤与基础工具分发直接复用 =====
 # s17 修改：只覆盖目标组装及章节路径，不碰 s16 全局变量或检查 s16 的缓存目录。
 class RepositoryWorkspace(TextWorkspace):
     """为符号检索绑定与基础读取完全相同的目标和访问边界。
 
     输入：目标项目和 Harness 根目录；输出：s17 工作区组件。
-    流程：建立目标身份和本章目录 → 组装基础工具 → 复用 s16 的 scan/dispatch/read_file。
-    边界：本章不新增基础权限；索引、会话与 Trace 不会与 s16 混用。
+    流程：建立目标身份和本章目录 → 组装工具 → 复用 s16 的缓存验证与源码读取。
+    边界：业务源码只读，Harness 可写目标内缓存；记录和索引不与 s16 混用。
     """
 
     def __init__(self, root: Path, harness_root: Path) -> None:
@@ -38,7 +38,7 @@ class RepositoryWorkspace(TextWorkspace):
         identity = os.path.normcase(str(self.root))
         self.workspace_id = hashlib.sha256(identity.encode()).hexdigest()[:16]
         # s17 修改：仅本章路径改为 s17；不先初始化父类以免依赖无关的 s16 缓存。
-        self.index_root = harness_root / ".indexes" / "s17" / self.workspace_id
+        self.index_root = self.root / ".indexes" / "s17"
         self.session_root = harness_root / ".sessions" / "s17" / self.workspace_id
         self.trace_root = harness_root / ".traces" / "s17" / self.workspace_id
         for directory in (self.index_root, self.session_root, self.trace_root):
