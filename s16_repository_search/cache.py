@@ -27,22 +27,24 @@ def cache_directory_bytes(directory: Path) -> int:
 def _iter_cache_files(directory: Path) -> Iterator[tuple[str, int]]:
     """交出相对文件名和大小；目录、链接和数量检查始终在遍历时执行。"""
     checked_cache_path(directory)
-    if not directory.is_dir() or directory.is_junction():
+    if not _io_path(directory).is_dir() or _io_path(directory).is_junction():
         raise ValueError("缓存路径不是独立目录")
     pending = [directory]
     entries_seen = 0
     while pending:
         current = pending.pop()
         checked_cache_path(current)
-        with os.scandir(current) as entries:
+        # s16 修改（B027）：只在 Windows 系统调用处使用扩展路径，逻辑边界仍用标准路径。
+        with os.scandir(_io_path(current)) as entries:
             for entry in entries:
                 entries_seen += 1
                 if entries_seen > MAX_CACHE_ENTRIES:
                     raise ValueError("缓存目录项超过 20000 个，停止枚举")
-                path = Path(entry.path)
+                path = current / entry.name
                 checked_cache_path(path)
-                info = path.lstat()
-                if path.is_symlink() or path.is_junction():
+                io_path = _io_path(path)
+                info = io_path.lstat()
+                if io_path.is_symlink() or io_path.is_junction():
                     raise ValueError("缓存中不能包含链接或目录联接")
                 if stat.S_ISDIR(info.st_mode):
                     pending.append(path)
@@ -50,3 +52,15 @@ def _iter_cache_files(directory: Path) -> Iterator[tuple[str, int]]:
                     yield path.relative_to(directory).as_posix(), info.st_size
                 else:
                     raise ValueError("缓存中不能包含硬链接或特殊文件")
+
+
+def _io_path(path: Path) -> Path:
+    """Windows I/O 使用长路径前缀；不用于权限判定、缓存身份或对外展示。"""
+    if os.name != "nt":
+        return path
+    value = str(path)
+    if value.startswith("\\\\?\\"):
+        return path
+    if value.startswith("\\\\"):
+        return Path("\\\\?\\UNC\\" + value[2:])
+    return Path("\\\\?\\" + value)
