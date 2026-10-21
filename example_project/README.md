@@ -5,6 +5,7 @@
 | 目录 | 用途 |
 | --- | --- |
 | [retrieval_demo/](retrieval_demo/) | s16 起默认使用的仓库检索示例：同名方法、装饰器、嵌套函数、跨文件调用和局部别名 |
+| [repair_demo/](repair_demo/) | s21 默认维护目标：含一个故意保留的计算错误和公开 unittest，供隔离修改/验证/确认交付 |
 
 后续示例按 `example_project/<项目名>/` 并列增加，不把多个项目的父目录当作默认搜索目标。
 
@@ -24,12 +25,12 @@ retrieval_demo/
 python -B -X utf8 example_project/retrieval_demo/workflow.py
 # 先按 s16 README 手动准备镜像；文本模式检索定义、调用和赋值处
 python -X utf8 -m s16_repository_search.code --workspace example_project/retrieval_demo --search add
-# 先按 s17 README 手动准备含 ctags 的镜像；符号模式只查定义
-python -X utf8 -m s17_repository_symbols.code --workspace example_project/retrieval_demo --search add --search-mode symbol
+# 先按 s16 README 手动准备含 ctags 的镜像；符号模式只查定义
+python -X utf8 -m s16_repository_search.code --workspace example_project/retrieval_demo --search add --search-mode symbol
 # 只查运算目录；范围相对目标项目，不是相对 Harness
-python -X utf8 -m s17_repository_symbols.code --workspace example_project/retrieval_demo --search normalize --scope math_ops
-# 启动只读 Agent；s16、s17 省略 --workspace 时也默认选此项目
-python -X utf8 -m s17_repository_symbols.code --workspace example_project/retrieval_demo
+python -X utf8 -m s16_repository_search.code --workspace example_project/retrieval_demo --search normalize --scope math_ops
+# 启动只读 Agent；s16–s19 省略 --workspace 时也默认选此项目
+python -X utf8 -m s16_repository_search.code --workspace example_project/retrieval_demo
 ```
 
 可输入：
@@ -50,9 +51,9 @@ python -X utf8 -m s17_repository_symbols.code --workspace example_project/retrie
 | `workflow.py`：`checkout` | 7 | 7–15 | 第 13、14 行直接使用两个同名方法 |
 | `workflow.py`：`preview` | 18 | 18–25 | 第 24 行取得方法，第 25 行通过别名调用 |
 
-搜索 `add` 的文本模式会命中定义和 `workflow.py` 第 13、14、24 行；第 25 行没有这个文本，不会直接命中。按 `preview` 的范围补读可以看到别名调用，但 s17 尚未建立它到具体定义的调用关系。实际排名、省略与解析覆盖以引擎返回为准，这些说明不是实测日志或性能成绩。
+搜索 `add` 的文本模式会命中定义和 `workflow.py` 第 13、14、24 行；第 25 行没有这个文本，不会直接命中。按 `preview` 的范围补读可以看到别名调用，但 s16 尚未建立它到具体定义的调用关系。实际排名、省略与解析覆盖以引擎返回为准，这些说明不是实测日志或性能成绩。
 
-s18 用“负数如何归零”观察语义召回，再通过 `normalize` 关键词观察混合排名；运行需要独立 embedding 配置与授权，见 [s18](../s18_semantic_retrieval/README.md)。s19 搜到 `Calculator.add` 的实体 ID 后，incoming/calls 应能给出 checkout 第 13 行与 preview 第 25 行的调用证据，见 [s19](../s19_relationship_navigation/README.md)。预期答案保留在本文件和测试中，不放进目标源码，不能把替身规则当成真实 embedding 质量结论。
+s17 用“负数如何归零”观察单路语义召回；s19 再配合 `normalize` 关键词观察混合排名与证据来源。语义调用需要独立 embedding 配置与授权，见 [s17](../s17_semantic_retrieval/README.md) 和 [s19](../s19_retrieval_fusion/README.md)。s18 搜到 `Calculator.add` 的实体 ID 后，incoming/calls 应能给出 checkout 第 13 行与 preview 第 25 行的调用证据，见 [s18](../s18_relationship_navigation/README.md)。预期答案保留在本文件和测试中，不放进目标源码，不能把替身规则当成真实 embedding 质量结论。
 
 相同源码复用同一代缓存。若要观察修改后的重建，可修改示例业务源码后重新搜索；不要手改索引。改回旧内容且相应缓存仍在时可复用旧代次。原先 zero2pi 根目录中的旧缓存不会自动迁移或清理。
 
@@ -61,10 +62,16 @@ s18 用“负数如何归零”观察语义召回，再通过 `normalize` 关键
 ```powershell
 # 验证业务输出、默认目标、实体边界、文本/符号差异及索引复用和更新；使用后端替身
 python -m pytest tests/test_retrieval_examples.py -k "not real_zoekt"
-# 镜像手动准备后，显式验证同一示例在真实 s17 引擎中的定义/引用检索
-$env:ZERO2PI_TEST_ZOEKT_S17 = "1"
-python -m pytest tests/test_retrieval_examples.py -k real_zoekt_s17
-Remove-Item Env:ZERO2PI_TEST_ZOEKT_S17
+# 镜像手动准备后，显式验证同一示例在真实 s16 引擎中的定义/引用检索
+$env:ZERO2PI_TEST_ZOEKT = "1"
+python -m pytest tests/test_retrieval_examples.py -k real_zoekt_s16
+Remove-Item Env:ZERO2PI_TEST_ZOEKT
 ```
 
 自动化测试将示例复制到临时目录再修改，索引与运行数据也写临时目录。预期文件和行号保存在 `tests/`，不进入示例项目的检索范围；普通离线测试不证明真实引擎性能。
+
+## 维护示例
+
+`repair_demo` 的公开业务测试属于维护任务输入，不是评测隐藏答案。由 s21 复制后在容器执行，初始预期失败；输入“修复 total 的加法结果，不修改现有测试”，观察定位、修改、固定验证和待确认 Diff。不要为测试 Harness 而修掉示例原件的故意错误；自动化回归只修改临时副本。完整准备/运行说明见 [s21](../s21_sandbox_repair/README.md)。
+
+s22 的教学标签位于章节 `tasks/`，不放进上述两个目标；输出位于 Harness 的 `.evals/s22/`。教学案例不能当作 SWE-bench 或真实 Agent 改善幅度。

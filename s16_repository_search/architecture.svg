@@ -1,7 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1240" height="820" viewBox="0 0 1240 820" role="img" aria-labelledby="title description">
   <title id="title">s16 仓库检索整体工作示意</title>
-  <desc id="description">用户向 Agent 提交任务。Agent 调用检索模块，模块读取目标项目的允许源码，按需保存过滤副本并调用 Docker 中的 Zoekt 建立或查询本地索引。匹配位置返回 Agent 后，Agent 按需从原项目补读源码并回答用户。虚线表示仅在需要重建时发生的缓存写入。</desc>
-  <!-- s16 新增：按运行区域展示整体结构；后续章节沿用区域，只增加实际接入的检索能力。 -->
+  <desc id="description">用户向 Agent 提交任务。Agent 调用检索模块，模块读取目标项目的允许源码，按需保存过滤副本，调用 Docker 中的 Zoekt 和 ctags 建立文本与符号索引，Python AST 提取的实体保存到同代 SQLite。匹配位置关联实体后返回 Agent，Agent 按需从原项目补读源码并回答用户。虚线表示仅在需要重建时发生的缓存写入。</desc>
+  <!-- s16 新增：同一布局展示符号查询、AST 实体和 SQLite。 -->
   <style>
     :root {
       color-scheme: light dark;
@@ -28,7 +28,7 @@
     </marker>
   </defs>
   <rect width="1240" height="820" fill="var(--background)"/>
-  <text class="heading" x="48" y="43">s16 · 仓库检索整体工作示意</text>
+  <text class="heading" x="48" y="43">s16 · 文本、符号与代码实体</text>
 
   <g id="user">
     <rect class="box" x="48" y="88" width="240" height="72" rx="8"/>
@@ -45,7 +45,7 @@
     <rect class="box" x="438" y="254" width="300" height="150" rx="8"/>
     <text class="node-title" x="588" y="290" text-anchor="middle">仓库检索模块 · Python</text>
     <text class="body" x="588" y="327" text-anchor="middle">扫描源码，生成内存快照</text>
-    <text class="body" x="588" y="364" text-anchor="middle">复用索引，整理命中片段</text>
+    <text class="body" x="588" y="364" text-anchor="middle">文本 / 符号命中与实体关联</text>
   </g>
   <g id="workspace">
     <rect class="box" x="922" y="254" width="270" height="150" rx="8"/>
@@ -56,16 +56,17 @@
   <g id="zoekt">
     <rect class="box" x="438" y="530" width="300" height="152" rx="8"/>
     <text class="node-title" x="588" y="568" text-anchor="middle">Zoekt · Docker 短容器</text>
-    <text class="body" x="588" y="606" text-anchor="middle">索引器：建立文本索引</text>
-    <text class="body" x="588" y="643" text-anchor="middle">搜索器：按关键词匹配</text>
+    <text class="body" x="588" y="606" text-anchor="middle">索引器：文本 ＋ 符号</text>
+    <text class="body" x="588" y="643" text-anchor="middle">搜索器：text / symbol</text>
   </g>
   <g id="index-cache">
-    <rect class="box" x="922" y="530" width="270" height="152" rx="8"/>
+    <rect class="box" x="922" y="530" width="270" height="170" rx="8"/>
     <text class="node-title" x="1057" y="568" text-anchor="middle">目标内缓存 · 宿主机硬盘</text>
     <text class="body" x="1057" y="606" text-anchor="middle">source/：过滤源码副本</text>
     <text class="body" x="1057" y="643" text-anchor="middle">shards/：Zoekt 索引</text>
-    <text class="note" x="1057" y="710" text-anchor="middle">&lt;目标项目&gt;/.indexes/s16/</text>
-    <text class="note" x="1057" y="735" text-anchor="middle">&lt;代次&gt;/</text>
+    <text class="note" x="1057" y="676" text-anchor="middle">entities.sqlite：实体元数据</text>
+    <text class="note" x="1057" y="728" text-anchor="middle">&lt;目标项目&gt;/.indexes/s16/</text>
+    <text class="note" x="1057" y="753" text-anchor="middle">&lt;代次&gt;/</text>
   </g>
 
   <g id="task-and-answer">
@@ -78,7 +79,7 @@
     <path class="wire" d="M 288 307 H 438"/>
     <text class="label" x="363" y="293" text-anchor="middle">① 搜索关键词</text>
     <path class="wire" d="M 438 369 H 288"/>
-    <text class="label" x="363" y="355" text-anchor="middle">⑤ 命中位置</text>
+    <text class="label" x="363" y="355" text-anchor="middle">⑤ 位置＋实体</text>
   </g>
   <g id="source-input">
     <path class="wire" d="M 922 324 H 738"/>
@@ -87,12 +88,12 @@
   <g id="prepare-copy">
     <path class="wire write" d="M 738 382 H 818 V 510 H 950 V 530"/>
     <rect class="label-bg" x="746" y="441" width="146" height="26"/>
-    <text class="label" x="819" y="460" text-anchor="middle">③ 保存过滤副本</text>
+    <text class="label" x="819" y="460" text-anchor="middle">③ 保存副本 / 实体</text>
   </g>
   <g id="engine-request-and-result">
     <path class="wire" d="M 520 404 V 530"/>
     <text class="label" x="504" y="458" text-anchor="end">④ 建立 / 查询</text>
-    <text class="label" x="504" y="482" text-anchor="end">文本索引</text>
+    <text class="label" x="504" y="482" text-anchor="end">文本 / 符号索引</text>
     <path class="wire" d="M 670 530 V 404"/>
     <text class="label" x="686" y="477">匹配位置</text>
   </g>
@@ -105,7 +106,7 @@
   </g>
   <g id="read-source">
     <path class="wire" d="M 260 254 V 197 H 1057 V 254" marker-start="url(#arrow)"/>
-    <text class="label" x="660" y="183" text-anchor="middle">⑥ read_file：按需补读原项目源码</text>
+    <text class="label" x="660" y="183" text-anchor="middle">⑥ read_file：按实体范围补读原项目源码</text>
   </g>
 
   <g id="legend">

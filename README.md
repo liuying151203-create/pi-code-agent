@@ -2,7 +2,7 @@
 
 `zero2pi` 是一个从零实现 Agent 的学习与实践项目：以 `learn-claude-code` 的渐进式方式组织开发，参考 `pi` 的 Agent loop、工具调用和运行时设计，逐步构建一个清晰、可运行、可扩展的 Agent Harness。
 
-第二阶段：[总体设计](docs/repository-retrieval-design.md)、[s16 文本检索](s16_repository_search/README.md)、[s17 符号索引](s17_repository_symbols/README.md)。独立目标项目统一放在 [example_project/](example_project/README.md)，s16 起默认检索 `retrieval_demo`，不索引 Harness 根目录。
+第二阶段：[总体设计](docs/repository-retrieval-design.md)、[s16 文本与符号](s16_repository_search/README.md) → [s17 语义](s17_semantic_retrieval/README.md) → [s18 关系](s18_relationship_navigation/README.md) → [s19 多路融合](s19_retrieval_fusion/README.md) → [s20 任务](s20_git_task_context/README.md) → [s21 修复](s21_sandbox_repair/README.md) → [s22 评测](s22_retrieval_evaluation/README.md)。独立目标见 [example_project/](example_project/README.md)，不默认操作 Harness。
 
 ## 基础环境
 
@@ -20,7 +20,7 @@ Copy-Item .env.example .env
 
 在 `.env` 中填写模型密钥。若 PowerShell 不允许激活虚拟环境，可直接使用 `.venv\Scripts\python.exe`。
 
-s07–s17 的模型交互还需填写实际 `MODEL_CONTEXT_WINDOW_TOKENS`；预算迁移与示例见 [s07 配置](s07_session_compaction/README.md#运行)，不要直接复制未经服务确认的模型容量。
+s07 起的模型交互还需填写实际 `MODEL_CONTEXT_WINDOW_TOKENS`；预算迁移与示例见 [s07 配置](s07_session_compaction/README.md#运行)，不要直接复制未经服务确认的模型容量。
 
 s13-A 另需手动准备 Docker Linux 服务和本地镜像，命令见 [Sandbox 教程](s13_a_sandbox_copy/README.md#运行与验证)；程序不自动拉取镜像或安装依赖。
 
@@ -91,16 +91,22 @@ python -B -X utf8 example_project/retrieval_demo/workflow.py
 python -X utf8 -m s16_repository_search.code
 # 不调用模型；--workspace 仍可指定其他示例或已有项目
 python -X utf8 -m s16_repository_search.code --workspace example_project/retrieval_demo --search add
-# 第十七章：按章节 README 单独构建含 ctags 的镜像，再查询符号定义与实体范围
-python -X utf8 -m s17_repository_symbols.code --workspace example_project/retrieval_demo --search add --search-mode symbol
-# 第十七章只读 Agent：文本/符号模式由 search_code 工具参数选择
-python -X utf8 -m s17_repository_symbols.code
-# 第十八章：按章节教程填写独立 embedding 配置；显式允许源码发送，可能计费
-python -X utf8 -m s18_semantic_retrieval.code --search "负数如何归零" --search-mode semantic --allow-remote-embedding
-# 第十九章：复用 s17 镜像；先搜实体，再查询一跳关系，默认不启用 embedding
-python -X utf8 -m s19_relationship_navigation.code
+# 第十六章符号查询：与文本共用同一镜像和索引
+python -X utf8 -m s16_repository_search.code --search add --search-mode symbol
+# 第十七章：按教程配置独立 embedding，授权后可能计费
+python -X utf8 -m s17_semantic_retrieval.code --search "负数如何归零" --search-mode semantic --allow-remote-embedding
+# 第十八章：只读关系导航，默认不启用 embedding
+python -X utf8 -m s18_relationship_navigation.code
+# 第十九章：多路融合、证据组装与可选关系补充
+python -X utf8 -m s19_retrieval_fusion.code --allow-remote-embedding
+# 第二十章：预览需求＋只读 Git 任务上下文，不调用模型/Zoekt
+python -X utf8 -m s20_git_task_context.code --show-context --task "分析当前修改"
+# 第二十一章：先按章节教程准备镜像；在隔离副本修复/验证，确认后才交付
+python -X utf8 -m s21_sandbox_repair.code
+# 第二十二章：固定示例的基础工具组件评测，无模型/Docker/API
+python -X utf8 -m s22_retrieval_evaluation.code --mode basic
 # 运行测试
 python -m pytest
 # 检查代码规范
-ruff check s01_agent_loop s02_tool_use s03_permission s04_hooks s05_session_persistence s06_session_context s07_session_compaction s08_runtime_events s09_runtime_streaming s10_model_provider s11_runtime_observability s12_skill_loading s13_a_sandbox_copy s13_b_sandbox_workspace s13_c_sandbox_native s14_extensions s15_stateful_extensions s16_repository_search s17_repository_symbols s18_semantic_retrieval s19_relationship_navigation example_project/retrieval_demo src tests
+ruff check s01_agent_loop s02_tool_use s03_permission s04_hooks s05_session_persistence s06_session_context s07_session_compaction s08_runtime_events s09_runtime_streaming s10_model_provider s11_runtime_observability s12_skill_loading s13_a_sandbox_copy s13_b_sandbox_workspace s13_c_sandbox_native s14_extensions s15_stateful_extensions s16_repository_search s17_semantic_retrieval s18_relationship_navigation s19_retrieval_fusion s20_git_task_context s21_sandbox_repair s22_retrieval_evaluation example_project src tests
 ```

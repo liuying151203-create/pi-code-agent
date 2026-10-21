@@ -85,6 +85,9 @@ class RepositoryWorkspace:
     边界：业务源码只读，Harness 可写专用缓存；不执行项目或提供 OS 沙箱。
     """
 
+    # s16 新增：后续章节只覆盖存储命名空间，扫描和读取边界不变。
+    chapter = "s16"
+
     def __init__(self, root: Path, harness_root: Path) -> None:
         """计算路径与项目身份，初始化空的搜索指纹记录，不创建目录或索引。
 
@@ -98,9 +101,9 @@ class RepositoryWorkspace:
         identity = os.path.normcase(str(self.root))
         self.workspace_id = hashlib.sha256(identity.encode()).hexdigest()[:16]
         # s16 修改：缓存跟随实际目标；项目由目录隔离，代次仍包含目标身份。
-        self.index_root = self.root / ".indexes" / "s16"
-        self.session_root = harness_root / ".sessions" / "s16" / self.workspace_id
-        self.trace_root = harness_root / ".traces" / "s16" / self.workspace_id
+        self.index_root = self.root / ".indexes" / self.chapter
+        self.session_root = harness_root / ".sessions" / self.chapter / self.workspace_id
+        self.trace_root = harness_root / ".traces" / self.chapter / self.workspace_id
         for directory in (self.index_root, self.session_root, self.trace_root):
             checked_cache_path(directory)
         # s16 新增：只记住成功返回过的文件指纹；这是补读依据，不是权限清单或源码缓存。
@@ -187,7 +190,7 @@ class RepositoryWorkspace:
         扩展 search_code 自己通过同一个 workspace 扫描，不借旧章的全局权限放行。
         """
         if name not in {"read_file", "grep", "glob"}:
-            return "Permission denied: s16 只开放 glob、grep、read_file 和检索扩展"
+            return f"Permission denied: {self.chapter} 只开放 glob、grep、read_file 和检索扩展"
         if not isinstance(arguments, dict):
             return "Error: 工具参数必须是对象"
         if name in {"read_file", "grep"}:
@@ -327,7 +330,7 @@ class RepositoryWorkspace:
         path = history_path.absolute()
         checked_cache_path(path)
         if path.parent != self.session_root or not path.is_file() or path.stat().st_nlink > 1:
-            raise ValueError("会话不属于当前 s16 目标项目，不能跨项目加载")
+            raise ValueError(f"会话不属于当前 {self.chapter} 目标项目，不能跨项目加载")
         return path
 
     # ===== s16 新增：底层路径、文件清单与读取检查 =====

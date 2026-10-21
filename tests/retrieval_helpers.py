@@ -1,11 +1,11 @@
-"""s18/s19 共用的离线替身；不代表真实 Zoekt 或 embedding 模型的检索效果。"""
+"""s16–s22 共用的离线替身；不代表真实 Zoekt 或 embedding 模型的检索效果。"""
 
 import ast
 import json
 import shutil
 from pathlib import Path
 
-from s18_semantic_retrieval.embeddings import EmbeddingBatch
+from s17_semantic_retrieval.embeddings import EmbeddingBatch
 
 EXAMPLE = Path(__file__).resolve().parents[1] / "example_project" / "retrieval_demo"
 

@@ -60,8 +60,8 @@ def plan_cache_cleanup(workspace: RepositoryWorkspace, keep_recent: int = 1) -> 
     if type(keep_recent) is not int or keep_recent < 1:
         raise ValueError("至少保留 1 个最近代次")
     root = checked_cache_path(workspace.index_root)
-    if root.parent != workspace.root / ".indexes" or root.name not in {"s16", "s17"}:
-        raise ValueError("清理范围必须是目标项目内的 s16/s17 索引目录")
+    if root.parent != workspace.root / ".indexes" or root.name != "s16":
+        raise ValueError("清理范围必须是目标项目内的 s16 索引目录")
     current_fingerprint = workspace.compute_fingerprint()
     generations = []
     skipped = []
@@ -167,13 +167,11 @@ def _inspect_generation(path: Path, workspace: RepositoryWorkspace) -> CachedGen
         raise ValueError("manifest 缺失或超过预算")
     # s16 新增：实际读取也有上限，不能仅依赖枚举时的旧大小。
     manifest = _read_manifest(path / "manifest.json")
-    chapter = workspace.index_root.name
-    expected_fields = {"schema", "workspace", "source", "hashes", "backend"}
-    if chapter == "s17":
-        expected_fields.add("parser")
+    # s16 修改：文本和符号已合章，只识别当前带实体的完整布局；旧格式保持不动。
+    expected_fields = {"schema", "workspace", "source", "hashes", "backend", "parser"}
     if (
         set(manifest) != expected_fields
-        or manifest.get("schema") != f"{chapter}-v1"
+        or manifest.get("schema") != "s16-v2"
         or manifest.get("workspace") != workspace.workspace_id
         or not _is_hash(manifest.get("source"))
         or not isinstance(manifest.get("hashes"), dict)
@@ -190,11 +188,9 @@ def _inspect_generation(path: Path, workspace: RepositoryWorkspace) -> CachedGen
     source_files = {f"source/{name}" for name in manifest["hashes"]}
     if {name for name in files if name.startswith("source/")} != source_files:
         raise ValueError("过滤副本缺失或包含未知文件")
-    allowed = source_files | {"manifest.json"}
-    if chapter == "s17":
-        if "entities.sqlite" not in files:
-            raise ValueError("实体数据库缺失")
-        allowed.add("entities.sqlite")
+    if "entities.sqlite" not in files:
+        raise ValueError("实体数据库缺失")
+    allowed = source_files | {"manifest.json", "entities.sqlite"}
     for name in files:
         if Path(name).parent.as_posix() == "shards" and name.endswith((".zoekt", ".zoekt.meta")):
             allowed.add(name)

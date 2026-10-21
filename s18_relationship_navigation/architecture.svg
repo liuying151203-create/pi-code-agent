@@ -1,0 +1,128 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1240" height="820" viewBox="0 0 1240 820" role="img" aria-labelledby="title description">
+  <title id="title">s18 关系导航整体工作示意</title>
+  <desc id="description">沿用 s17 的搜索和可选语义召回。Agent 先 search_code 得到当前实体 ID，再 related_code 读取当前源码对应的调用、导入、继承关系。关系分析由 Python AST 完成，SQLite 存节点与关系，不执行目标代码、不复制额外源码。最多一跳，未知绑定标记 unresolved，最后按需 read_file 补读。</desc>
+  <!-- 来自 s17：保持布局；s18 在 Python 区增加关系导航和同代关系缓存。 -->
+  <style>
+    :root {
+      color-scheme: light dark;
+      --background: light-dark(#ffffff, #181c21);
+      --foreground: light-dark(#242a31, #e7ecf1);
+      --surface: light-dark(#f4f6f8, #232a32);
+      --border: light-dark(#b4bdc7, #687380);
+      --secondary: light-dark(#536170, #bac5d1);
+    }
+    text { font-family: "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; fill: var(--foreground); }
+    .heading { font-size: 25px; font-weight: 500; }
+    .node-title { font-size: 21px; font-weight: 500; }
+    .body { font-size: 17px; }
+    .label { font-size: 16px; }
+    .note { font-size: 15px; fill: var(--secondary); }
+    .box { fill: var(--surface); stroke: var(--border); stroke-width: 1.5; }
+    .wire { fill: none; stroke: var(--secondary); stroke-width: 1.7; marker-end: url(#arrow); }
+    .write { stroke-dasharray: 7 5; }
+    .label-bg { fill: var(--background); }
+  </style>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 Z" fill="var(--secondary)"/>
+    </marker>
+  </defs>
+  <rect width="1240" height="820" fill="var(--background)"/>
+  <text class="heading" x="48" y="43">s18 · 关系导航</text>
+
+  <g id="user">
+    <rect class="box" x="48" y="88" width="240" height="72" rx="8"/>
+    <text class="node-title" x="168" y="132" text-anchor="middle">用户</text>
+  </g>
+  <g id="agent">
+    <rect class="box" x="48" y="254" width="240" height="210" rx="8"/>
+    <text class="node-title" x="168" y="290" text-anchor="middle">Agent 运行区</text>
+    <text class="body" x="168" y="325" text-anchor="middle">模型决策 ＋ 工具循环</text>
+    <text class="body" x="168" y="378" text-anchor="middle">search_code：定位实体</text>
+    <text class="body" x="168" y="416" text-anchor="middle">related_code：一跳关系</text>
+  </g>
+  <g id="embedding">
+    <rect class="box" x="438" y="88" width="300" height="100" rx="8"/>
+    <text class="node-title" x="588" y="124" text-anchor="middle">s17 · Embedding 服务</text>
+    <text class="body" x="588" y="161" text-anchor="middle">明确授权后：源码块 / 查询编码</text>
+    <path class="wire" d="M 520 254 V 188"/>
+    <text class="label" x="504" y="233" text-anchor="end">编码请求</text>
+    <path class="wire" d="M 670 188 V 254"/>
+    <text class="label" x="686" y="233">向量</text>
+  </g>
+  <g id="repository-retrieval">
+    <rect class="box" x="438" y="254" width="300" height="150" rx="8"/>
+    <text class="node-title" x="588" y="290" text-anchor="middle">仓库检索模块 · Python</text>
+    <text class="body" x="588" y="327" text-anchor="middle">扫描源码，生成内存快照</text>
+    <text class="body" x="588" y="364" text-anchor="middle">s18：定位＋单跳关系证据</text>
+  </g>
+  <g id="workspace">
+    <rect class="box" x="922" y="254" width="270" height="150" rx="8"/>
+    <text class="node-title" x="1057" y="290" text-anchor="middle">目标项目 · 源码只读</text>
+    <text class="body" x="1057" y="327" text-anchor="middle">--workspace 指定</text>
+    <text class="body" x="1057" y="364" text-anchor="middle">真实源码 / 文档 / 测试</text>
+  </g>
+  <g id="zoekt">
+    <rect class="box" x="438" y="530" width="300" height="152" rx="8"/>
+    <text class="node-title" x="588" y="568" text-anchor="middle">Zoekt · Docker 短容器</text>
+    <text class="body" x="588" y="606" text-anchor="middle">索引器：文本 ＋ 符号</text>
+    <text class="body" x="588" y="643" text-anchor="middle">搜索器：text / symbol</text>
+  </g>
+  <g id="index-cache">
+    <rect class="box" x="922" y="530" width="270" height="170" rx="8"/>
+    <text class="node-title" x="1057" y="568" text-anchor="middle">目标内缓存 · 宿主机硬盘</text>
+    <text class="body" x="1057" y="606" text-anchor="middle">source/：过滤源码副本</text>
+    <text class="body" x="1057" y="643" text-anchor="middle">shards/：Zoekt 索引</text>
+    <text class="note" x="1057" y="676" text-anchor="middle">SQLite：实体 / 图 / 向量</text>
+    <text class="note" x="1057" y="728" text-anchor="middle">&lt;目标项目&gt;/.indexes/s18/</text>
+    <text class="note" x="1057" y="753" text-anchor="middle">&lt;代次&gt;/</text>
+  </g>
+
+  <g id="task-and-answer">
+    <path class="wire" d="M 110 160 V 254"/>
+    <text class="label" x="96" y="213" text-anchor="end">任务</text>
+    <path class="wire" d="M 218 254 V 160"/>
+    <text class="label" x="232" y="213">回答</text>
+  </g>
+  <g id="search-and-evidence">
+    <path class="wire" d="M 288 307 H 438"/>
+    <text class="label" x="363" y="293" text-anchor="middle">① 模式与查询</text>
+    <path class="wire" d="M 438 369 H 288"/>
+    <text class="label" x="363" y="355" text-anchor="middle">⑤ 位置 / 关系</text>
+  </g>
+  <g id="source-input">
+    <path class="wire" d="M 922 324 H 738"/>
+    <text class="label" x="830" y="309" text-anchor="middle">② 读取允许源码</text>
+  </g>
+  <g id="prepare-copy">
+    <path class="wire write" d="M 738 382 H 818 V 510 H 950 V 530"/>
+    <rect class="label-bg" x="746" y="441" width="146" height="26"/>
+    <text class="label" x="819" y="460" text-anchor="middle">③ 缓存所需数据</text>
+  </g>
+  <g id="engine-request-and-result">
+    <path class="wire" d="M 520 404 V 530"/>
+    <text class="label" x="504" y="458" text-anchor="end">④ 建立 / 查询</text>
+    <text class="label" x="504" y="482" text-anchor="end">文本 / 符号索引</text>
+    <path class="wire" d="M 670 530 V 404"/>
+    <text class="label" x="686" y="477">匹配位置</text>
+  </g>
+  <g id="index-mounts">
+    <path class="wire" d="M 922 574 H 738"/>
+    <text class="label" x="830" y="540" text-anchor="middle">只读挂载</text>
+    <text class="label" x="830" y="562" text-anchor="middle">副本 / 索引</text>
+    <path class="wire write" d="M 738 656 H 922"/>
+    <text class="label" x="830" y="642" text-anchor="middle">写入新索引</text>
+  </g>
+  <g id="read-source">
+    <path class="wire" d="M 260 254 V 217 H 400 V 65 H 1057 V 254" marker-start="url(#arrow)"/>
+    <text class="label" x="790" y="79" text-anchor="middle">⑥ read_file：按实体范围补读原项目源码</text>
+  </g>
+
+  <g id="legend">
+    <path class="wire" d="M 48 744 H 108"/>
+    <text class="note" x="124" y="750">实线：任务、查询与结果</text>
+    <path class="wire write" d="M 48 779 H 108"/>
+    <text class="note" x="124" y="785">虚线：仅需要新建或重建索引时写入缓存</text>
+    <text class="note" x="438" y="750">text/symbol 用 Zoekt；semantic 可独立运行。</text>
+  </g>
+</svg>

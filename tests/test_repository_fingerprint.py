@@ -1,12 +1,12 @@
-"""s16/s17 指纹复核回归：正文只交给首次快照，过滤与容量规则保持相同。"""
+"""s16 指纹复核回归：正文只交给首次快照，过滤与容量规则保持相同。"""
 
 import pytest
 
 from s16_repository_search import workspace as source_module
-from s17_repository_symbols.workspace import RepositoryWorkspace as SymbolWorkspace
+from s16_repository_search.workspace import RepositoryWorkspace as SymbolWorkspace
 
 
-@pytest.fixture(params=[source_module.RepositoryWorkspace, SymbolWorkspace], ids=["s16", "s17"])
+@pytest.fixture(params=[source_module.RepositoryWorkspace, SymbolWorkspace], ids=["s16", "s16"])
 def workspace(request, tmp_path):
     target = tmp_path / "target"
     harness = tmp_path / "harness"

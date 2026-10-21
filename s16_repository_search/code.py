@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""s16：仓库系统 · Zoekt 文本检索。
+"""s16：仓库检索 · 文本与符号。
 
 检索与读取绑定同一目标，通过现有扩展 API 接入；完整 agent_loop 留在本章供阅读。
 """
@@ -68,14 +68,14 @@ _positive_int_env = previous._positive_int_env
 _get = previous._get
 _tool_result_is_error = previous._tool_result_is_error
 
-# s16 修改：相对 s15，不加载目标外的技能；提示词只描述任务，不描述 Harness 内部机制。
+# s16 新增：相对 s15，不加载目标外的技能；提示词只描述任务，不描述 Harness 内部机制。
 SYSTEM = "你是只读代码仓库助手。根据任务定位代码，用源码证据回答；闲聊不调用工具。"
 HARNESS_ROOT = Path(__file__).resolve().parents[1]
-# s16 修改：本章默认仅三种基础读取工具；search_code 由扩展注册。
+# s16 新增：本章默认仅三种基础读取工具；search_code 由扩展注册。
 TOOLS = previous.permissions.READ_ONLY_TOOLS
 
 
-# ===== s16 修改：目标选择与独立检索入口 =====
+# ===== s16 新增：保持；目标选择与独立检索入口 =====
 
 
 def parse_args(arguments: Sequence[str] | None = None) -> argparse.Namespace:
@@ -85,8 +85,8 @@ def parse_args(arguments: Sequence[str] | None = None) -> argparse.Namespace:
     输出：Namespace；--help 在所有运行组件创建之前退出。
     流程：验证互斥参数 → main 选择清理、直接检索或 Agent 交互；模型工具始终只读。
     """
-    parser = argparse.ArgumentParser(description="s16：仓库系统 · Zoekt 文本检索（只读）")
-    # s16 修改：默认检索独立示例，不将 Harness 当作目标；路径不受启动目录影响。
+    parser = argparse.ArgumentParser(description="s16：仓库检索 · 文本与符号（只读）")
+    # s16 新增：默认使用独立示例，便于对照文本和符号检索。
     default_workspace = HARNESS_ROOT / "example_project" / "retrieval_demo"
     parser.add_argument(
         "--workspace",
@@ -99,15 +99,22 @@ def parse_args(arguments: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--search", help="直接检索，不读取模型配置、不创建会话")
     parser.add_argument("--scope", default="", help="目标内的相对目录，例如 math_ops")
     parser.add_argument("--limit", type=int, default=10, help="直接检索返回文件数，1–20")
-    # s16 新增：清理是用户入口而非模型工具；只预览并等待确认，不需要后端镜像。
+    # s16 新增：清理只由用户预览、确认，不作为模型工具注册。
     parser.add_argument("--clean-indexes", action="store_true", help="预览并确认清理本目标的旧代次")
     parser.add_argument("--keep-indexes", type=int, help="清理时额外保留最近 N 个有效代次，默认 1")
+    # s16 新增：直接检索也能验证符号模式；交互时模式由 search_code 参数指定。
+    parser.add_argument(
+        "--search-mode", choices=("text", "symbol"), help="直接检索的模式，默认 text"
+    )
     options = parser.parse_args(arguments)
     if options.clean_indexes and (options.search is not None or options.session is not None):
         parser.error("--clean-indexes 不能与 --search 或 --session 同用")
     if options.keep_indexes is not None and (not options.clean_indexes or options.keep_indexes < 1):
         parser.error("--keep-indexes 只用于 --clean-indexes，且必须至少为 1")
     options.keep_indexes = options.keep_indexes if options.keep_indexes is not None else 1
+    if options.search is None and options.search_mode is not None:
+        parser.error("--search-mode 只用于 --search")
+    options.search_mode = options.search_mode or "text"
     if options.search is None and (options.scope or options.limit != 10):
         parser.error("--scope 和 --limit 只用于 --search；交互时由工具参数指定")
     if options.search is not None and options.session is not None:
@@ -116,7 +123,7 @@ def parse_args(arguments: Sequence[str] | None = None) -> argparse.Namespace:
 
 
 # ===== 来自 s15：完整核心循环（保持） =====
-# s16 新增能力通过 tools/dispatch 接入，下面的循环没有检索专用分支。
+# s16 新增：检索能力通过 tools/dispatch 接入，下面的循环没有检索专用分支。
 
 
 def agent_loop(
@@ -292,7 +299,7 @@ def agent_loop(
     raise RuntimeError(f"已达到 {max_rounds} 轮模型请求上限，任务尚未完成；已停止自动调用工具。")
 
 
-# ===== s16 修改：按目标、检索组件、注册层、模型运行时显式组装 =====
+# ===== s16 新增：保持；按目标、检索组件、注册层、模型运行时显式组装 =====
 
 
 def main(arguments: Sequence[str] | None = None) -> None:
@@ -305,9 +312,9 @@ def main(arguments: Sequence[str] | None = None) -> None:
     """
     options = parse_args(arguments)
 
-    # ===== s16 新增：基础依赖与检索组件 =====
+    # ===== s16 新增：保持；基础依赖与检索组件 =====
     workspace = RepositoryWorkspace(options.workspace, HARNESS_ROOT)
-    # s16 新增：清理直接走用户确认流程，不创建后端、模型、会话或新的缓存目录。
+    # s16 新增：复用清理流程，但工作区已经绑定 s16，不操作其他章节缓存。
     if options.clean_indexes:
         run_cache_cleanup(workspace, options.keep_indexes)
         return
@@ -317,13 +324,17 @@ def main(arguments: Sequence[str] | None = None) -> None:
     zoekt_backend = ZoektBackend(options.zoekt_image)
     zoekt_backend.check_ready()
     index_manager = RepositoryIndex(workspace=workspace, backend=zoekt_backend)
+    # s16 修改：索引管理器同时提供分片和实体目录，检索器关联命中；组装参数不增加。
     retriever = CodeRetriever(workspace=workspace, index_manager=index_manager)
 
     # s16 新增：先单独验证检索链路，不用模型工具行为代替索引正确性测试。
     if options.search is not None:
-        result = retriever.search(options.search, scope=options.scope, limit=options.limit)
+        # s16 修改：将命令行模式显式传入检索器；其他扫描、缓存和版本校验流程不变。
+        result = retriever.search(
+            options.search, scope=options.scope, limit=options.limit, mode=options.search_mode
+        )
         print(result.content)
-        # s16 新增：直接检索也显示紧凑指标；走 stderr，不破坏 stdout 的结果协议。
+        # s16 新增：直接检索的指标走 stderr，stdout 继续只放结果 JSON。
         print(
             json.dumps({"retrieval_metrics": result.details}, ensure_ascii=False), file=sys.stderr
         )
@@ -331,7 +342,7 @@ def main(arguments: Sequence[str] | None = None) -> None:
             raise SystemExit(1)
         return
 
-    # ===== s16 修改：会话和基础读取同时绑定目标，注册组件仍沿用 s15 =====
+    # ===== s16 新增：保持；会话和基础读取同时绑定目标，注册组件仍沿用 s15 =====
     session_path = workspace.select_session(options.session)
     session = SessionManager.open(session_path)
     trace_path = runtime.new_trace_path(workspace.trace_root)
@@ -347,7 +358,7 @@ def main(arguments: Sequence[str] | None = None) -> None:
     retrieval_extension.register(extensions)
 
     # ===== 来自 s15：模型与观察组件（保持） =====
-    # s16 修改：配置固定从 Harness 读取；外部目标的 .env 不作为 Agent 配置执行。
+    # s16 新增：配置固定从 Harness 读取；外部目标的 .env 不作为 Agent 配置执行。
     load_dotenv(HARNESS_ROOT / ".env", override=True)
     timeout_seconds = float(os.getenv("MODEL_TIMEOUT_SECONDS", "60"))
     max_retries = int(os.getenv("MODEL_MAX_RETRIES", "0"))
@@ -398,8 +409,8 @@ def main(arguments: Sequence[str] | None = None) -> None:
     # s16 新增：所有工具路径都相对此目标，不复用旧提示词中的 Harness 工作目录。
     system_prompt = SYSTEM + f"\n目标项目：{workspace.root}；工具路径相对此目录。"
 
-    # ===== s16 修改：交互入口显示真实目标与三类记录 =====
-    print("s16：仓库系统 · Zoekt 文本检索")
+    # ===== s16 新增：保持；交互入口显示真实目标与三类记录 =====
+    print("s16：仓库检索 · 文本与符号")
     print(f"目标：{workspace.root}；模型：{provider.model}；模式：read-only")
     # s16 新增：区分 Harness 的缓存写入与模型对业务源码的只读访问。
     print(f"索引缓存：{workspace.index_root}（业务源码只读）")

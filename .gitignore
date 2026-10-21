@@ -21,6 +21,9 @@ dist/
 # Runtime trace data
 .traces/
 
+# 评测报告不进入源码索引和版本管理；固定样本保留在章节目录
+.evals/
+
 # 目标项目内的过滤源码副本和索引（含嵌套示例，可重建）
 .indexes/
 

@@ -14,10 +14,10 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from s16_repository_search import code as symbol_chapter
 from s16_repository_search import code as text_chapter
 from s16_repository_search import workspace as workspace_module
-from s17_repository_symbols import code as symbol_chapter
-from s17_repository_symbols.entities import EntityCatalog
+from s16_repository_search.entities import EntityCatalog
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 EXAMPLE_ROOT = PROJECT_ROOT / "example_project" / "retrieval_demo"
@@ -106,7 +106,7 @@ def test_example_business_runs_without_installation_from_another_directory(tmp_p
     assert result.stdout.splitlines() == ["checkout: 5", "preview: 9"]
 
 
-@pytest.mark.parametrize("chapter", [text_chapter, symbol_chapter], ids=["s16", "s17"])
+@pytest.mark.parametrize("chapter", [text_chapter], ids=["s16"])
 def test_default_workspace_is_one_example_not_harness_or_example_parent(
     chapter, tmp_path, monkeypatch
 ):
@@ -118,7 +118,7 @@ def test_default_workspace_is_one_example_not_harness_or_example_parent(
     assert chapter.parse_args(["--workspace", str(tmp_path)]).workspace == tmp_path
 
 
-@pytest.mark.parametrize("chapter", [text_chapter, symbol_chapter], ids=["s16", "s17"])
+@pytest.mark.parametrize("chapter", [text_chapter], ids=["s16"])
 def test_cache_follows_external_target_but_records_stay_in_harness(chapter, tmp_path):
     target = tmp_path / "external-project"
     harness = tmp_path / "harness"
@@ -133,7 +133,7 @@ def test_cache_follows_external_target_but_records_stay_in_harness(chapter, tmp_
     assert not workspace.index_root.exists()
 
 
-@pytest.mark.parametrize("chapter", [text_chapter, symbol_chapter], ids=["s16", "s17"])
+@pytest.mark.parametrize("chapter", [text_chapter], ids=["s16"])
 def test_prepare_index_directory_actually_writes_and_removes_probe(
     chapter, example_copy, monkeypatch
 ):
@@ -157,7 +157,7 @@ def test_prepare_index_directory_actually_writes_and_removes_probe(
     assert not (harness / ".indexes").exists()
 
 
-@pytest.mark.parametrize("chapter", [text_chapter, symbol_chapter], ids=["s16", "s17"])
+@pytest.mark.parametrize("chapter", [text_chapter], ids=["s16"])
 @pytest.mark.parametrize("failure", ["directory", "create_file", "write_file"])
 def test_main_stops_on_unwritable_target_cache_without_fallback(
     chapter, failure, example_copy, monkeypatch
@@ -193,7 +193,7 @@ def test_main_stops_on_unwritable_target_cache_without_fallback(
         assert (target / ".indexes").read_text(encoding="utf-8") == "已有普通文件，不得覆盖"
 
 
-@pytest.mark.parametrize("chapter", [text_chapter, symbol_chapter], ids=["s16", "s17"])
+@pytest.mark.parametrize("chapter", [text_chapter], ids=["s16"])
 def test_target_cache_is_excluded_from_scan_and_model_tools(chapter, example_copy):
     target, harness = example_copy
     workspace = chapter.RepositoryWorkspace(target, harness)
@@ -310,7 +310,7 @@ def test_example_changes_create_new_generation_and_old_content_remains_reusable(
     assert restored["index_generation"] == first["index_generation"] and backend.builds == 2
 
 
-@pytest.mark.parametrize("chapter", [text_chapter, symbol_chapter], ids=["s16", "s17"])
+@pytest.mark.parametrize("chapter", [text_chapter], ids=["s16"])
 def test_direct_default_entry_uses_example_without_loading_model(
     chapter, example_copy, monkeypatch, capsys
 ):
@@ -350,9 +350,9 @@ def test_real_zoekt_s16_example_queries(example_copy):
 
 
 @pytest.mark.skipif(
-    os.getenv("ZERO2PI_TEST_ZOEKT_S17") != "1", reason="需用户手动准备 s17 镜像并显式启用"
+    os.getenv("ZERO2PI_TEST_ZOEKT") != "1", reason="需用户手动准备 s16 镜像并显式启用"
 )
-def test_real_zoekt_s17_example_queries(example_copy):
+def test_real_zoekt_s16_symbol_example_queries(example_copy):
     target, harness = example_copy
     workspace = symbol_chapter.RepositoryWorkspace(target, harness)
     backend = symbol_chapter.ZoektBackend()

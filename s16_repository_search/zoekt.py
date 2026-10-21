@@ -1,4 +1,4 @@
-"""s16 新增：Python 调用本地 Zoekt 镜像；不拉取镜像、不启动常驻服务。"""
+"""s16：启用固定版本 ctags，在同一 Zoekt 索引中查询文本或符号。"""
 
 from __future__ import annotations
 
@@ -9,10 +9,12 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-# ===== s16 新增：固定后端版本与短进程调用 =====
+# ===== s16 新增：保持固定版本与受限短容器；s16 开启 ctags =====
 # s16 新增：版本固定且镜像需要预先准备，不让查询自动变成下载/安装工作流。
 ZOEKT_COMMIT = "27517a30ae6df16c6e768623847fdab8f6a3bbcf"
+# s16 修改：文本和符号共用启用 ctags 的固定镜像。
 DEFAULT_IMAGE = "zero2pi-zoekt:s16"
+CTAGS_VERSION = "6.1.0"
 
 
 # s16 新增：相对 Sourcebot 的常驻 gRPC 服务，本章用离线短进程，减少部署和组装层次。
@@ -63,7 +65,9 @@ class ZoektBackend:
             if (
                 metadata["Os"] != "linux"
                 or labels.get("zero2pi.zoekt.commit") != ZOEKT_COMMIT
-                or labels.get("zero2pi.zoekt.adapter") != "s16-v1"
+                or labels.get("zero2pi.zoekt.adapter") != "s16-v2"
+                # s16 新增：核对本章固定的 ctags 版本，实际镜像 ID 仍进入缓存身份。
+                or labels.get("zero2pi.ctags.version") != CTAGS_VERSION
                 or not isinstance(image_id, str)
                 or not image_id.startswith("sha256:")
             ):
@@ -78,13 +82,14 @@ class ZoektBackend:
 
         输入：过滤副本和新分片目录；输出：无，成功后由 RepositoryIndex 激活缓存。
         流程：只读挂载副本/可写挂载新分片 → 运行 zoekt-index → 检查退出状态。
-        s16 不生成 ctags；符号边界属于 s17，不提前加入未使用的符号数据。
+        s16 开启 ctags；Python AST 的完整边界另由同代 EntityCatalog 提供。
         """
         mounts = [(source_copy_dir, "/source", True), (index_dir, "/index", False)]
         arguments = [
             "-index",
             "/index",
-            "-disable_ctags",
+            # s16 修改：启用符号提取且要求 ctags 可用，不能静默漏掉符号索引。
+            "-require_ctags",
             "-parallelism",
             "1",
             "-file_limit",
@@ -96,14 +101,21 @@ class ZoektBackend:
         self._run("/zoekt-index", arguments, mounts, timeout=120)
 
     # s16 新增：区别于 CodeRetriever.search，只查询已准备好的磁盘索引。
-    def search_index(self, index_dir: Path, query: str, scope: str, limit: int) -> dict[str, Any]:
+    # s16 修改：mode 只选择固定查询类型，不接收模型拼接的查询表达式。
+    def search_index(
+        self, index_dir: Path, query: str, scope: str, limit: int, mode: str = "text"
+    ) -> dict[str, Any]:
         """搜索当前代次分片，返回位置和后端完整性，不转换成模型正文。
 
         输入：索引目录、字面文本、可选目录范围和文件上限；输出：适配器 JSON 对象。
         流程：JSON 通过 stdin 传参 → 只读挂载索引 → 解析并校验结果外形。
-        适配器构造 Substring，而非解析模型给出的 Zoekt 表达式或正则。
+        适配器构造 Substring 或 Symbol(Substring)，不解析模型给出的查询表达式或正则。
         """
-        request = json.dumps({"query": query, "scope": scope, "limit": limit}, ensure_ascii=False)
+        if mode not in {"text", "symbol"}:
+            raise ValueError("mode 必须是 text 或 symbol")
+        request = json.dumps(
+            {"query": query, "scope": scope, "limit": limit, "mode": mode}, ensure_ascii=False
+        )
         output = self._run(
             "/search", [], [(index_dir, "/index", True)], timeout=30, input_text=request
         )

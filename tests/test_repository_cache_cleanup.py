@@ -1,4 +1,4 @@
-"""s16/s17 索引清理回归：只操作临时项目，不运行 Docker 或清理真实缓存。"""
+"""s16 索引清理回归：只操作临时项目，不运行 Docker 或清理真实缓存。"""
 
 import os
 from types import SimpleNamespace
@@ -7,7 +7,6 @@ import pytest
 
 from s16_repository_search import cache_cleanup as cleanup
 from s16_repository_search import code as text_chapter
-from s17_repository_symbols import code as symbol_chapter
 
 
 class Backend:
@@ -19,7 +18,7 @@ class Backend:
         (index_dir / "fake.zoekt").write_bytes(b"test-index")
 
 
-@pytest.fixture(params=[text_chapter, symbol_chapter], ids=["s16", "s17"])
+@pytest.fixture(params=[text_chapter], ids=["s16"])
 def components(request, tmp_path):
     target = tmp_path / "target"
     harness = tmp_path / "harness"
@@ -66,7 +65,7 @@ def test_plan_preserves_current_and_recent_without_deleting(components):
 
 def test_cleanup_only_removes_previewed_generations(components):
     workspace = components.workspace
-    other_chapter = "s17" if workspace.index_root.name == "s16" else "s16"
+    other_chapter = "s17"
     other_root = workspace.root / ".indexes" / other_chapter
     other_root.mkdir()
     sentinel = other_root / "do-not-delete.txt"
@@ -215,7 +214,7 @@ def test_cli_confirmation_runs_without_backend_model_or_new_session(
     assert not (components.harness / ".sessions").exists()
 
 
-@pytest.mark.parametrize("chapter", [text_chapter, symbol_chapter], ids=["s16", "s17"])
+@pytest.mark.parametrize("chapter", [text_chapter], ids=["s16"])
 @pytest.mark.parametrize(
     "arguments",
     [

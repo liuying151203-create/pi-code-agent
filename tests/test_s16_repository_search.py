@@ -5,6 +5,7 @@ import inspect
 import json
 import os
 import subprocess
+import sys
 from dataclasses import fields
 from types import SimpleNamespace
 
@@ -42,7 +43,7 @@ class FakeZoekt:
         }
         (index_dir / "fake.zoekt").write_text(json.dumps(files), encoding="utf-8")
 
-    def search_index(self, index_dir, query, scope, limit):
+    def search_index(self, index_dir, query, scope, limit, *, mode="text"):
         self.searches += 1
         files = json.loads((index_dir / "fake.zoekt").read_text(encoding="utf-8"))
         matches = []
@@ -319,8 +320,8 @@ def test_verified_partial_results_also_register_hashes(tmp_path, monkeypatch):
     workspace, backend, _, retriever = make_components(tmp_path)
     original_search = backend.search_index
 
-    def incomplete_search(*arguments):
-        result = original_search(*arguments)
+    def incomplete_search(*arguments, **options):
+        result = original_search(*arguments, **options)
         result["exhaustive"] = False
         return result
 
@@ -396,9 +397,15 @@ def test_prepared_index_has_no_source_contents_and_preserves_cache_identity(tmp_
     source_snapshot = workspace.scan()
     assert source_snapshot.file_contents["app.py"] == (workspace.root / "app.py").read_bytes()
     prepared_index = index_manager.prepare(source_snapshot)
-    assert {field.name for field in fields(PreparedIndex)} == {"index_dir", "generation", "rebuilt"}
+    assert {field.name for field in fields(PreparedIndex)} == {
+        "index_dir",
+        "generation",
+        "rebuilt",
+        "entity_catalog",
+    }
     expected_manifest = {
-        "schema": "s16-v1",
+        "schema": "s16-v2",
+        "parser": f"python-ast/{sys.version_info.major}.{sys.version_info.minor}",
         "workspace": workspace.workspace_id,
         "source": source_snapshot.fingerprint,
         "hashes": source_snapshot.file_hashes,
@@ -442,15 +449,17 @@ def test_retriever_flow_scans_prepares_queries_builds_results_then_verifies(tmp_
         assert source_snapshot is snapshots[0]
         return original_prepare(source_snapshot)
 
-    def search_index(index_dir, query, scope, limit):
+    def search_index(index_dir, query, scope, limit, *, mode="text"):
         steps.append("query")
         assert index_dir.parent.parent == workspace.index_root
         return original_search_index(index_dir, query, scope, limit)
 
-    def build_file_results(file_matches, source_snapshot, query, scope, limit):
+    def build_file_results(file_matches, source_snapshot, query, scope, limit, **options):
         steps.append("build_results")
         assert source_snapshot is snapshots[0]
-        return original_build_file_results(file_matches, source_snapshot, query, scope, limit)
+        return original_build_file_results(
+            file_matches, source_snapshot, query, scope, limit, **options
+        )
 
     monkeypatch.setattr(workspace, "scan", scan)
     monkeypatch.setattr(workspace, "compute_fingerprint", compute_fingerprint)
@@ -553,7 +562,7 @@ def test_query_is_literal_scope_is_applied_and_empty_is_distinct_from_partial(
     monkeypatch.setattr(
         backend,
         "search_index",
-        lambda *args: {"files": [], "exhaustive": False, "truncated": False},
+        lambda *args, **kwargs: {"files": [], "exhaustive": False, "truncated": False},
     )
     result = payload(retriever.search("needle"))
     assert result["status"] == "partial" and result["search_exhaustive"] is False
@@ -620,8 +629,8 @@ def test_source_change_during_search_returns_stale_not_old_evidence(tmp_path, mo
     workspace, backend, _, retriever = make_components(tmp_path)
     original = backend.search_index
 
-    def change(*arguments):
-        result = original(*arguments)
+    def change(*arguments, **options):
+        result = original(*arguments, **options)
         (workspace.root / "app.py").write_text("changed after query", encoding="utf-8")
         return result
 
@@ -840,7 +849,8 @@ def inspect_result(*, commit=ZOEKT_COMMIT, image_id="sha256:offline", os_name="l
                     "Config": {
                         "Labels": {
                             "zero2pi.zoekt.commit": commit,
-                            "zero2pi.zoekt.adapter": "s16-v1",
+                            "zero2pi.zoekt.adapter": "s16-v2",
+                            "zero2pi.ctags.version": "6.1.0",
                         }
                     },
                 }

@@ -1,4 +1,4 @@
-"""s16/s17 容量指标回归：离线后端不证明真实 Zoekt 性能。"""
+"""s16 容量指标回归：离线后端不证明真实 Zoekt 性能。"""
 
 import json
 import os
@@ -6,8 +6,8 @@ import os
 import pytest
 
 from s16_repository_search import cache as cache_module
+from s16_repository_search import code as symbol_chapter
 from s16_repository_search import code as text_chapter
-from s17_repository_symbols import code as symbol_chapter
 
 
 class Backend:
@@ -25,7 +25,7 @@ class Backend:
         return {"files": [{"path": "app.py", "lines": [1]}], "exhaustive": True, "truncated": False}
 
 
-@pytest.fixture(params=[text_chapter, symbol_chapter], ids=["s16", "s17"])
+@pytest.fixture(params=[text_chapter], ids=["s16"])
 def components(request, tmp_path):
     target = tmp_path / "target"
     harness = tmp_path / "harness"

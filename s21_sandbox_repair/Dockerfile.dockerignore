@@ -1,0 +1,5 @@
+**
+!s21_sandbox_repair/
+!s21_sandbox_repair/__init__.py
+!s21_sandbox_repair/worker_snapshot.py
+!s21_sandbox_repair/tool_worker.py

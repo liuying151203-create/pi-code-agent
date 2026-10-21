@@ -17,7 +17,9 @@ import (
 	"github.com/sourcegraph/zoekt/search"
 )
 
+// s16 修改：mode 在同一索引中选择文本或符号查询。
 type request struct {
+	Mode  string `json:"mode"`
 	Query string `json:"query"`
 	Scope string `json:"scope"`
 	Limit int    `json:"limit"`
@@ -46,6 +48,10 @@ func run() error {
 	if req.Query == "" || utf8.RuneCountInString(req.Query) > 256 || req.Limit < 1 || req.Limit > 20 {
 		return fmt.Errorf("查询或文件上限无效")
 	}
+	// s16 新增：Python 始终传入已选模式；非法值不能静默退化成文本搜索。
+	if req.Mode != "text" && req.Mode != "symbol" {
+		return fmt.Errorf("mode 必须是 text 或 symbol")
+	}
 	searcher, err := search.NewDirectorySearcher("/index")
 	if err != nil {
 		return err
@@ -53,6 +59,10 @@ func run() error {
 	defer searcher.Close()
 	// s16 新增：不使用 query.Parse，file:、OR、正则字符都只是普通查询文本。
 	var q query.Q = &query.Substring{Pattern: req.Query, Content: true, CaseSensitive: true}
+	// s16 修改：参考 Sourcebot/Zoekt，由引擎限制为符号区间，不在 Python 全仓库扫描名称。
+	if req.Mode == "symbol" {
+		q = &query.Symbol{Expr: q}
+	}
 	if req.Scope != "" {
 		pattern, err := syntax.Parse("^"+regexp.QuoteMeta(req.Scope)+"/", syntax.Perl)
 		if err != nil {
