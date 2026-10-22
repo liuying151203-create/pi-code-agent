@@ -7,17 +7,17 @@ from types import SimpleNamespace
 
 import pytest
 
-from s03_permission import code as permissions
-from s10_model_provider.code import ModelResponse, ModelUsage
+import tutorials.s03_permission.code as permissions
+from tutorials.s10_model_provider.code import ModelResponse, ModelUsage
 
 CHAPTERS = [
-    "s06_session_context",
-    "s07_session_compaction",
-    "s08_runtime_events",
-    "s09_runtime_streaming",
-    "s10_model_provider",
-    "s11_runtime_observability",
-    "s12_skill_loading",
+    "tutorials.s06_session_context",
+    "tutorials.s07_session_compaction",
+    "tutorials.s08_runtime_events",
+    "tutorials.s09_runtime_streaming",
+    "tutorials.s10_model_provider",
+    "tutorials.s11_runtime_observability",
+    "tutorials.s12_skill_loading",
 ]
 
 

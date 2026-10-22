@@ -6,9 +6,9 @@ from types import ModuleType
 
 import pytest
 
-from s14_extensions import code as chapter
-from s14_extensions.extensions import read_preview
-from s14_extensions.registry import ExtensionAPI, load_extensions
+import tutorials.s14_extensions.code as chapter
+from tutorials.s14_extensions.extensions import read_preview
+from tutorials.s14_extensions.registry import ExtensionAPI, load_extensions
 
 
 def make_api(*, dispatch=None, permission=None, tools=None):
@@ -229,7 +229,7 @@ def test_handler_failure_and_non_string_result_become_error_text():
 @pytest.mark.parametrize("names", [["bad/path.py"], ["x", "x"], [".hidden"]])
 def test_invalid_module_choices_are_rejected_before_import(names, monkeypatch):
     monkeypatch.setattr(
-        "s14_extensions.registry.importlib.import_module", lambda *args: pytest.fail()
+        "tutorials.s14_extensions.registry.importlib.import_module", lambda *args: pytest.fail()
     )
     with pytest.raises(ValueError):
         load_extensions(make_api(), names)

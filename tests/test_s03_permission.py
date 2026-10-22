@@ -2,7 +2,7 @@ from types import SimpleNamespace
 
 import pytest
 
-import s03_permission.code as chapter
+import tutorials.s03_permission.code as chapter
 
 
 def test_explicit_tool_definitions_preserve_registry_and_grep_schema() -> None:

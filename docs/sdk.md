@@ -1,0 +1,50 @@
+# SDK 与运行结构
+
+外部产品依赖正式包，不导入 `tutorials`。第一版是同步单任务 SDK，不承诺并发输入、统一取消或崩溃后的任意断点续跑。
+
+```python
+from pathlib import Path
+from pi_code_agent import create_agent
+from pi_code_agent.models import create_model_provider
+from pi_code_agent.extensions.todo import register
+
+provider = create_model_provider(timeout_seconds=60, max_retries=0)
+agent = create_agent(
+    provider=provider,
+    workspace=Path("D:/dev/my-app"),
+    data_dir=Path("D:/dev/agent-records"),
+    mode="read-only",
+)
+agent.register_extension(register)
+try:
+    messages = agent.run("添加待办：检查入口函数")
+finally:
+    agent.close()
+```
+
+应用先加载自己的模型配置；SDK 不自动读取 `.env`。传入 `compaction_policy=CompactionPolicy(实际窗口)` 才启用自动压缩；CLI 按必填环境配置启用。外部后端由创建者关闭。
+
+| 模块 | 职责与来源 |
+|---|---|
+| `agent`、`loop` | SDK 组装；s15 状态保存及 s21 失败状态保护 |
+| `models` | s10 Provider 协议与响应归一化 |
+| `session`、`observable_session` | s11/s15 有效历史、用量、扩展状态 |
+| `compaction_base`、`requests` | s07/s11 压缩计划、摘要、预算和模型请求 |
+| `events` | s11 事件分发、终端、Trace 和统计 |
+| `registry`、`hooks`、`result` | s04/s14/s15 能力注册、拦截、正文与 details |
+| `local_tools`、`sandbox_*` | 工作区实例与 A/B/C 执行后端 |
+
+```mermaid
+flowchart LR
+    P[Provider] -->|provider| A[Agent]
+    W[工作区与记录目录] -->|workspace / data_dir| A
+    X[可信扩展 register] -->|register_extension| A
+    A -->|请求器 / 工具 / 保存回调| L[agent_loop]
+    A -->|subscribe| E[观察者]
+```
+
+运行流程：保存用户消息 → 会话投影 → 按需压缩 → 请求模型 → 工具经 Hook/权限执行 → 保存正文与状态 → 发送结果事件 → 继续或结束。
+
+本地默认只读；default 的 shell/写入逐次确认，不是 OS 沙箱。自定义后端必须同时提供 `tools`、`dispatch`、`permission_hook`。可信扩展在宿主执行；注册 API 本身不提供隔离。
+
+外部产品也可使用公开 `runtime` 组件显式组装，再调用公开 `agent_loop`，适合独立修复编排，不需要复制循环。

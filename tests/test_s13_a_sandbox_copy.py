@@ -12,12 +12,12 @@ from types import SimpleNamespace
 
 import pytest
 
-from s02_tool_use import code as base_tools
-from s10_model_provider.code import ModelResponse, ModelUsage
-from s13_a_sandbox_copy import code as chapter
-from s13_a_sandbox_copy import sandbox, snapshot, tool_worker
-from s13_a_sandbox_copy.workspace import WorkspaceLayout
-from s13_a_sandbox_copy.workspace_sync import WorkspaceSync
+import tutorials.s02_tool_use.code as base_tools
+import tutorials.s13_a_sandbox_copy.code as chapter
+from tutorials.s10_model_provider.code import ModelResponse, ModelUsage
+from tutorials.s13_a_sandbox_copy import sandbox, snapshot, tool_worker
+from tutorials.s13_a_sandbox_copy.workspace import WorkspaceLayout
+from tutorials.s13_a_sandbox_copy.workspace_sync import WorkspaceSync
 
 
 @pytest.fixture(autouse=True)
@@ -364,7 +364,7 @@ def test_main_automatically_uses_copy_persists_history_and_exports_diff(tmp_path
     monkeypatch.chdir(tmp_path)
     (tmp_path / "README.md").write_text("original", encoding="utf-8")
     (tmp_path / ".env").write_text("KEY=host-secret", encoding="utf-8")
-    manifest = tmp_path / "s12_skill_loading/skills/review/SKILL.md"
+    manifest = tmp_path / "tutorials/s12_skill_loading/skills/review/SKILL.md"
     manifest.parent.mkdir(parents=True)
     manifest.write_text("---\nname: review\ndescription: 审查代码\n---\n技能正文", encoding="utf-8")
     docker = DockerStub()
@@ -383,7 +383,7 @@ def test_main_automatically_uses_copy_persists_history_and_exports_diff(tmp_path
 
         def stream(self, *, on_text, **kwargs):
             requests.append(kwargs)
-            assert "/work/s12_skill_loading/skills/review/SKILL.md" in kwargs["system"]
+            assert "/work/tutorials/s12_skill_loading/skills/review/SKILL.md" in kwargs["system"]
             assert str(tmp_path) not in kwargs["system"]
             if len(requests) == 1:
                 content = [
@@ -529,7 +529,7 @@ def test_main_targets_external_projects_separates_records_and_resumes_matching_h
         directory.mkdir(parents=True)
     (harness / ".env").write_text("WORKSPACE_TEST_KEY=harness\n", encoding="utf-8")
     (harness / "harness_marker.py").write_text("not part of target", encoding="utf-8")
-    harness_skill = harness / "s12_skill_loading/skills/harness-only/SKILL.md"
+    harness_skill = harness / "tutorials/s12_skill_loading/skills/harness-only/SKILL.md"
     harness_skill.parent.mkdir(parents=True)
     harness_skill.write_text(
         "---\nname: harness-only\ndescription: 不应加载\n---\n正文", encoding="utf-8"
@@ -537,7 +537,7 @@ def test_main_targets_external_projects_separates_records_and_resumes_matching_h
     for target in targets:
         (target / "README.md").write_text("original\n", encoding="utf-8")
         (target / ".env").write_text("WORKSPACE_TEST_KEY=wrong-target\n", encoding="utf-8")
-    target_skill = targets[0] / "s12_skill_loading/skills/review/SKILL.md"
+    target_skill = targets[0] / "tutorials/s12_skill_loading/skills/review/SKILL.md"
     target_skill.parent.mkdir(parents=True)
     target_skill.write_text("---\nname: review\ndescription: 项目审查\n---\n正文", encoding="utf-8")
     monkeypatch.chdir(launcher)
@@ -782,9 +782,9 @@ def test_real_docker_isolation_and_unchanged_original(tmp_path):
             "bash", {"command": 'python -c "import os; print(os.getuid())"'}
         )
         assert identity.strip() == "65534"
-        assert executor.dispatch("bash", {"command": "touch /opt/zero2pi/forbidden"}).startswith(
-            "Error:"
-        )
+        assert executor.dispatch(
+            "bash", {"command": "touch /opt/pi_code_agent/forbidden"}
+        ).startswith("Error:")
         network = (
             "python -c \"import socket; socket.create_connection(('1.1.1.1', 443), timeout=1)\""
         )

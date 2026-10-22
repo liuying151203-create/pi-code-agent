@@ -5,9 +5,9 @@ import subprocess
 
 import pytest
 
-from s13_a_sandbox_copy import workspace_sync
-from s13_a_sandbox_copy.snapshot import WorkspaceSnapshot
-from s13_a_sandbox_copy.workspace_sync import WorkspaceSync, WorkspaceSyncError
+from tutorials.s13_a_sandbox_copy import workspace_sync
+from tutorials.s13_a_sandbox_copy.snapshot import WorkspaceSnapshot
+from tutorials.s13_a_sandbox_copy.workspace_sync import WorkspaceSync, WorkspaceSyncError
 
 
 class CopyExecutor:

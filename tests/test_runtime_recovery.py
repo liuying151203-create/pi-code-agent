@@ -7,17 +7,17 @@ from types import SimpleNamespace
 
 import pytest
 
-from s10_model_provider import code as providers
-from s11_runtime_observability import code as runtime
+import tutorials.s10_model_provider.code as providers
+import tutorials.s11_runtime_observability.code as runtime
 
 CHAPTERS = [
-    "s11_runtime_observability",
-    "s12_skill_loading",
-    "s13_a_sandbox_copy",
-    "s13_b_sandbox_workspace",
-    "s13_c_sandbox_native",
-    "s14_extensions",
-    "s15_stateful_extensions",
+    "tutorials.s11_runtime_observability",
+    "tutorials.s12_skill_loading",
+    "tutorials.s13_a_sandbox_copy",
+    "tutorials.s13_b_sandbox_workspace",
+    "tutorials.s13_c_sandbox_native",
+    "tutorials.s14_extensions",
+    "tutorials.s15_stateful_extensions",
 ]
 
 
@@ -264,7 +264,7 @@ def test_observer_failure_stops_main_and_history_can_be_resumed(
         return "读取项目"
 
     monkeypatch.setattr("builtins.input", query)
-    if chapter_name.startswith("s13_"):
+    if chapter_name.startswith("tutorials.s13_"):
         harness, project = tmp_path / "harness", tmp_path / "project"
         harness.mkdir()
         project.mkdir()
@@ -283,7 +283,7 @@ def test_observer_failure_stops_main_and_history_can_be_resumed(
                 return dispatch(name, arguments)
 
             def capture_workspace(self):
-                from s13_a_sandbox_copy.snapshot import WorkspaceSnapshot
+                from tutorials.s13_a_sandbox_copy.snapshot import WorkspaceSnapshot
 
                 return WorkspaceSnapshot({})
 
@@ -291,13 +291,13 @@ def test_observer_failure_stops_main_and_history_can_be_resumed(
                 self.closed = True
 
         symbol = {
-            "s13_a_sandbox_copy": "SandboxExecutor",
-            "s13_b_sandbox_workspace": "SharedWorkspaceExecutor",
-            "s13_c_sandbox_native": "NativeSandboxExecutor",
+            "tutorials.s13_a_sandbox_copy": "SandboxExecutor",
+            "tutorials.s13_b_sandbox_workspace": "SharedWorkspaceExecutor",
+            "tutorials.s13_c_sandbox_native": "NativeSandboxExecutor",
         }[chapter_name]
         monkeypatch.setattr(chapter, symbol, Executor)
         arguments = ["--workspace", str(project)]
-        if chapter_name != "s13_a_sandbox_copy":
+        if chapter_name != "tutorials.s13_a_sandbox_copy":
             arguments.append("--allow-write")
     else:
         monkeypatch.setattr(chapter, "SESSION_ROOT", tmp_path / "sessions")

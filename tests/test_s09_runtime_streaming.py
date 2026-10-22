@@ -3,7 +3,7 @@ from types import SimpleNamespace
 
 import pytest
 
-import s09_runtime_streaming.code as chapter
+import tutorials.s09_runtime_streaming.code as chapter
 
 
 def _message(role: str, content: object) -> chapter.Message:

@@ -1,3 +1,0 @@
-{"id":"negative-clamp","query":"负数如何归零","keywords":["normalize"],"symbol_query":"normalize","source_fingerprint":"889a5b6197052a6b002f2c2bf520716b6295df2123b1a31795acacb5fd9e1145","gold_files":["math_ops/calc.py"]}
-{"id":"store-value","query":"接收对象并包装为保存结果的接口","keywords":["saved"],"symbol_query":"Store","source_fingerprint":"889a5b6197052a6b002f2c2bf520716b6295df2123b1a31795acacb5fd9e1145","gold_files":["storage.py"]}
-{"id":"calculator-callers","query":"谁调用 Calculator.add，包含直接调用和局部别名调用","keywords":["Calculator.add"],"symbol_query":"add","seed":{"query":"add","qualified_name":"Calculator.add"},"source_fingerprint":"889a5b6197052a6b002f2c2bf520716b6295df2123b1a31795acacb5fd9e1145","gold_files":["workflow.py"]}

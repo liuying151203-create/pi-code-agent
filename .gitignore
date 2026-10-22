@@ -38,3 +38,6 @@ dist/
 .vscode/
 .DS_Store
 Thumbs.db
+
+# 正式 Agent 的本地状态
+.pi-code-agent/

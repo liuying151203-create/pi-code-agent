@@ -2,7 +2,7 @@ from types import SimpleNamespace
 
 import pytest
 
-import s02_tool_use.code as chapter
+import tutorials.s02_tool_use.code as chapter
 
 
 def test_dispatcher_routes_file_tools_inside_workspace(tmp_path, monkeypatch) -> None:

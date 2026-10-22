@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
-import s11_runtime_observability.code as chapter
+import tutorials.s11_runtime_observability.code as chapter
 
 
 def _message(role: str, content: object) -> chapter.Message:
@@ -771,7 +771,7 @@ def test_invalid_round_limit_is_rejected(monkeypatch, raw):
 
 @pytest.mark.parametrize("skills", [False, True])
 def test_default_loop_can_finish_after_more_than_twelve_requests(skills):
-    from s12_skill_loading import code as skills_chapter
+    import tutorials.s12_skill_loading.code as skills_chapter
 
     runtime = skills_chapter if skills else chapter
     requests = []

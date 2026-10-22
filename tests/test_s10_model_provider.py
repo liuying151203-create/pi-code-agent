@@ -3,7 +3,7 @@ from types import SimpleNamespace
 
 import pytest
 
-import s10_model_provider.code as chapter
+import tutorials.s10_model_provider.code as chapter
 
 
 def _message(role: str, content: object) -> chapter.Message:

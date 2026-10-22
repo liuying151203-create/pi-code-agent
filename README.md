@@ -1,112 +1,31 @@
-# zero2pi
+# Pi Code Agent
 
-`zero2pi` 是一个从零实现 Agent 的学习与实践项目：以 `learn-claude-code` 的渐进式方式组织开发，参考 `pi` 的 Agent loop、工具调用和运行时设计，逐步构建一个清晰、可运行、可扩展的 Agent Harness。
+参考 Pi 设计、使用 Python 独立实现的编码 Agent 与可复用 Harness，提供模型接入、工具、会话、上下文管理和扩展机制；非 Pi 官方项目。
 
-第二阶段：[总体设计](docs/repository-retrieval-design.md)、[s16 文本与符号](s16_repository_search/README.md) → [s17 语义](s17_semantic_retrieval/README.md) → [s18 关系](s18_relationship_navigation/README.md) → [s19 多路融合](s19_retrieval_fusion/README.md) → [s20 任务](s20_git_task_context/README.md) → [s21 修复](s21_sandbox_repair/README.md) → [s22 评测](s22_retrieval_evaluation/README.md)。独立目标见 [example_project/](example_project/README.md)，不默认操作 Harness。
+## 配置与运行
 
-## 基础环境
-
-下面的命令分别用于创建虚拟环境、安装项目依赖，以及创建本地配置文件：
+以下命令由你手动执行；首次安装可能下载依赖：
 
 ```powershell
-# 创建项目独立的 Python 虚拟环境
+# 进入项目，创建并激活独立环境
+cd D:\dev\Agent\pi-code-agent
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
-# 安装项目依赖和开发工具
+# 安装正式包及测试工具，创建本地模型配置
 python -m pip install -e ".[dev]"
-# 创建本地环境变量文件
 Copy-Item .env.example .env
-```
-
-在 `.env` 中填写模型密钥。若 PowerShell 不允许激活虚拟环境，可直接使用 `.venv\Scripts\python.exe`。
-
-s07 起的模型交互还需填写实际 `MODEL_CONTEXT_WINDOW_TOKENS`；预算迁移与示例见 [s07 配置](s07_session_compaction/README.md#运行)，不要直接复制未经服务确认的模型容量。
-
-s13-A 另需手动准备 Docker Linux 服务和本地镜像，命令见 [Sandbox 教程](s13_a_sandbox_copy/README.md#运行与验证)；程序不自动拉取镜像或安装依赖。
-
-直接写入真实项目的两种方案：[s13-B 共享容器](s13_b_sandbox_workspace/README.md)、[s13-C 原生受限进程](s13_c_sandbox_native/README.md)。启动需显式授权，分别手动准备镜像或原生 runtime。
-
-## 常用命令
-
-```powershell
-# 运行第一章：核心循环
-python -m s01_agent_loop.code
-# 运行第二章：工具调用
-python -m s02_tool_use.code
-# 运行第三章：工具权限
-python -m s03_permission.code
-# 第三章只读分析：仅开放查找、搜索和读取工具
-python -m s03_permission.code --mode read-only
-# 运行第四章：工具调用 Hooks
-python -m s04_hooks.code
-# 第四章只读分析：经权限 Hook 接入 s03 的只读策略
-python -m s04_hooks.code --mode read-only
-# 运行第五章：会话系统 · 持久化
-python -m s05_session_persistence.code
-# 第五章只读对话：限制模型工具，继续保存会话记录
-python -m s05_session_persistence.code --mode read-only
-# 加载已有的第五章会话
-python -m s05_session_persistence.code --session .sessions\s05\session-20260919-120000.jsonl
-# 运行第六章：会话系统 · 记录与上下文投影
-python -m s06_session_context.code
-# 加载已有会话并按 s06 Entry 规则构建模型上下文
-python -m s06_session_context.code --session .sessions\s06\session-20260919-120000.jsonl
-# 运行第七章：会话系统 · 上下文压缩
-python -m s07_session_compaction.code
-# 加载已有的第七章会话
-python -m s07_session_compaction.code --session .sessions\s07\session-20260919-120000.jsonl
-# 运行第八章：运行时系统 · 事件边界
-python -m s08_runtime_events.code
-# 加载已有的第八章会话
-python -m s08_runtime_events.code --session .sessions\s08\session-20260922-120000.jsonl
-# 运行第九章：运行时系统 · 流式响应
-python -m s09_runtime_streaming.code
-# 加载已有的第九章会话
-python -m s09_runtime_streaming.code --session .sessions\s09\session-20260922-120000.jsonl
-# 运行第十章：模型系统 · Provider 边界
-python -m s10_model_provider.code
-# 运行第十一章：运行时系统 · 追踪与用量
-python -m s11_runtime_observability.code
-# 运行第十二章：能力系统 · Skills 按需加载
-python -m s12_skill_loading.code
-# 只读审查：s03–s12 均支持此模式，仅开放 glob、grep、read_file
-python -m s12_skill_loading.code --mode read-only
-# 第十三章 A：隔离副本；/diff 预览，/apply 确认回写
-python -m s13_a_sandbox_copy.code --mode sandbox
-# 第十三章 A：指定其他项目；配置和按项目分组的记录仍留在 zero2pi
-python -m s13_a_sandbox_copy.code --workspace "D:\dev\my-app"
-# 不调用模型，验证第十三章 A 的容器与工具链路
-python -m s13_a_sandbox_copy.code --smoke
-# 第十三章 B：共享真实项目；先按 B 教程准备镜像，文件直接生效
-python -m s13_b_sandbox_workspace.code --workspace ".\example_project\b_demo" --allow-write
-# 第十三章 C：原生受限进程；先按 C 教程准备 runtime 和平台初始化
-python -m s13_c_sandbox_native.code --workspace ".\example_project\c_demo" --allow-write
-# 第十四章：加载受信任 Python 扩展，示例工具复用只读权限
-python -m s14_extensions.code --mode read-only
-# 第十五章：Todo 扩展，自然语言查询清单、事件自动提示进度
-python -m s15_stateful_extensions.code --mode read-only
-# 先验证检索示例的业务输出，不需要模型或 Docker
-python -B -X utf8 example_project/retrieval_demo/workflow.py
-# 第十六章：先手动准备 Zoekt 镜像，默认只读检索 retrieval_demo
-python -X utf8 -m s16_repository_search.code
-# 不调用模型；--workspace 仍可指定其他示例或已有项目
-python -X utf8 -m s16_repository_search.code --workspace example_project/retrieval_demo --search add
-# 第十六章符号查询：与文本共用同一镜像和索引
-python -X utf8 -m s16_repository_search.code --search add --search-mode symbol
-# 第十七章：按教程配置独立 embedding，授权后可能计费
-python -X utf8 -m s17_semantic_retrieval.code --search "负数如何归零" --search-mode semantic --allow-remote-embedding
-# 第十八章：只读关系导航，默认不启用 embedding
-python -X utf8 -m s18_relationship_navigation.code
-# 第十九章：多路融合、证据组装与可选关系补充
-python -X utf8 -m s19_retrieval_fusion.code --allow-remote-embedding
-# 第二十章：预览需求＋只读 Git 任务上下文，不调用模型/Zoekt
-python -X utf8 -m s20_git_task_context.code --show-context --task "分析当前修改"
-# 第二十一章：先按章节教程准备镜像；在隔离副本修复/验证，确认后才交付
-python -X utf8 -m s21_sandbox_repair.code
-# 第二十二章：固定示例的基础工具组件评测，无模型/Docker/API
-python -X utf8 -m s22_retrieval_evaluation.code --mode basic
-# 运行测试
+# 填写 .env 的模型、密钥和实际上下文容量后启动；默认只读
+python -m pi_code_agent --workspace .
+# 宿主写操作逐次确认；不等于 OS 沙箱
+python -m pi_code_agent --workspace . --mode default
+# 显式加载可信 Todo 扩展
+python -m pi_code_agent --extension pi_code_agent.extensions.todo
+# 离线测试、规范检查和构建（构建不安装新依赖）
 python -m pytest
-# 检查代码规范
-ruff check s01_agent_loop s02_tool_use s03_permission s04_hooks s05_session_persistence s06_session_context s07_session_compaction s08_runtime_events s09_runtime_streaming s10_model_provider s11_runtime_observability s12_skill_loading s13_a_sandbox_copy s13_b_sandbox_workspace s13_c_sandbox_native s14_extensions s15_stateful_extensions s16_repository_search s17_semantic_retrieval s18_relationship_navigation s19_retrieval_fusion s20_git_task_context s21_sandbox_repair s22_retrieval_evaluation example_project src tests
+python -m ruff check src tests tutorials
+python -m pip wheel --no-deps --no-build-isolation -w dist .
 ```
+
+`src/pi_code_agent/` 是正式实现，`tutorials/` 保存 s01–s15 的完整渐进教程，`tests/` 包含教程回归与 SDK 测试。正式包不导入教程。
+
+外部产品的接入和组件关系见 [SDK](docs/sdk.md)；拆分范围与手动环境步骤见 [迁移说明](docs/migration.md)。

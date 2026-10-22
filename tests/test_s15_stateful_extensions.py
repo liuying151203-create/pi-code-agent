@@ -5,16 +5,20 @@ from copy import deepcopy
 
 import pytest
 
-from s15_stateful_extensions import code as chapter
-from s15_stateful_extensions.extensions.todo import (
+import tutorials.s15_stateful_extensions.code as chapter
+from tutorials.s15_stateful_extensions.extensions.todo import (
     MAX_TEXT_CHARS,
     MAX_TODOS,
     TodoExtension,
     register,
 )
-from s15_stateful_extensions.registry import ExtensionAPI, load_extensions
-from s15_stateful_extensions.result import ToolResult, execute_tool
-from s15_stateful_extensions.session import MessageEntry, SessionManager, SessionPersistenceError
+from tutorials.s15_stateful_extensions.registry import ExtensionAPI, load_extensions
+from tutorials.s15_stateful_extensions.result import ToolResult, execute_tool
+from tutorials.s15_stateful_extensions.session import (
+    MessageEntry,
+    SessionManager,
+    SessionPersistenceError,
+)
 
 
 def make_api(tmp_path, *, dispatch=None, permission=None, tools=None):
@@ -263,7 +267,9 @@ def test_registry_keeps_old_modules_and_base_permissions(tmp_path, monkeypatch):
         permission=permission,
         dispatch=lambda *args: pytest.fail("拒绝不能到达后端"),
     )
-    load_extensions(api, [chapter.DEFAULT_EXTENSION, "s14_extensions.extensions.read_preview"])
+    load_extensions(
+        api, [chapter.DEFAULT_EXTENSION, "tutorials.s14_extensions.extensions.read_preview"]
+    )
     assert {"todo", "read_preview"} <= set(api.handlers)
     assert "Permission denied:" in api.dispatch("read_preview", {"path": ".env"})
     assert "Permission denied:" in api.dispatch("write_file", {"path": "a.py", "content": "x"})

@@ -7,9 +7,9 @@ from pathlib import Path
 
 import pytest
 
-from s13_a_sandbox_copy import code as chapter
-from s13_a_sandbox_copy.snapshot import WorkspaceSnapshot
-from s13_a_sandbox_copy.workspace import WorkspaceLayout
+import tutorials.s13_a_sandbox_copy.code as chapter
+from tutorials.s13_a_sandbox_copy.snapshot import WorkspaceSnapshot
+from tutorials.s13_a_sandbox_copy.workspace import WorkspaceLayout
 
 
 def test_workspace_paths_are_stable_and_same_names_do_not_share_records(tmp_path):
@@ -146,7 +146,7 @@ def test_runtime_directory_redirection_is_rejected(tmp_path):
 
 def test_project_skills_come_from_copied_content_and_use_container_paths():
     files = {
-        "s12_skill_loading/skills/review/SKILL.md": (
+        "tutorials/s12_skill_loading/skills/review/SKILL.md": (
             "\ufeff---\nname: review\ndescription: 审查代码\n---\n只读正文"
         ).encode("utf-8"),
         "unrelated/SKILL.md": b"not a skill",
@@ -156,7 +156,7 @@ def test_project_skills_come_from_copied_content_and_use_container_paths():
     skill = catalog.skills[0]
     assert skill.name == "review"
     assert skill.description == "审查代码"
-    assert skill.path.as_posix() == "/work/s12_skill_loading/skills/review/SKILL.md"
+    assert skill.path.as_posix() == "/work/tutorials/s12_skill_loading/skills/review/SKILL.md"
     assert chapter.load_container_skills(WorkspaceSnapshot({})).skills == ()
 
 
@@ -172,6 +172,8 @@ def test_project_skills_come_from_copied_content_and_use_container_paths():
     ],
 )
 def test_invalid_project_skills_fail_before_model_requests(text):
-    snapshot = WorkspaceSnapshot({"s12_skill_loading/skills/review/SKILL.md": text.encode("utf-8")})
+    snapshot = WorkspaceSnapshot(
+        {"tutorials/s12_skill_loading/skills/review/SKILL.md": text.encode("utf-8")}
+    )
     with pytest.raises((ValueError, TypeError)):
         chapter.load_container_skills(snapshot)

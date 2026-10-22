@@ -8,8 +8,8 @@ from pathlib import Path
 
 import pytest
 
-from s13_a_sandbox_copy.sandbox import SandboxError
-from s13_c_sandbox_native import sandbox, tool_worker
+from tutorials.s13_a_sandbox_copy.sandbox import SandboxError
+from tutorials.s13_c_sandbox_native import sandbox, tool_worker
 
 HARNESS = Path(__file__).resolve().parent.parent
 
@@ -72,7 +72,7 @@ def test_native_settings_and_fixed_worker_do_not_delegate_host_handlers(tmp_path
         assert {"path": str(executor.workspace / ".env"), "literal": True} in fs["denyRead"]
         assert {"path": str(report), "literal": True} in fs["denyWrite"]
         assert (report / "trusted/base_tools.py").read_bytes() == (
-            HARNESS / "s02_tool_use/code.py"
+            HARNESS / "tutorials/s02_tool_use/code.py"
         ).read_bytes()
         argv = stub.calls[0][0]
         assert "--settings" in argv and "-c" in argv

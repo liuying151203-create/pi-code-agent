@@ -4,11 +4,11 @@ from types import SimpleNamespace
 
 import pytest
 
-from s10_model_provider.code import ModelResponse, ModelUsage
-from s13_a_sandbox_copy.sandbox import SandboxError
-from s13_a_sandbox_copy.workspace import WorkspaceLayout
-from s13_b_sandbox_workspace import code as b
-from s13_c_sandbox_native import code as c
+import tutorials.s13_b_sandbox_workspace.code as b
+import tutorials.s13_c_sandbox_native.code as c
+from tutorials.s10_model_provider.code import ModelResponse, ModelUsage
+from tutorials.s13_a_sandbox_copy.sandbox import SandboxError
+from tutorials.s13_a_sandbox_copy.workspace import WorkspaceLayout
 
 
 @pytest.fixture(params=[b, c], ids=["s13-b", "s13-c"])

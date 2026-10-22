@@ -5,9 +5,12 @@ import os
 
 import pytest
 
-from s13_a_sandbox_copy.sandbox import SandboxError
-from s13_b_sandbox_workspace import sandbox
-from s13_b_sandbox_workspace.workspace_access import check_file_arguments, inspect_workspace
+from tutorials.s13_a_sandbox_copy.sandbox import SandboxError
+from tutorials.s13_b_sandbox_workspace import sandbox
+from tutorials.s13_b_sandbox_workspace.workspace_access import (
+    check_file_arguments,
+    inspect_workspace,
+)
 
 
 class SharedDockerStub:

@@ -1,7 +1,7 @@
 from pathlib import Path
 from types import SimpleNamespace
 
-import s06_session_context.code as chapter
+import tutorials.s06_session_context.code as chapter
 
 
 def test_default_session_root_is_scoped_to_s06() -> None:
@@ -11,9 +11,7 @@ def test_default_session_root_is_scoped_to_s06() -> None:
 def test_store_round_trips_message_entries(tmp_path) -> None:
     session = chapter.SessionManager.open(tmp_path / "session.jsonl")
     session.append_message({"role": "user", "content": "继续实现会话"})
-    session.append_message(
-        {"role": "assistant", "content": [{"type": "text", "text": "正在处理"}]}
-    )
+    session.append_message({"role": "assistant", "content": [{"type": "text", "text": "正在处理"}]})
 
     entries = session.load_entries()
 

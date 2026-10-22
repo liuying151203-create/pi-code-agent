@@ -2,7 +2,7 @@ from types import SimpleNamespace
 
 import pytest
 
-import s07_session_compaction.code as chapter
+import tutorials.s07_session_compaction.code as chapter
 
 
 def _message(role: str, content: object) -> chapter.Message:

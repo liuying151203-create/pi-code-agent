@@ -1,7 +1,7 @@
 from pathlib import Path
 from types import SimpleNamespace
 
-import s08_runtime_events.code as chapter
+import tutorials.s08_runtime_events.code as chapter
 
 
 def _message(role: str, content: object) -> chapter.Message:
@@ -67,9 +67,7 @@ def test_model_requester_emits_before_calling_client() -> None:
 
     requester(messages=[], system="test", tools=[], max_tokens=100)
 
-    assert events == [
-        chapter.AgentEvent(type="model_request", data={"timeout_seconds": 12})
-    ]
+    assert events == [chapter.AgentEvent(type="model_request", data={"timeout_seconds": 12})]
     assert requests[0]["model"] == "test-model"
 
 

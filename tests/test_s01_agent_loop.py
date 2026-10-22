@@ -1,6 +1,6 @@
 from types import SimpleNamespace
 
-from s01_agent_loop.code import agent_loop
+from tutorials.s01_agent_loop.code import agent_loop
 
 
 def test_loop_feeds_tool_result_back_until_model_stops() -> None:

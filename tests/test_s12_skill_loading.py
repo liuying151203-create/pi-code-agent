@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from s12_skill_loading import code as chapter
+import tutorials.s12_skill_loading.code as chapter
 
 
 def test_skills_chapter_reuses_runtime_summary_and_diagnostics():
@@ -132,7 +132,7 @@ def test_skills_reuse_tool_definitions_and_dispatch_without_extra_limits():
 
 def test_review_entry_can_load_skill_locate_and_read_code_without_summary(tmp_path, monkeypatch):
     manifest = chapter.SKILLS_ROOT / "code-review" / "SKILL.md"
-    source = "s12_skill_loading/code.py"
+    source = "tutorials/s12_skill_loading/code.py"
     requests = []
     target_line = None
 

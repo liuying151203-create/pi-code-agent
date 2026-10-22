@@ -2,7 +2,7 @@ from types import SimpleNamespace
 
 import pytest
 
-import s04_hooks.code as chapter
+import tutorials.s04_hooks.code as chapter
 
 
 def test_before_hook_can_block_without_dispatching() -> None:

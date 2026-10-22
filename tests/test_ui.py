@@ -1,4 +1,4 @@
-from zero2pi.ui import (
+from pi_code_agent.ui import (
     format_assistant_message,
     format_error,
     format_permission_request,
