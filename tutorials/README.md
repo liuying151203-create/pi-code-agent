@@ -11,5 +11,8 @@
 | 事件、流式、模型和统计 | [s08](s08_runtime_events/README.md)、[s09](s09_runtime_streaming/README.md)、[s10](s10_model_provider/README.md)、[s11](s11_runtime_observability/README.md) |
 | 技能与沙箱 | [s12](s12_skill_loading/README.md)、[s13-A](s13_a_sandbox_copy/README.md)、[s13-B](s13_b_sandbox_workspace/README.md)、[s13-C](s13_c_sandbox_native/README.md) |
 | 扩展与状态 | [s14](s14_extensions/README.md)、[s15](s15_stateful_extensions/README.md) |
+| 从教程到 SDK | [s16](s16_agent_sdk/README.md) |
 
-正式接口见 [SDK](../docs/sdk.md)，镜像构建以 [沙箱说明](../docs/sandbox.md) 为准。本次只改模块/资源位置及必要的跨项目依赖，章节编号用于代码来源说明，不是 SDK 名称。
+正式接口见 [SDK](../docs/sdk.md)，镜像构建以 [沙箱说明](../docs/sandbox.md) 为准。章节编号表示教学演进；外部产品使用正式包，不导入教学快照。
+
+s16 衔接已有基础机制与正式 SDK；后续依次规划 s17 配置统一、s18 命令注册、s19 扩展参数。每章先讲设计、实现最小闭环并验证，再同步正式实现；后续组件按教学进度加入。

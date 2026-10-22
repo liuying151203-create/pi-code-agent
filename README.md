@@ -26,6 +26,6 @@ python -m ruff check src tests tutorials
 python -m pip wheel --no-deps --no-build-isolation -w dist .
 ```
 
-`src/pi_code_agent/` 是正式实现，`tutorials/` 保存 s01–s15 的完整渐进教程，`tests/` 包含教程回归与 SDK 测试。正式包不导入教程。
+`src/pi_code_agent/` 是正式实现，`tutorials/` 保存 s01–s16 的完整渐进教程，`tests/` 包含教程回归与 SDK 测试。正式包不导入教程。
 
 外部产品的接入和组件关系见 [SDK](docs/sdk.md)；拆分范围与手动环境步骤见 [迁移说明](docs/migration.md)。

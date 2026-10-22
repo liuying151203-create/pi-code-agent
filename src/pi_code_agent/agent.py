@@ -9,7 +9,14 @@ from pathlib import Path
 from typing import Any
 
 from pi_code_agent.compaction_base import CompactionPolicy
-from pi_code_agent.events import EventDispatcher, JsonlTraceRecorder, UsageTracker, new_trace_path
+from pi_code_agent.events import (
+    EventDispatcher,
+    EventSink,
+    JsonlTraceRecorder,
+    UsageTracker,
+    new_trace_path,
+)
+from pi_code_agent.hooks import BeforeToolHook
 from pi_code_agent.local_tools import LocalTools
 from pi_code_agent.loop import agent_loop
 from pi_code_agent.models import ModelProvider, summary_request_options
@@ -22,15 +29,20 @@ from pi_code_agent.requests import (
     ContextSummarizer,
     StreamingModelRequester,
 )
-from pi_code_agent.serialization import select_session_path
+from pi_code_agent.result import DispatchTool
+from pi_code_agent.serialization import Message, select_session_path
 from pi_code_agent.session import SessionManager
 
+# s16 新增：构造器与工厂共用现有提示词默认值，明确公开参数时避免两处漂移。
+DEFAULT_SYSTEM = "你是编程 Agent。仅在任务需要时使用工具，优先专用工具，完成后停止。"
 
+
+# s16 修改：明确组装层的公开输出与职责，具体运行机制继续复用已有组件。
 class Agent:
     """将一份会话的模型、工具、存储与观察链组装成独立实例。
 
     输入：Provider、工作区，以及可替换的后端、权限、存储和压缩配置。
-    输出：run 返回完整消息；subscribe 观察事件；register_extension 接入能力。
+    输出：run 返回本次运行的模型上下文；subscribe 观察事件；register_extension 接入能力。
     流程：绑定会话 → 创建事件链 → 组装请求器 → 注册能力 → 保存任务并执行核心循环。
     边界：同步单任务，不承诺崩溃后重放工具，不自动安装或加载不可信模块。
     """
@@ -44,17 +56,21 @@ class Agent:
         session_path: Path | None = None,
         mode: str = "read-only",
         tools: list[dict[str, Any]] | None = None,
-        dispatch: Callable | None = None,
-        permission_hook: Callable | None = None,
+        # s16 修改：用已有分发与权限类型说明注入契约，不改变后端行为。
+        dispatch: DispatchTool | None = None,
+        permission_hook: BeforeToolHook | None = None,
         compaction_policy: CompactionPolicy | None = None,
         summary_max_tokens: int = 4096,
         timeout_seconds: float = 60,
         max_tokens: int = 8000,
         max_rounds: int | None = None,
-        system: str = "你是编程 Agent。仅在任务需要时使用工具，优先专用工具，完成后停止。",
+        system: str = DEFAULT_SYSTEM,
     ) -> None:
-        """按基础依赖、组件、运行时组装；构造期间不请求模型。
+        """将调用方依赖组装成绑定单份会话的实例，不请求模型。
 
+        输入：Provider、已有工作区及可选后端、存储、提示词和压缩参数。
+        输出：已打开会话并创建请求链的 Agent。
+        流程：检查路径和后端 → 打开会话 → 创建扩展与事件 → 组装请求链。
         自定义后端须同时提供 tools/dispatch/permission_hook，避免只换工具目录却遗漏门禁。
         data_dir 是显式宿主记录目录；外部产品不必写入底座安装位置。
         """
@@ -120,20 +136,31 @@ class Agent:
         self._running = False
         self._closed = False
 
-    def subscribe(self, listener: Callable) -> None:
-        """订阅已有运行事件；观察者失败沿用明确停止策略。"""
+    # s16 修改：公开事件订阅的实际输入类型，继续复用 s08/s11 的分发规则。
+    def subscribe(self, listener: EventSink) -> None:
+        """把调用方观察者加入本实例的事件链。
+
+        输入：listener(event)；输出：None，不返回取消订阅句柄。
+        流程：交给 EventDispatcher 注册；运行时由 emit 按顺序通知，观察者失败则停止。
+        """
         self.events.subscribe(listener)
 
+    # s16 修改：补全可信注册的输入、输出和空闲时序说明，注册规则保持不变。
     def register_extension(self, register: Callable[[ExtensionAPI], None]) -> None:
-        """空闲时注册可信扩展，注册函数可以读取持久化工具状态。"""
+        """在空闲实例上注册调用方选择的可信能力。
+
+        输入：register(api)；输出：None，能力加入当前 ExtensionAPI。
+        流程：检查关闭和运行标记 → 调用注册函数，函数可从会话恢复持久化工具状态。
+        """
         if self._closed or self._running:
             raise RuntimeError("Agent 已关闭或正在运行，不能更改能力")
         register(self.extensions)
 
-    def run(self, prompt: str) -> list[dict[str, Any]]:
+    # s16 修改：用已有 Message 类型明确返回的是有效模型上下文，而非完整存储日志。
+    def run(self, prompt: str) -> list[Message]:
         """保存任务、投影会话并运行；失败向调用方传播，不当作成功验收。
 
-        输入：非空任务；输出：完整消息。
+        输入：非空任务；输出：包含此前有效历史的本次模型上下文，不等于完整 JSONL 日志。
         流程：检查生命周期 → 追加用户消息 → 构建上下文 → 同一 loop → 释放运行状态。
         """
         if self._closed or self._running:
@@ -160,13 +187,55 @@ class Agent:
         finally:
             self._running = False
 
+    # s16 修改：明确关闭入口与外部资源所有权，保留已有同步生命周期。
     def close(self) -> None:
-        """关闭空闲实例；外部后端由其创建者关闭，不伪造并发取消能力。"""
+        """关闭空闲实例的任务入口，不代管外部资源。
+
+        输入：无；输出：None；流程：拒绝运行中关闭 → 标记实例已关闭。
+        外部 Provider 和执行后端仍由创建者关闭，本方法不提供并发取消。
+        """
         if self._running:
             raise RuntimeError("同步任务尚未结束，不能关闭")
         self._closed = True
 
 
-def create_agent(**kwargs: Any) -> Agent:
-    """创建同步 Agent；参数与 Agent 相同，不自动配置环境或扫描插件。"""
-    return Agent(**kwargs)
+# s16 修改：工厂显式列出已有参数，调用者无需穿透 **kwargs 查找 SDK 契约。
+def create_agent(
+    *,
+    provider: ModelProvider,
+    workspace: Path,
+    data_dir: Path | None = None,
+    session_path: Path | None = None,
+    mode: str = "read-only",
+    tools: list[dict[str, Any]] | None = None,
+    dispatch: DispatchTool | None = None,
+    permission_hook: BeforeToolHook | None = None,
+    compaction_policy: CompactionPolicy | None = None,
+    summary_max_tokens: int = 4096,
+    timeout_seconds: float = 60,
+    max_tokens: int = 8000,
+    max_rounds: int | None = None,
+    system: str = DEFAULT_SYSTEM,
+) -> Agent:
+    """用明确的依赖和选项创建一个同步 Agent。
+
+    输入：Provider、已有工作区，以及可选的存储、后端和运行参数。
+    输出：已组装、尚未请求模型的 Agent；构造会选择并打开会话。
+    流程：参数原样交给 Agent → 返回实例；环境配置和扩展选择仍由调用方负责。
+    """
+    return Agent(
+        provider=provider,
+        workspace=workspace,
+        data_dir=data_dir,
+        session_path=session_path,
+        mode=mode,
+        tools=tools,
+        dispatch=dispatch,
+        permission_hook=permission_hook,
+        compaction_policy=compaction_policy,
+        summary_max_tokens=summary_max_tokens,
+        timeout_seconds=timeout_seconds,
+        max_tokens=max_tokens,
+        max_rounds=max_rounds,
+        system=system,
+    )

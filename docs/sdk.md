@@ -1,6 +1,6 @@
 # SDK 与运行结构
 
-外部产品依赖正式包，不导入 `tutorials`。第一版是同步单任务 SDK，不承诺并发输入、统一取消或崩溃后的任意断点续跑。
+外部产品依赖正式包，不导入 `tutorials`。第一版是同步单任务 SDK，不承诺并发输入、统一取消或崩溃后的任意断点续跑。组装过程见 [s16 教程](../tutorials/s16_agent_sdk/README.md)，完整离线调用见 [sdk_basic.py](../examples/sdk_basic.py)。
 
 ```python
 from pathlib import Path
@@ -22,11 +22,19 @@ finally:
     agent.close()
 ```
 
-应用先加载自己的模型配置；SDK 不自动读取 `.env`。传入 `compaction_policy=CompactionPolicy(实际窗口)` 才启用自动压缩；CLI 按必填环境配置启用。外部后端由创建者关闭。
+应用先加载自己的模型配置；SDK 不自动读取 `.env`。示例中的 `create_model_provider` 读取进程环境，显式 Provider 配置将在 s17 补齐；注入已有 Provider 的 `create_agent` 不读取模型环境。
+
+`create_agent` 显式列出与 `Agent` 相同的关键字参数，构造时打开会话但不调用模型。传入 `compaction_policy=CompactionPolicy(实际窗口)` 才启用自动压缩；CLI 按必填环境配置启用。SDK 摘要额度默认 4096，CLI 默认预留额度的 80%；本阶段保留现有规则。
+
+`run(prompt)` 返回包含此前有效历史的本次模型上下文，压缩后不等于完整 JSONL 日志；失败向调用方抛出。`subscribe(listener)` 返回 `None`，尚无取消订阅句柄。`close()` 只关闭空闲实例的使用入口，不终止正在运行的任务；外部 Provider 客户端和执行后端由创建者关闭。
+
+`Agent.timeout_seconds` 用于请求事件展示，真实请求超时与 Provider 重试由外部客户端配置。SDK 不修改传入的客户端，不承诺统一任务截止时间。
+
+`data_dir` 省略时使用 `workspace/.pi-code-agent`；CLI 显式传入启动目录下的 `.pi-code-agent`。恢复会话必须使用相同工作区和记录目录，并重新注册扩展及观察者。
 
 | 模块 | 职责与来源 |
 |---|---|
-| `agent`、`loop` | SDK 组装；s15 状态保存及 s21 失败状态保护 |
+| `agent`、`loop` | s16 SDK 组装与明确参数；保留 s15 状态保存及拆分前已有失败状态保护 |
 | `models` | s10 Provider 协议与响应归一化 |
 | `session`、`observable_session` | s11/s15 有效历史、用量、扩展状态 |
 | `compaction_base`、`requests` | s07/s11 压缩计划、摘要、预算和模型请求 |
