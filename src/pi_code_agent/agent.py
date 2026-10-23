@@ -6,17 +6,24 @@ import hashlib
 import os
 from collections.abc import Callable
 from pathlib import Path
+from time import perf_counter
 from typing import Any
+from uuid import uuid4
 
+from pi_code_agent.command_entry import CommandEntry
+from pi_code_agent.commands import CommandContext, CommandRegistry, CommandResult, CommandUI
 from pi_code_agent.compaction_base import CompactionPolicy
 from pi_code_agent.config import RunConfig, validate_timeout
 from pi_code_agent.events import (
+    AgentEvent,
     EventDispatcher,
+    EventDispatchError,
     EventSink,
     JsonlTraceRecorder,
     UsageTracker,
     new_trace_path,
 )
+from pi_code_agent.extension_entries import CustomEntry, CustomMessageEntry
 from pi_code_agent.hooks import BeforeToolHook
 from pi_code_agent.local_tools import LocalTools
 from pi_code_agent.loop import agent_loop
@@ -31,20 +38,22 @@ from pi_code_agent.requests import (
     StreamingModelRequester,
 )
 from pi_code_agent.result import DispatchTool
+from pi_code_agent.sandbox_copy.sandbox import SandboxError
 from pi_code_agent.serialization import Message, select_session_path
-from pi_code_agent.session import SessionManager
+from pi_code_agent.session import SessionManager, SessionPersistenceError
 
 # s16 新增：构造器与工厂共用现有提示词默认值，明确公开参数时避免两处漂移。
 DEFAULT_SYSTEM = "你是编程 Agent。仅在任务需要时使用工具，优先专用工具，完成后停止。"
 
 
-# s16 修改：明确组装层的公开输出与职责，具体运行机制继续复用已有组件。
+# ===== s18 修改：在同步 SDK 增加命令执行入口，完整模型循环保持 s17 =====
+# s18 修改：命令与 run 共享空闲检查、Session、事件和扩展，不另建核心循环。
 class Agent:
     """将一份会话的模型、工具、存储与观察链组装成独立实例。
 
     输入：Provider、工作区，以及可替换的后端、权限、存储和压缩配置。
-    输出：run 返回本次运行的模型上下文；subscribe 观察事件；register_extension 接入能力。
-    流程：绑定会话 → 创建事件链 → 组装请求器 → 注册能力 → 保存任务并执行核心循环。
+    输出：run 返回模型上下文；execute_command 返回命令结果；观察和扩展使用同一实例。
+    流程：绑定会话 → 创建命令与事件链 → 组装请求器 → 保存任务或命令并执行。
     边界：同步单任务，不承诺崩溃后重放工具，不自动安装或加载不可信模块。
     """
 
@@ -57,7 +66,7 @@ class Agent:
         session_path: Path | None = None,
         mode: str = "read-only",
         tools: list[dict[str, Any]] | None = None,
-        # s16 修改：用已有分发与权限类型说明注入契约，不改变后端行为。
+        # 来自 s17：保持；用已有分发与权限类型说明注入契约，不改变后端行为。
         dispatch: DispatchTool | None = None,
         permission_hook: BeforeToolHook | None = None,
         compaction_policy: CompactionPolicy | None = None,
@@ -75,7 +84,7 @@ class Agent:
         自定义后端须同时提供 tools/dispatch/permission_hook，避免只换工具目录却遗漏门禁。
         data_dir 是显式宿主记录目录；外部产品不必写入底座安装位置。
         """
-        # s17 新增：显式 SDK 参数也先统一校验，避免非法额度在保存任务后才被发现。
+        # 来自 s17：保持；显式 SDK 参数也先统一校验，避免非法额度在保存任务后才被发现。
         run_config = RunConfig(
             max_rounds=max_rounds,
             max_tokens=max_tokens,
@@ -113,11 +122,18 @@ class Agent:
         self.events = EventDispatcher()
         self.usage = UsageTracker()
         self.trace_path = new_trace_path(records / "traces" / workspace_id)
+        # s18 新增：内置和扩展共享命令表，帮助始终来自本实例真实注册的能力。
+        self.commands = CommandRegistry()
+        self.command_ui = CommandUI(self.events.emit)
+        self.commands.register("help", self.commands.help, description="查看命令帮助")
+        self.commands.register("stats", self._stats_command, description="查看当前会话的模型用量")
         self.extensions = ExtensionAPI(
             base_tools=chosen_tools,
             base_dispatch=chosen_dispatch,
             permission_hook=chosen_permission,
             session=self.session,
+            commands=self.commands,
+            actions=self,
         )
         self.events.subscribe(SessionErrorRecorder(self.session))
         self.events.subscribe(JsonlTraceRecorder(self.trace_path))
@@ -126,7 +142,7 @@ class Agent:
 
         assistant_request = StreamingModelRequester(provider, timeout_seconds, self.events.emit)
         self.requester = assistant_request
-        # s17 修改：请求链只使用已统一校验的压缩策略和摘要额度。
+        # 来自 s17：保持；请求链只使用已统一校验的压缩策略和摘要额度。
         if run_config.compaction_policy is not None:
             summary_request = BlockingModelRequester(provider, timeout_seconds, self.events.emit)
             summarizer = ContextSummarizer(
@@ -141,13 +157,16 @@ class Agent:
                 assistant_request, self.session, compactor, self.events.emit
             )
         self.system = system
-        # s17 修改：使用统一校验后的额度，循环及其计数语义保持 s16 行为。
+        # 来自 s17：保持；使用统一校验后的额度，循环及其计数语义保持 s16 行为。
         self.max_tokens = run_config.max_tokens
         self.max_rounds = run_config.max_rounds
         self._running = False
         self._closed = False
+        # s18 新增：同步 handler 的触发意图由外层统一兑现，不重入 run。
+        self._extension_callback_active = False
+        self._turn_requested = False
 
-    # s16 修改：公开事件订阅的实际输入类型，继续复用 s08/s11 的分发规则。
+    # 来自 s17：保持；公开事件订阅的实际输入类型，继续复用 s08/s11 的分发规则。
     def subscribe(self, listener: EventSink) -> None:
         """把调用方观察者加入本实例的事件链。
 
@@ -156,7 +175,7 @@ class Agent:
         """
         self.events.subscribe(listener)
 
-    # s16 修改：补全可信注册的输入、输出和空闲时序说明，注册规则保持不变。
+    # 来自 s17：保持；补全可信注册的输入、输出和空闲时序说明，注册规则保持不变。
     def register_extension(self, register: Callable[[ExtensionAPI], None]) -> None:
         """在空闲实例上注册调用方选择的可信能力。
 
@@ -167,7 +186,7 @@ class Agent:
             raise RuntimeError("Agent 已关闭或正在运行，不能更改能力")
         register(self.extensions)
 
-    # s16 修改：用已有 Message 类型明确返回的是有效模型上下文，而非完整存储日志。
+    # 来自 s17：保持；用已有 Message 类型明确返回的是有效模型上下文，而非完整存储日志。
     def run(self, prompt: str) -> list[Message]:
         """保存任务、投影会话并运行；失败向调用方传播，不当作成功验收。
 
@@ -198,7 +217,202 @@ class Agent:
         finally:
             self._running = False
 
-    # s16 修改：明确关闭入口与外部资源所有权，保留已有同步生命周期。
+    # ===== s18 新增：Pi 风格的命令效果与同步模型回合 =====
+    def execute_command(self, text: str) -> CommandResult:
+        """执行 handler(args, ctx)，保存审计后按显式意图启动模型。
+
+        输入：以 / 开头的命令和原样参数文字；输出：命令处理状态。
+        流程：保存开始 → handler 选择通知/状态/消息 → 保存结束 → 按需执行同一循环。
+        边界：命令审计不进上下文；效果已保存就不回滚；模型失败向调用方抛出。
+        """
+        if self._closed or self._running:
+            raise RuntimeError("Agent 已关闭或已有任务运行")
+        if not isinstance(text, str) or not text.strip().startswith("/"):
+            raise ValueError("交互命令必须以 / 开头")
+        command = text.strip()
+        command_id = uuid4().hex
+        self._running = True
+        self._turn_requested = False
+        try:
+            try:
+                self.session.append_command(CommandEntry(command_id, command, "started"))
+            except (OSError, RuntimeError, TypeError, ValueError) as error:
+                self._closed = True
+                raise SessionPersistenceError(
+                    f"命令开始记录保存失败，未执行命令：{error}"
+                ) from error
+            self.events.emit(
+                AgentEvent("command_start", {"command_id": command_id, "command": command})
+            )
+            started_at = perf_counter()
+            parts = command[1:].split(maxsplit=1)
+            definition = self.commands.get(parts[0]) if parts else None
+            args = parts[1] if len(parts) == 2 else ""
+            result = CommandResult()
+            if definition is None:
+                result = CommandResult(True, f"未知命令：{command}。输入 /help 查看可用命令。")
+            else:
+                ctx = CommandContext(self.command_ui, self.session)
+                self._extension_callback_active = True
+                try:
+                    returned = definition.handler(args, ctx)
+                    if returned is not None:
+                        raise TypeError("命令 handler 应通过效果 API 输出并返回 None")
+                except (EventDispatchError, SessionPersistenceError, SandboxError):
+                    raise
+                except Exception as error:  # noqa: BLE001 - 普通 handler 失败保存审计
+                    result = CommandResult(True, f"命令 /{definition.name} 执行失败：{error}")
+                finally:
+                    self._extension_callback_active = False
+            status = "failed" if result.is_error else "succeeded"
+            try:
+                self.session.append_command(CommandEntry(command_id, command, status, result.error))
+            except (OSError, RuntimeError, TypeError, ValueError) as error:
+                self._closed = True
+                raise SessionPersistenceError(f"命令结果未可靠保存，已关闭入口：{error}") from error
+            self.events.emit(
+                AgentEvent(
+                    "command_end",
+                    {
+                        "command_id": command_id,
+                        "command": command,
+                        "status": status,
+                        "duration_ms": (perf_counter() - started_at) * 1000,
+                    },
+                )
+            )
+            if result.is_error:
+                self.command_ui.notify(result.error, "error")
+            elif self._turn_requested:
+                # s18 新增：参考 Pi triggerTurn；同步实现延后到 handler 和审计结束，防止重入。
+                agent_loop(
+                    self.session.build_context(),
+                    create_message=self.requester,
+                    dispatch=self.extensions.dispatch,
+                    system=self.system,
+                    hooks=self.extensions.hooks,
+                    emit=self.events.emit,
+                    save_message=self.session.append_message,
+                    save_assistant=self.session.append_assistant,
+                    save_tool_results=self.session.append_tool_results,
+                    tools=self.extensions.tools,
+                    max_tokens=self.max_tokens,
+                    max_rounds=self.max_rounds,
+                )
+            return result
+        finally:
+            self._running = False
+            self._extension_callback_active = False
+            self._turn_requested = False
+
+    # s18 新增：扩展私有状态与模型上下文独立保存。
+    def append_entry(self, custom_type: str, data: Any = None) -> None:
+        """保存扩展状态，不发模型消息或启动回合。
+
+        输入：类型与 JSON 数据；输出：无；流程：时序检查 → 校验复制 → 持久化。
+        边界：私有状态可在运行期间追加，不打断模型协议；存储失败关闭入口。
+        """
+        if self._closed:
+            raise RuntimeError("Agent 已关闭或已有任务运行")
+        entry = CustomEntry(custom_type, data)
+        try:
+            self.session.append_extension_entry(entry)
+        except (OSError, RuntimeError, TypeError, ValueError) as error:
+            self._closed = True
+            raise SessionPersistenceError(f"扩展状态保存失败，已关闭入口：{error}") from error
+
+    # s18 新增：展示与回合触发独立控制，正文显式进入上下文。
+    def send_message(
+        self,
+        content: str,
+        *,
+        custom_type: str = "extension",
+        display: bool = True,
+        details: Any = None,
+        trigger_turn: bool = False,
+    ) -> None:
+        """保存模型可见消息，分别控制界面展示与模型回合触发。
+
+        输入：文本、类型、展示/触发开关及 JSON 元数据；输出：无。
+        流程：校验 → 保存 → 发送展示事件 → 命令内记录触发意图，空闲时直接运行。
+        边界：不支持运行期间投递；details 不进入模型，display 不控制模型可见性。
+        """
+        if self._closed or (self._running and not self._extension_callback_active):
+            raise RuntimeError("Agent 已关闭或已有任务运行")
+        if type(trigger_turn) is not bool:
+            raise TypeError("trigger_turn 必须是布尔值")
+        entry = CustomMessageEntry(custom_type, content, display, details)
+        owns_operation = not self._running
+        if owns_operation:
+            self._running = True
+        try:
+            try:
+                self.session.append_extension_entry(entry)
+            except (OSError, RuntimeError, TypeError, ValueError) as error:
+                self._closed = True
+                raise SessionPersistenceError(f"扩展消息保存失败，已关闭入口：{error}") from error
+            self.events.emit(
+                AgentEvent(
+                    "custom_message",
+                    {
+                        "custom_type": custom_type,
+                        "content": content,
+                        "display": display,
+                    },
+                )
+            )
+            if self._extension_callback_active:
+                self._turn_requested |= trigger_turn
+            elif trigger_turn:
+                agent_loop(
+                    self.session.build_context(),
+                    create_message=self.requester,
+                    dispatch=self.extensions.dispatch,
+                    system=self.system,
+                    hooks=self.extensions.hooks,
+                    emit=self.events.emit,
+                    save_message=self.session.append_message,
+                    save_assistant=self.session.append_assistant,
+                    save_tool_results=self.session.append_tool_results,
+                    tools=self.extensions.tools,
+                    max_tokens=self.max_tokens,
+                    max_rounds=self.max_rounds,
+                )
+        finally:
+            if owns_operation:
+                self._running = False
+
+    # s18 新增：真实用户消息请求模型回合，受控回调中先保存后触发。
+    def send_user_message(self, content: str) -> None:
+        """发送真实用户任务，始终请求模型回合。
+
+        输入：非空用户文本；输出：无；流程：空闲时调用 run，命令内保存并延后触发。
+        边界：命令期间不会重入 run；失败 handler 不兑现已请求的回合，已保存消息仍保留。
+        """
+        if self._closed or (self._running and not self._extension_callback_active):
+            raise RuntimeError("Agent 已关闭或已有任务运行")
+        if not isinstance(content, str) or not content.strip():
+            raise ValueError("任务不能为空")
+        if self._extension_callback_active:
+            try:
+                self.session.append_message({"role": "user", "content": content})
+            except (OSError, RuntimeError, TypeError, ValueError) as error:
+                self._closed = True
+                raise SessionPersistenceError(f"用户消息保存失败，已关闭入口：{error}") from error
+            self._turn_requested = True
+        else:
+            self.run(content)
+
+    def _stats_command(self, args: str, ctx: CommandContext) -> None:
+        """展示执行当时的累计统计，不向模型发送消息。
+
+        输入：空参数和命令上下文；输出：通知；流程：拒绝参数 → 读取统计 → 展示。
+        """
+        if args:
+            raise ValueError("/stats 不接受参数")
+        ctx.ui.notify(ctx.session.session_stats().summary_text())
+
+    # 来自 s17：保持；明确关闭入口与外部资源所有权，保留已有同步生命周期。
     def close(self) -> None:
         """关闭空闲实例的任务入口，不代管外部资源。
 
@@ -210,7 +424,7 @@ class Agent:
         self._closed = True
 
 
-# s16 修改：工厂显式列出已有参数，调用者无需穿透 **kwargs 查找 SDK 契约。
+# 来自 s17：保持；工厂显式列出已有参数，调用者无需穿透 **kwargs 查找 SDK 契约。
 def create_agent(
     *,
     provider: ModelProvider,

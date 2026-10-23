@@ -33,6 +33,11 @@ type AgentEventType = Literal[
     "tool_result",
     "compaction",
     "agent_end",
+    # s18 新增：命令沿用同一事件链，统计器不会把它们计为模型或工具调用。
+    "command_start",
+    "command_end",
+    "notification",
+    "custom_message",
 ]
 
 
@@ -131,6 +136,11 @@ class TerminalEventSink:
                 f"保留 {event.data['retained_messages']} 条，使用模型摘要。",
                 flush=True,
             )
+        # s18 新增：通知只显示；自定义消息按 display 展示，模型投影不受此开关影响。
+        elif event.type == "notification":
+            print(event.data["message"], flush=True)
+        elif event.type == "custom_message" and event.data["display"]:
+            print(event.data["content"], flush=True)
 
     def _write_delta(self, text: str) -> None:
         """追加文本片段，并只在首个片段前打印 Agent 前缀。"""
@@ -297,6 +307,15 @@ def new_trace_path(trace_root: Path = TRACE_ROOT) -> Path:
 
 def _trace_event_data(event: AgentEvent) -> dict[str, Any]:
     """生成适合长期保存的紧凑事件数据。"""
+    # s18 新增：完整消息保存在 Session，通知预览有界，不在 Trace 复制长正文。
+    if event.type == "custom_message":
+        return {
+            "custom_type": event.data["custom_type"],
+            "display": event.data["display"],
+            "content_chars": len(event.data["content"]),
+        }
+    if event.type == "notification":
+        return {"level": event.data["level"], "message_preview": event.data["message"][:500]}
     if event.type == "assistant_message":
         content = event.data["message"].get("content", [])
         blocks = content if isinstance(content, list) else []
@@ -324,4 +343,5 @@ def _trace_event_data(event: AgentEvent) -> dict[str, Any]:
         if "reason" in event.data:
             data["reason"] = event.data["reason"]
         return data
+    # 来自 s17：保持；命令事件只携带 ID、命令、状态、耗时与长度，沿用通用序列化即可。
     return s05._to_jsonable(event.data)

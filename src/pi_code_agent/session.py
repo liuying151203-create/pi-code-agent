@@ -1,4 +1,4 @@
-"""s15 修改：沿用 s11 会话格式，仅给工具结果消息增加独立元数据。"""
+"""s15/s18：复用有效历史，保存工具状态和独立交互命令记录。"""
 
 from __future__ import annotations
 
@@ -10,6 +10,8 @@ from pathlib import Path
 from typing import Any
 
 import pi_code_agent.observable_session as runtime
+from pi_code_agent.command_entry import CommandEntry
+from pi_code_agent.extension_entries import CustomEntry, CustomMessageEntry
 
 # 来自 s14：保持；消息、摘要和用量仍使用已有运行时类型。
 Message = runtime.Message
@@ -89,15 +91,23 @@ class MessageEntry(runtime.MessageEntry):
 
 
 # 来自 s11：保持；压缩和失败调用记录不增加扩展字段。
-type SessionEntry = MessageEntry | runtime.CompactionEntry | runtime.ModelErrorEntry
+# s18 修改：读取器通过既有运行时解析器恢复独立命令记录。
+type SessionEntry = (
+    MessageEntry
+    | runtime.CompactionEntry
+    | runtime.ModelErrorEntry
+    | CommandEntry
+    | CustomEntry
+    | CustomMessageEntry
+)
 
 
 # s15 修改：替换消息读取器以保留状态字段，追加写入仍复用 s11。
 class JsonlSessionStore(runtime.JsonlSessionStore):
     """读取含工具状态的本章会话，追加写入仍复用 s11。
 
-    输入：会话路径；输出：消息、压缩和模型失败 Entry。
-    流程：逐行解析 → 消息交给 s15 MessageEntry → 其他记录交给 s11。
+    输入：会话路径；输出：消息、压缩、模型失败及命令 Entry。
+    流程：逐行解析 → 消息使用含 details 的解析器 → 其他记录使用通用解析器。
     格式错误包含行号，不自动迁移或忽略损坏记录。
     """
 
@@ -123,14 +133,14 @@ class JsonlSessionStore(runtime.JsonlSessionStore):
         return entries
 
 
-# s15 修改：只增加工具状态的保存与恢复，投影、压缩和统计仍使用已有实现。
+# s18 修改：在 s15 工具状态保存上增加命令追加入口，投影、压缩和统计复用统一运行时。
 class SessionManager(runtime.SessionManager):
-    """增加工具状态保存和查询，复用原有上下文投影、压缩及统计。
+    """保存工具状态与交互命令，复用统一上下文投影、压缩及统计。
 
-    输入：本章 JsonlSessionStore、完整工具结果消息和对应元数据。
-    输出：追加式记录，以及某个工具最新的 details。
-    流程：循环保存结果批次 → 扩展启动时从完整日志读取最新快照。
-    边界：不从模型正文或摘要恢复状态，不改变 s11 的模型用量规则。
+    输入：存储、工具结果及元数据，或命令审计、扩展状态和扩展消息记录。
+    输出：追加式记录、模型上下文，以及某个工具最新的 details。
+    流程：执行入口保存事实 → 投影生成模型上下文，扩展从完整日志恢复状态。
+    边界：命令审计和扩展私有状态不投影为模型消息；Todo 从 details 恢复。
     """
 
     # s15 修改：打开本章解析器，build_context 继续复用 s11 的有效历史投影。
@@ -154,6 +164,24 @@ class SessionManager(runtime.SessionManager):
         base = runtime.MessageEntry.from_message(message)
         tool_details = _validate_and_copy_tool_details(base.message, tool_details)
         entry = MessageEntry(message=base.message, tool_details=tool_details)
+        self.store.append(entry)
+
+    # s18 新增：命令开始与结果均追加到同一 Session，不能仅发送易失的事件。
+    def append_command(self, entry: CommandEntry) -> None:
+        """保存一条命令执行事实，不执行 handler 或请求模型。
+
+        输入：已校验的 CommandEntry；输出：无，写入失败由 Agent 停止入口。
+        流程：检查类型 → 复用 JSONL 追加；恢复与上下文由原有读取、投影链处理。
+        """
+        if not isinstance(entry, CommandEntry):
+            raise TypeError("命令记录必须是 CommandEntry")
+        self.store.append(entry)
+
+    # s18 新增：状态和模型消息各用独立记录，正文投影仍走同一压缩与用量估算入口。
+    def append_extension_entry(self, entry: CustomEntry | CustomMessageEntry) -> None:
+        """追加已校验的扩展状态或消息；展示和触发由 Agent 决定。"""
+        if not isinstance(entry, (CustomEntry, CustomMessageEntry)):
+            raise TypeError("扩展记录必须是 CustomEntry 或 CustomMessageEntry")
         self.store.append(entry)
 
     def latest_tool_details(self, tool_name: str) -> dict[str, Any] | None:

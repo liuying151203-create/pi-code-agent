@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, replace
 from typing import Any
 
+# s18 新增：人工查询使用命令上下文通知，模型工具的状态通道保持原样。
+from pi_code_agent.commands import CommandContext
 from pi_code_agent.registry import ExtensionAPI
 from pi_code_agent.result import ToolResult
 from pi_code_agent.runtime import AgentEvent
@@ -160,12 +162,24 @@ class TodoExtension:
         done = sum(item["done"] for item in todos)
         print(f"进度  {done}/{len(todos)} 已完成", flush=True)
 
+    # s18 新增：对齐 Pi /todos，人工查看只通知，不生成模型消息。
+    def show_todos(self, args: str, ctx: CommandContext) -> None:
+        """读取当前清单并通知用户，恢复状态仍来自工具 details。
+
+        输入：空参数与命令上下文；输出：界面通知。
+        流程：拒绝参数 → 执行只读 list → 通知，不保存新的工具或模型消息。
+        """
+        if args:
+            raise ValueError("/todos 不接受参数")
+        result = self.execute({"action": "list"})
+        ctx.ui.notify(result.content)
+
 
 def register(api: ExtensionAPI) -> None:
-    """恢复清单并注册工具、进度观察者，不修改核心循环。
+    """恢复清单并注册工具、进度观察者和 /todos，不修改核心循环。
 
     输入：含会话查询能力的注册入口；输出：无。
-    流程：读取已保存快照 → 创建 TodoExtension → 注册 todo → 订阅结果事件。
+    流程：读取已保存快照 → 创建 TodoExtension → 注册工具、结果事件和查询命令。
     只读模式限制基础文件工具，Todo 更新的是会话元数据，不放宽文件写入权限。
     """
     # s15 新增：先从完整会话恢复，而不是要求模型重述历史进度。
@@ -191,5 +205,7 @@ def register(api: ExtensionAPI) -> None:
         },
     }
     api.register_tool(definition, todo.execute)
-    # s15 新增：通过已有 Event 显示一行进度，不新增任务专用事件或命令。
+    # 来自 s15：保持；通过已有 Event 显示已保存的进度，命令不制造工具事件。
     api.on("tool_result", todo.show_progress)
+    # s18 新增：命令和工具共享本次恢复的同一份 Todo 状态。
+    api.register_command("todos", todo.show_todos, description="查看当前会话的待办清单")

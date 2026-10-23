@@ -58,7 +58,9 @@ def main(arguments: Sequence[str] | None = None) -> None:
         # 来自 s16：保持；可信扩展和终端仍由入口显式注册，不自动发现。
         load_extensions(agent.extensions, options.extension)
         agent.subscribe(terminal)
-        print(f"工作区：{agent.workspace}\n会话：{agent.session.path}\n输入任务，q 退出。")
+        print(
+            f"工作区：{agent.workspace}\n会话：{agent.session.path}\n输入任务，/help 查看命令，q 退出。"
+        )
         while True:
             try:
                 prompt = input("code >> ").strip()
@@ -66,6 +68,10 @@ def main(arguments: Sequence[str] | None = None) -> None:
                 break
             if prompt.lower() in {"", "q", "exit"}:
                 break
+            # s18 新增：斜杠走命令入口，只有 handler 显式请求时才进入模型。
+            if prompt.startswith("/"):
+                agent.execute_command(prompt)
+                continue
             agent.run(prompt)
             print(agent.session.session_stats().summary_text())
     finally:

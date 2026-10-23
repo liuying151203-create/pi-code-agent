@@ -37,6 +37,27 @@ finally:
 
 `Agent.timeout_seconds` 用于请求事件展示，真实请求超时与 Provider 重试由外部客户端配置。SDK 不修改传入的客户端，不承诺统一任务截止时间。
 
+## 交互命令与扩展效果（s18）
+
+`agent.execute_command("/help")` 返回 `CommandResult(is_error=False, error=None)`。handler 的接口是 `handler(args, ctx) -> None`，通过效果 API 输出。内置 `/help`、`/stats` 和 Todo 扩展 `/todos` 默认只通知用户，审计日志不自动成为模型上下文。
+
+| 接口 | 保存与模型行为 |
+|---|---|
+| `ctx.ui.notify(text, level="info")` | 发送界面事件，不写模型消息 |
+| `api.append_entry(custom_type, data)` | 保存扩展 JSON 状态，不进入模型上下文 |
+| `api.send_message(content, custom_type="extension", display=True, details=None, trigger_turn=False)` | 保存模型可见文本；details 不发送模型，display 只控制展示 |
+| `api.send_user_message(content)` | 保存真正的用户任务并请求模型回合 |
+
+后三项也可通过 Agent 同名方法在空闲时调用。命令内的触发意图在 handler 和审计结束后兑现，进入同一个核心循环；多个触发意图合并为一次回合。普通 handler 失败不兑现回合，但已保存效果不回滚。消息占用后续 Token，通知和私有状态不占模型上下文。
+
+消息经同一投影、估算和压缩；Todo 恢复仍使用工具 details。存储失败停止入口，只有命令开始时表示完成情况未知，不自动重放。模型回合失败抛出，与已完成的命令处理状态分开。
+
+CLI 根据斜杠选择命令，SDK run 不自动解释命令。命令区分大小写，拒绝重名，args 由 handler 自行解析。扩展访问基础工具仍通过 `api.call_tool()`；命令回调本身是可信宿主代码，不自动经过工具 Hook。
+
+正文目前支持文本；忙时消息队列、完整 TUI 与多模态后续按章节落实。当前拒绝运行期间投递，不暴露无作用的 deliver_as 选项。完整教学、来源及差异见 [s18](../tutorials/s18_commands/README.md)。
+
+## 存储与组件
+
 `data_dir` 省略时使用 `workspace/.pi-code-agent`；CLI 显式传入启动目录下的 `.pi-code-agent`。恢复会话必须使用相同工作区和记录目录，并重新注册扩展及观察者。
 
 | 模块 | 职责与来源 |
@@ -48,6 +69,7 @@ finally:
 | `compaction_base`、`requests` | s07/s11 压缩计划、摘要、预算和模型请求 |
 | `events` | s11 事件分发、终端、Trace 和统计 |
 | `registry`、`hooks`、`result` | s04/s14/s15 能力注册、拦截、正文与 details |
+| `commands`、`command_entry`、`extension_entries` | s18 命令上下文、效果接口、审计、扩展状态与模型消息 |
 | `local_tools`、`sandbox_*` | 工作区实例与 A/B/C 执行后端 |
 
 ```mermaid

@@ -10,6 +10,10 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from pi_code_agent import compaction_base as s07
+
+# s18 新增：命令有独立日志格式，在同一投影边界转成模型可读事实。
+from pi_code_agent.command_entry import CommandEntry
+from pi_code_agent.extension_entries import CustomEntry, CustomMessageEntry
 from pi_code_agent.models import ModelResponse, ModelUsage
 from pi_code_agent.serialization import Message, _get
 
@@ -148,17 +152,25 @@ class ModelErrorEntry:
         }
 
 
-type SessionEntry = MessageEntry | CompactionEntry | ModelErrorEntry
+# s18 修改：完整日志包含交互命令，累计模型用量仍只统计原有调用记录。
+type SessionEntry = (
+    MessageEntry
+    | CompactionEntry
+    | ModelErrorEntry
+    | CommandEntry
+    | CustomEntry
+    | CustomMessageEntry
+)
 
 
 type AssistantSaver = Callable[[Message, ModelResponse], None]
 
 
 def _model_context_entries(entries: Sequence[SessionEntry]) -> list[SessionEntry]:
-    """过滤失败回答，并清理旧压缩尾部中的同一失败消息。
+    """投影明确发送的扩展消息、过滤失败回答，并清理旧压缩尾部。
 
     输入：完整会话 Entry；输出：仅供投影和压缩使用的记录列表，不写回日志。
-    流程：读取回答停止原因 → 记录原投影中的有效标记 → 压缩尾部匹配原投影后过滤。
+    流程：跳过审计和扩展状态 → 投影自定义消息 → 过滤失败回答 → 清理旧压缩尾部。
     边界：尾部不保存 stop_reason，因此从它对应的原消息继承标记；不按正文去重，
     避免把文字相同的正常回答误删。手工写入、无法匹配来源的尾部保持原样。
     """
@@ -166,6 +178,11 @@ def _model_context_entries(entries: Sequence[SessionEntry]) -> list[SessionEntry
     source_messages: list[Message] = []
     source_failed: list[bool] = []
     for entry in entries:
+        # s18 修改：对齐 Pi 的状态/消息分层，日志不自动等于模型上下文。
+        if isinstance(entry, (CommandEntry, CustomEntry)):
+            continue
+        if isinstance(entry, CustomMessageEntry):
+            entry = MessageEntry(message=entry.to_message(), timestamp=entry.timestamp)
         if isinstance(entry, MessageEntry):
             failed = entry.stop_reason in {"error", "aborted"}
             source_messages.append(entry.message)
@@ -255,7 +272,7 @@ def build_session_context(entries: Sequence[SessionEntry]) -> list[Message]:
 
 
 def entry_from_record(record: object) -> SessionEntry:
-    """根据类型恢复本章实际使用的三种会话 Entry。"""
+    """根据类型恢复消息、压缩、模型失败或命令记录。"""
     if not isinstance(record, dict):
         raise TypeError("会话记录必须是对象")
     if record.get("type") == "message":
@@ -264,11 +281,18 @@ def entry_from_record(record: object) -> SessionEntry:
         return CompactionEntry.from_record(record)
     if record.get("type") == "model_error":
         return ModelErrorEntry.from_record(record)
-    raise ValueError("会话记录类型必须是 message、compaction 或 model_error")
+    # s18 新增：保留命令原始状态和展示正文，投影时才转换成用户操作事实。
+    if record.get("type") == "command":
+        return CommandEntry.from_record(record)
+    if record.get("type") == "custom":
+        return CustomEntry.from_record(record)
+    if record.get("type") == "custom_message":
+        return CustomMessageEntry.from_record(record)
+    raise ValueError("未知会话记录类型")
 
 
 class JsonlSessionStore(s07.JsonlSessionStore):
-    """读取消息、压缩和失败调用，追加写入复用 s07。
+    """读取消息、压缩、模型失败及命令，追加写入复用 s07。
 
     输入：会话路径；输出：带模型元数据的完整 Entry 列表。
     流程：逐行解析 → 根据类型恢复对象 → 将格式错误连同行号报告。
@@ -276,7 +300,7 @@ class JsonlSessionStore(s07.JsonlSessionStore):
     """
 
     def read_all(self) -> list[SessionEntry]:
-        """逐行读取消息、压缩和失败调用记录。"""
+        """逐行读取消息、压缩、模型失败及命令记录。"""
         if not self.path.exists():
             return []
         entries: list[SessionEntry] = []

@@ -2,6 +2,17 @@
 
 交接日期：2026-10-22。本文记录交接时的状态，不代表已授权实施全部规划；新对话须重新检查工作区。
 
+## 2026-10-23 实施更新：s18 命令效果已修订
+
+本节记录 s18 独立阶段，下方同日修订方向和原交接快照保留作历史追溯。
+
+- `handler(args, ctx)` 通过通知、私有状态、模型消息与回合触发分别选择效果；命令审计不自动进入模型上下文。`display` 与 `trigger_turn` 独立，命令内请求的模型回合在 handler 和审计完成后执行同一个 agent_loop。
+- `/help`、`/stats`、`/todos` 默认只通知用户；Todo 仍从工具 details 恢复。CustomEntry 仅保存扩展 JSON 状态，CustomMessageEntry 仅将 content 投影给模型。初版 command 失败记录可继续读作审计，不自动重发给模型。
+- 私有状态可在运行期间追加；忙时消息投递明确拒绝。普通 handler 失败不兑现模型回合，已保存效果不回滚；模型失败与已完成的命令处理状态分开。
+- 教程 `tutorials/s18_commands/README.md`、正式 SDK、测试与接口说明已同步；Pi 参考提交 `e4c75a732`（0.85.1），MIT 声明见 `docs/third-party-notices.md`。
+- 下一章 s19 实现扩展启动参数、CLI 两阶段解析、一次运行时绑定与初始化；之后 s20 接入根 AGENTS.md，s21 统一 Skills 来源，s22 接入提示词模板。
+- s18 独立导出快照实际全量离线验证为 `625 passed, 6 skipped`，使用全新 `.sessions/p18-a2c736aa` 与 `-p no:cacheprovider`；没有安装依赖、请求真实模型或运行真实 Docker。
+
 ## 2026-10-23 续接更新：Pi 优先与 s18 修订方向
 
 本节记录原交接后的新增事实和用户最新要求；与下方 2026-10-22 快照冲突时，以本节及当前 AGENTS.md 为准。
