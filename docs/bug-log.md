@@ -331,3 +331,11 @@ if (Test-Path -LiteralPath $pytestRunDir) { throw "测试目录必须是全新�
 - 原因：旧技能扫描隐含使用 `Path.cwd()`，调用方传入已选技能路径却无法提供对应工作区。
 - 修复边界：扫描增加可选 `workspace` 参数，省略时保留原 CWD 边界；s16/s17 入口显式传入已选工作区，扫描仍拒绝越界根目录及越界清单，不切换进程目录、不添加多来源资源加载。
 - 回归：`test_skill_scan_explicit_workspace_keeps_its_boundary` 检查合法清单与越界拒绝；`test_tutorial_can_start_for_another_workspace` 验证 s16/s17 外部工作区启动；s17 实际限轮用例覆盖同一跨工作区场景。
+
+## B039：扩展初始化被中断后，后续任务跳过剩余启动流程
+
+- 状态：2026-10-23，s19 开发态第二轮边界审计发现并修复，未交付。
+- 复现证据：`test_interrupted_startup_cannot_skip_remaining_initialization` 在 session_start 观察者中抛 KeyboardInterrupt；修复前正式 Agent 和 s19 教程均实际出现 `DID NOT RAISE RuntimeError`，下一次 run 仍执行模型任务。
+- 原因：已设置初始化标记，但仅捕获 Exception；KeyboardInterrupt 跳过关闭逻辑。再次初始化直接返回，使部分恢复/配置观察者永远未完成。
+- 修复边界：启动观察者的任何 BaseException 都关闭实例并原样抛出，运行标记在 finally 释放。完成初始化后的显式模型回合按任务错误传播；重建实例后重新执行启动，不自动重放工具或命令。
+- 回归：正式 SDK 与 s19 教程覆盖初始化中断、关闭入口和用户任务尚未保存；其余用例覆盖一次声明、参数应用后启动、状态恢复及正常模型回合。全部为离线替身，不涉及真实服务。

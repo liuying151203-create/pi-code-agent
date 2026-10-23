@@ -56,6 +56,18 @@ CLI 根据斜杠选择命令，SDK run 不自动解释命令。命令区分大�
 
 正文目前支持文本；忙时消息队列、完整 TUI 与多模态后续按章节落实。当前拒绝运行期间投递，不暴露无作用的 deliver_as 选项。完整教学、来源及差异见 [s18](../tutorials/s18_commands/README.md)。
 
+## 扩展启动参数与初始化（s19）
+
+扩展通过 `api.register_flag(name, type="boolean" 或 "string", description="说明", default=...)` 声明参数，通过 `api.get_flag(name)` 读取最终值。Agent/create_agent 增加 `extensions=`（预加载的未绑定 ExtensionAPI）和 `flag_values=`（SDK 显式映射）。默认构造仍可先创建 Agent，再 register_extension；首次任务前会校验全部参数。
+
+CLI 先定位模块、加载声明一次、加入 argparse 并完整解析，然后才读取配置和创建 Provider/Session。帮助包含扩展选项；未知、缺失值和名称冲突提前失败。声明阶段禁止读取会话、执行基础工具或发送消息，绑定后的 session_start 才进行状态恢复和读取最终配置。
+
+`agent.initialize_extensions()` 校验并固定参数、发送一次 session_start，不请求模型。CLI 显式调用；SDK 的首次 run、execute_command 或主动模型消息会自动调用。初始化异常或中断关闭实例；初始化回调可恢复状态并选择状态/消息效果；显式请求的回合在全部观察者完成后执行，回调中禁止重入 run。已绑定容器不能交给第二个 Agent。
+
+Todo 实际消费 `todo-heading`（字符串，默认“任务”）与 `todo-progress`（布尔，默认 True）。CLI 使用 `--todo-heading 学习清单 --no-todo-progress`；SDK 在构造时传 `flag_values={"todo-heading": "学习清单", "todo-progress": False}`，再注册 Todo 扩展。修改展示不改变 Todo 状态、模型工具正文或基础权限。
+
+声明期间读到的只是默认值或先前显式值，CLI 覆盖在加载结束后应用，扩展应在运行回调中读取。未知 SDK 名称在初始化前拒绝；注入预加载容器时可在创建会话前验证。参数固定后不支持新增声明或修改值；热重载在后续生命周期章节落实。完整接线和差异见 [s19](../tutorials/s19_extension_flags/README.md)。
+
 ## 存储与组件
 
 `data_dir` 省略时使用 `workspace/.pi-code-agent`；CLI 显式传入启动目录下的 `.pi-code-agent`。恢复会话必须使用相同工作区和记录目录，并重新注册扩展及观察者。
@@ -70,6 +82,7 @@ CLI 根据斜杠选择命令，SDK run 不自动解释命令。命令区分大�
 | `events` | s11 事件分发、终端、Trace 和统计 |
 | `registry`、`hooks`、`result` | s04/s14/s15 能力注册、拦截、正文与 details |
 | `commands`、`command_entry`、`extension_entries` | s18 命令上下文、效果接口、审计、扩展状态与模型消息 |
+| `flags`、`registry` | s19 扩展参数声明、CLI/SDK 取值与一次运行时绑定 |
 | `local_tools`、`sandbox_*` | 工作区实例与 A/B/C 执行后端 |
 
 ```mermaid

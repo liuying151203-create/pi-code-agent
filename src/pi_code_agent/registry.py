@@ -1,14 +1,16 @@
-"""s15/s18：工具状态恢复、命令注册与显式效果转发。"""
+"""s15/s18/s19：能力声明、状态查询、命令效果与启动参数运行时绑定。"""
 
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Any
+from copy import deepcopy
+from typing import Any, Literal
 
 import pi_code_agent.extension_base as previous
 
-# s18 新增：命令单独注册，效果通过已绑定的 Agent 执行。
+# s18 新增：命令与模型工具分别注册，共享当前 Agent 的命令表。
 from pi_code_agent.commands import CommandHandler, CommandRegistry, ExtensionActions
+from pi_code_agent.flags import FlagRegistry
 from pi_code_agent.hooks import BeforeToolHook
 from pi_code_agent.result import DispatchTool, ToolResult
 from pi_code_agent.session import SessionManager
@@ -19,40 +21,107 @@ type ExtensionHandler = Callable[[dict[str, Any]], str | ToolResult]
 load_extensions = previous.load_extensions
 
 
-# s18 修改：沿用工具状态查询，增加命令表及效果转发，不改变工具分发。
+# s18 修改：在 s15 状态恢复与结果分发上增加共享命令表，工具注册继续复用 s14。
 class ExtensionAPI(previous.ExtensionAPI):
-    """在 s14 注册入口上增加状态恢复、交互命令和显式效果。
+    """在已有注册入口上增加结构化工具结果、状态查询和交互命令。
 
-    输入：基础工具、后端、权限 Hook、当前会话，以及可选命令表和运行时动作。
-    输出：工具目录、Hooks、事件和命令注册入口，以及带 details 的工具分发结果。
-    流程：main 打开会话 → register 查询旧状态 → 注册工具 → 循环执行并保存新结果。
+    输入：可选基础工具、后端、权限 Hook、会话和运行动作；省略时用于声明。
+    输出：工具目录、Hooks、事件和命令注册入口，及带 details 的工具分发结果。
+    流程：register 声明能力 → 应用参数 → Agent 绑定依赖 → session_start 恢复状态 → 执行。
     边界：扩展仍是可信宿主代码；权限、注册校验和事件订阅直接复用 s14。
     """
 
     def __init__(
         self,
         *,
+        base_tools: list[dict[str, Any]] | None = None,
+        base_dispatch: DispatchTool | None = None,
+        permission_hook: BeforeToolHook | None = None,
+        session: SessionManager | None = None,
+        commands: CommandRegistry | None = None,
+        actions: ExtensionActions | None = None,
+    ) -> None:
+        """保存会话与命令表，不在注册入口缓存或解释 Todo 状态。
+
+        输入：可省略的工具依赖、会话和动作；输出：声明容器或已绑定注册层。
+        流程：校验成组依赖 → 初始化能力表 → 创建参数表 → 后续 bind_runtime 绑定真实组件。
+        """
+        # s19 修改：声明期不需要 Provider/Session；运行能力稍后绑定，扩展模块只执行一次。
+        supplied = (
+            base_tools is not None,
+            base_dispatch is not None,
+            permission_hook is not None,
+            session is not None,
+        )
+        if any(supplied) and not all(supplied):
+            raise ValueError("基础工具、分发、权限和会话必须同时提供")
+        super().__init__(
+            base_tools=base_tools if base_tools is not None else [],
+            base_dispatch=base_dispatch,
+            permission_hook=permission_hook,
+        )
+        # s15 新增：会话是扩展恢复所需依赖，不通过全局变量或模型消息传入。
+        self._session = session
+        self.is_bound = all(supplied)
+        self.flags = FlagRegistry()
+        # s18 新增：Agent 显式注入；旧组装调用省略时创建独立表，保留 s15–s17 接口。
+        self.commands = commands if commands is not None else CommandRegistry()
+        # s18 新增：Pi runtime actions 的同步注入，旧教程仅注册工具时无需运行时动作。
+        self.actions = actions
+
+    # ===== s19 新增：声明完成后绑定真实会话与后端，保留已经注册的能力 =====
+    @property
+    def session(self) -> SessionManager:
+        """声明期拒绝读取会话，启动后提供当前会话供扩展恢复状态。"""
+        if self._session is None:
+            raise RuntimeError("扩展运行时尚未绑定；会话恢复应在 session_start 中进行")
+        return self._session
+
+    def bind_runtime(
+        self,
+        *,
         base_tools: list[dict[str, Any]],
         base_dispatch: DispatchTool,
         permission_hook: BeforeToolHook,
         session: SessionManager,
-        # s18 新增：共享命令注册和效果接口，旧章节只使用工具时可省略。
-        commands: CommandRegistry | None = None,
-        actions: ExtensionActions | None = None,
+        actions: ExtensionActions,
     ) -> None:
-        """保存会话、命令表与动作，不在注册入口解释 Todo 状态或运行模型。
+        """把一次性加载的扩展声明绑定到当前 Agent，不再次执行 register。
 
-        输入：工具依赖、会话，以及可选命令表和动作；输出：独立注册层。
-        流程：复用 s14 初始化 → 保存会话 → 保存命令表和效果转发依赖。
+        输入：实际基础工具、权限、会话和动作；输出：无。
+        流程：拒绝重复绑定 → 合并真实基础目录与扩展工具 → 保存运行依赖。
+        边界：Hook、handler、事件和参数声明保持不变，不复用另一实例的已绑定容器。
         """
-        super().__init__(
-            base_tools=base_tools, base_dispatch=base_dispatch, permission_hook=permission_hook
-        )
-        # s15 新增：会话是扩展恢复所需依赖，不通过全局变量或模型消息传入。
-        self.session = session
-        # s18 新增：与 Agent 共享命令表和动作，不在注册层重复调度模型。
-        self.commands = commands if commands is not None else CommandRegistry()
+        if self.is_bound:
+            raise ValueError("扩展容器已经绑定，不能复用于另一个 Agent")
+        self.tools = deepcopy(base_tools) + self.tools
+        self.base_names = {tool["name"] for tool in base_tools}
+        self.base_dispatch = base_dispatch
+        self.permission_hook = permission_hook
+        self._session = session
         self.actions = actions
+        self.is_bound = True
+
+    def register_flag(
+        self,
+        name: str,
+        *,
+        type: Literal["boolean", "string"],
+        description: str,
+        default: bool | str | None = None,
+    ) -> None:
+        """对齐 Pi registerFlag，声明类型、帮助和默认值，不读取命令行。"""
+        self.flags.register(name, type=type, description=description, default=default)
+
+    def get_flag(self, name: str) -> bool | str | None:
+        """对齐 Pi getFlag，启动解析后返回覆盖值，声明期只有默认值或 SDK 显式值。"""
+        return self.flags.get(name)
+
+    def call_tool(self, name: str, arguments: dict[str, Any]) -> str:
+        """声明期拒绝工具执行；运行时继续复用真实基础工具权限入口。"""
+        if not self.is_bound:
+            raise RuntimeError("扩展运行时尚未绑定，不能执行工具")
+        return super().call_tool(name, arguments)
 
     # s18 新增：参考 Pi 的扩展命令注册，本章不注入 UI、会话切换或异步上下文。
     def register_command(self, name: str, handler: CommandHandler, *, description: str) -> None:

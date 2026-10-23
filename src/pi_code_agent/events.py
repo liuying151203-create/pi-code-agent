@@ -38,6 +38,8 @@ type AgentEventType = Literal[
     "command_end",
     "notification",
     "custom_message",
+    # s19 新增：参数应用后初始化扩展，事件只发送一次，不计模型用量。
+    "session_start",
 ]
 
 
@@ -307,6 +309,8 @@ def new_trace_path(trace_root: Path = TRACE_ROOT) -> Path:
 
 def _trace_event_data(event: AgentEvent) -> dict[str, Any]:
     """生成适合长期保存的紧凑事件数据。"""
+    if event.type == "session_start":
+        return {"session_path": event.data["session_path"]}
     # s18 新增：完整消息保存在 Session，通知预览有界，不在 Trace 复制长正文。
     if event.type == "custom_message":
         return {

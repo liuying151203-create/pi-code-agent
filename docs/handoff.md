@@ -2,16 +2,20 @@
 
 交接日期：2026-10-22。本文记录交接时的状态，不代表已授权实施全部规划；新对话须重新检查工作区。
 
-## 2026-10-23 实施更新：s18 命令效果已修订
+## 2026-10-23 实施更新：s18 修订与 s19 已完成
 
-本节记录 s18 独立阶段，下方同日修订方向和原交接快照保留作历史追溯。
+本节是最新实施状态，下方同日修订方向和 2026-10-22 快照保留作历史追溯。仍须检查实际 Git 与源码。
 
-- `handler(args, ctx)` 通过通知、私有状态、模型消息与回合触发分别选择效果；命令审计不自动进入模型上下文。`display` 与 `trigger_turn` 独立，命令内请求的模型回合在 handler 和审计完成后执行同一个 agent_loop。
-- `/help`、`/stats`、`/todos` 默认只通知用户；Todo 仍从工具 details 恢复。CustomEntry 仅保存扩展 JSON 状态，CustomMessageEntry 仅将 content 投影给模型。初版 command 失败记录可继续读作审计，不自动重发给模型。
-- 私有状态可在运行期间追加；忙时消息投递明确拒绝。普通 handler 失败不兑现模型回合，已保存效果不回滚；模型失败与已完成的命令处理状态分开。
-- 教程 `tutorials/s18_commands/README.md`、正式 SDK、测试与接口说明已同步；Pi 参考提交 `e4c75a732`（0.85.1），MIT 声明见 `docs/third-party-notices.md`。
-- 下一章 s19 实现扩展启动参数、CLI 两阶段解析、一次运行时绑定与初始化；之后 s20 接入根 AGENTS.md，s21 统一 Skills 来源，s22 接入提示词模板。
-- s18 独立导出快照实际全量离线验证为 `625 passed, 6 skipped`，使用全新 `.sessions/p18-a2c736aa` 与 `-p no:cacheprovider`；没有安装依赖、请求真实模型或运行真实 Docker。
+- 当前 Git 基线为 `5f4416c`（Pi 对齐与教学原则），本轮 s18/s19 运行时、教程、测试和文档尚未提交；没有安装依赖或创建环境，复用 `..\zero2pi\.venv\Scripts\python.exe` 进行离线验证。
+- s18：`handler(args, ctx)`，`ctx.ui.notify`、`append_entry`、`send_message`、`send_user_message` 分别控制通知、私有状态、模型消息和回合触发。CommandResult 只表示命令处理状态，CommandEntry 只审计，不自动进入模型上下文。`display` 与 `trigger_turn` 独立；命令内触发在 handler 和审计完成后执行同一个 agent_loop。
+- `/help`、`/stats`、`/todos` 默认只通知用户。CustomEntry 保存 JSON 状态；CustomMessageEntry 仅投影 content，details 不发送模型。私有状态可在运行期间追加；模型忙时的消息投递仍明确拒绝，队列机制尚未实现。初版 command 失败记录仍可读作审计，不自动重发给模型。
+- s19：FlagRegistry 提供 boolean/string 声明、默认值、覆盖和帮助；ExtensionAPI 可先无运行时声明，再 bind_runtime 一次。CLI 两遍解析但扩展 register 只执行一次，错误参数和扩展帮助在创建 Provider/Session 前处理。SDK 使用 `extensions=` 与 `flag_values=`；默认构造后注册的未知参数在首条任务保存前拒绝。
+- `initialize_extensions` 校验并固定参数，发送一次 session_start，完成真实会话恢复。启动回调允许保存状态及发送消息，显式请求的模型回合在全部启动观察者完成后统一执行。初始化观察者异常或中断会关闭实例；完成初始化后的模型回合错误按任务失败传播，不重放初始化。
+- Todo 的 `todo-heading`（string，默认“任务”）实际改变 `/todos` 标题；`todo-progress`（boolean，默认 True）实际控制已保存进度通知。CLI 用 `--todo-heading 学习清单 --no-todo-progress`；SDK 传同名 flag_values。状态仍从工具 details 恢复，展示配置使用本次启动值。
+- 已修复并记录 B039：session_start 中断后不能让后续任务跳过未完成的初始化。回归修复前正式 SDK 与 s19 教程均实际失败为 DID NOT RAISE，修复后通过。
+- 实际全量离线验证：`656 passed, 6 skipped`，使用全新 `.sessions/p19-ec007944` 及 `-p no:cacheprovider`。Ruff 检查、20 个变更文件的格式检查、两个实际入口的扩展帮助、相对链接、s19 与正式 Agent/工厂的结构核对及 Git 差异检查均通过。没有请求真实模型、运行真实 Docker 或构建 wheel。
+- 教程入口：`tutorials/s18_commands/README.md`、`tutorials/s19_extension_flags/README.md`；SDK 说明 `docs/sdk.md`；Pi 来源与 MIT 声明在 `docs/third-party-notices.md`。下一章 s20 接入根 AGENTS.md，后续 s21 统一 Skills 来源、s22 提示词模板。
+- 保留差异：同步 handler、文本消息、简单通知、共享参数命名；重名和选项冲突明确拒绝，boolean 增加反向关闭开关。异步 handler、忙时 Steer/Follow-up、完整 TUI、多模态、会话控制和热重载按后续对应章节落实，编号待定，不提前加入空接口。
 
 ## 2026-10-23 续接更新：Pi 优先与 s18 修订方向
 
