@@ -315,3 +315,19 @@ if (Test-Path -LiteralPath $pytestRunDir) { throw "测试目录必须是全新�
 - 原因：章节目录以前既是教程又承担运行时模块；仅复制文件、改包名不足以建立安装边界。
 - 修复边界：正式包不导入 tutorials/sXX/zero2pi；业务包调用底座同一循环；可信 Worker 从正式包取资源。教程保留自己的阶段循环，不把修复伪装成新的模型能力。
 - 回归：两项目独立工作目录下的离线测试、公开 SDK 测试、AST 依赖边界检查、真实基础工具组件评测。未运行真实 Docker/API；未安装缺失的 setuptools/wheel，wheel 构建尚未实测。
+
+## B037：CLI 声明运行保护，却没有把参数传入 SDK
+
+- 状态：2026-10-23，s17 配置收口时复现；关联 B010 的显式限轮保护，不能用环境变量声明代替运行时接线。
+- 复现证据：对提交 c9c459c 的 CLI 使用离线模型/Agent 替身，设置 `AGENT_MAX_ROUNDS=1` 和合法窗口，捕获 `create_agent` 关键字参数，`max_rounds` 为 `<missing>`。源码也确认该字段从未读取；SDK 最终采用 `None`，不会启用限轮。
+- 原因：配置解析散落在入口和模型工厂，缺少统一值对象及入口实际行为验证；部分非法 SDK 额度直到保存用户任务、进入循环后才发现。
+- 修复边界：s17 增加环境快照、ModelConfig/RunConfig 与创建资源前的校验；CLI 显式传入轮数、回答额度和已有压缩配置。旧工厂参数方式及 runtime 导出保留；配置文件位置固定为启动目录，进程环境优先且不被改写。不引入 Harness 自动重试、工具重放或任务总预算。
+- 回归：`test_cli_reads_startup_file_and_enforces_limit` 同时运行正式 CLI 与 s17 教程，验证只请求一次、真实文件结果已保存、输出额度生效；非法配置不创建客户端或记录。模型 SDK 请求的认证、地址与超时使用内存 HTTP 传输核对，未访问真实服务。
+
+## B038：SDK 教程选择外部工作区时，技能扫描仍绑定启动目录
+
+- 状态：2026-10-23，s17 跨工作区入口回归中定位，补修 s16 同一接线问题。
+- 复现证据：启动目录为临时 `host`，`--workspace` 为并列的 `target`，`SkillCatalog.scan(target/skills)` 即使目录不存在，也在进入 Agent 前报“技能目录必须位于工作区内”；s16 选择工作区、LocalTools 的实例边界与扫描器 CWD 边界不一致。
+- 原因：旧技能扫描隐含使用 `Path.cwd()`，调用方传入已选技能路径却无法提供对应工作区。
+- 修复边界：扫描增加可选 `workspace` 参数，省略时保留原 CWD 边界；s16/s17 入口显式传入已选工作区，扫描仍拒绝越界根目录及越界清单，不切换进程目录、不添加多来源资源加载。
+- 回归：`test_skill_scan_explicit_workspace_keeps_its_boundary` 检查合法清单与越界拒绝；`test_tutorial_can_start_for_another_workspace` 验证 s16/s17 外部工作区启动；s17 实际限轮用例覆盖同一跨工作区场景。

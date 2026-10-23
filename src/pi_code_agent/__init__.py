@@ -1,6 +1,9 @@
 """受 Pi 启发、使用 Python 独立实现的 Agent 与 Harness；非官方项目。"""
 
 from pi_code_agent.agent import Agent, create_agent
+
+# s17 新增：SDK 调用方可以直接构造配置，不必经由进程环境。
+from pi_code_agent.config import ModelConfig, RunConfig
 from pi_code_agent.events import AgentEvent, EventDispatcher
 from pi_code_agent.hooks import Hooks
 from pi_code_agent.loop import agent_loop
@@ -16,9 +19,11 @@ __all__ = [
     "EventDispatcher",
     "ExtensionAPI",
     "Hooks",
+    "ModelConfig",
     "ModelProvider",
     "ModelResponse",
     "ModelUsage",
+    "RunConfig",
     "SessionManager",
     "ToolResult",
     "agent_loop",

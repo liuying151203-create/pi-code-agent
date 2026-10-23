@@ -12,6 +12,9 @@ from anthropic import Anthropic
 
 from pi_code_agent import serialization as s05
 
+# s17 新增：模型参数由配置边界解析和校验，协议适配器继续保持原有职责。
+from pi_code_agent.config import ModelConfig, model_config_from_env
+
 Message = s05.Message
 
 
@@ -427,56 +430,56 @@ def summary_request_options(provider: ModelProvider) -> dict[str, Any]:
 
 def create_model_provider(
     *,
-    timeout_seconds: float,
-    max_retries: int,
+    config: ModelConfig | None = None,
+    timeout_seconds: float | None = None,
+    max_retries: int | None = None,
 ) -> ModelProvider:
-    """根据环境变量创建当前章节使用的模型 Provider。
+    """从显式配置创建模型 Provider，或适配原有环境调用方式。
 
-    作用：把 Provider 选择和 SDK 客户端构造集中在程序入口边界。
-    输入：统一超时时间、重试次数，以及 `.env` 中的 Provider、模型和密钥配置。
-    输出：`AnthropicProvider` 或 `OpenAIChatProvider`。
-    流程：读取 MODEL_PROVIDER → 校验 MODEL_ID → 创建对应客户端 → 返回 Provider。
+    输入：ModelConfig；旧调用可提供 timeout_seconds/max_retries 并读取进程环境。
+    输出：内置 Provider；构造客户端但不请求模型。
+    流程：拒绝混用 → 兼容入口生成配置 → 显式传入已校验字段 → 返回适配器。
+    边界：不读取 .env；高级认证与客户端配置仍可由调用方自行组装 Provider。
     """
-    provider_name = os.getenv("MODEL_PROVIDER", "anthropic").strip().lower()
-    model = os.getenv("MODEL_ID", "").strip()
-    if not model:
-        raise RuntimeError("请先在 .env 中设置 MODEL_ID。")
+    # s17 修改：保留原参数调用，但配置对象与旧参数不能各自提供一半配置。
+    if config is not None:
+        if not isinstance(config, ModelConfig):
+            raise TypeError("config 必须是 ModelConfig")
+        if timeout_seconds is not None or max_retries is not None:
+            raise TypeError("config 不能与 timeout_seconds/max_retries 混用")
+    else:
+        values = dict(os.environ)
+        if timeout_seconds is not None:
+            values["MODEL_TIMEOUT_SECONDS"] = str(timeout_seconds)
+        if max_retries is not None:
+            values["MODEL_MAX_RETRIES"] = str(max_retries)
+        config = model_config_from_env(values)
 
-    if provider_name == "anthropic":
-        client_options: dict[str, Any] = {
-            "timeout": timeout_seconds,
-            "max_retries": max_retries,
-        }
-        if api_key := os.getenv("ANTHROPIC_API_KEY"):
-            client_options["api_key"] = api_key
-        if base_url := os.getenv("ANTHROPIC_BASE_URL"):
-            client_options["base_url"] = base_url
-        return AnthropicProvider(Anthropic(**client_options), model)
+    # s17 修改：显式填入认证和默认地址，防止客户端再次用冲突环境覆盖这些配置字段。
+    if config.provider == "anthropic":
+        client = Anthropic(
+            api_key=config.api_key or "",
+            auth_token=config.auth_token or "",
+            base_url=config.base_url or "https://api.anthropic.com",
+            timeout=config.timeout_seconds,
+            max_retries=config.max_retries,
+        )
+        return AnthropicProvider(client, config.model)
 
-    if provider_name == "openai-compatible":
-        # s10 新增：延迟导入可让 Anthropic 用户在未安装可选 SDK 时仍得到清晰错误。
-        try:
-            from openai import OpenAI
-        except ImportError as error:
-            raise RuntimeError(
-                "使用 openai-compatible Provider 前请按 README 安装项目依赖。"
-            ) from error
-
-        api_key = os.getenv("MODEL_API_KEY") or os.getenv("OPENAI_API_KEY")
-        if not api_key:
-            raise RuntimeError("openai-compatible Provider 需要 MODEL_API_KEY。")
-        client_options = {
-            "api_key": api_key,
-            "timeout": timeout_seconds,
-            "max_retries": max_retries,
-        }
-        if base_url := os.getenv("MODEL_BASE_URL") or os.getenv("OPENAI_BASE_URL"):
-            client_options["base_url"] = base_url
-        return OpenAIChatProvider(OpenAI(**client_options), model)
-
-    raise RuntimeError(
-        f"MODEL_PROVIDER 仅支持 anthropic 或 openai-compatible，当前值：{provider_name}"
+    # 来自 s10：保持；兼容接口仍延迟导入 OpenAI，不改变请求与响应归一化。
+    try:
+        from openai import OpenAI
+    except ImportError as error:
+        raise RuntimeError(
+            "使用 openai-compatible Provider 前请按 README 安装项目依赖。"
+        ) from error
+    client = OpenAI(
+        api_key=config.api_key,
+        base_url=config.base_url or "https://api.openai.com/v1",
+        timeout=config.timeout_seconds,
+        max_retries=config.max_retries,
     )
+    return OpenAIChatProvider(client, config.model)
 
 
 def _get(value: Any, name: str) -> Any:

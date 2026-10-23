@@ -4,16 +4,21 @@
 
 ```python
 from pathlib import Path
-from pi_code_agent import create_agent
+from pi_code_agent import ModelConfig, RunConfig, create_agent
 from pi_code_agent.models import create_model_provider
 from pi_code_agent.extensions.todo import register
 
-provider = create_model_provider(timeout_seconds=60, max_retries=0)
+model_config = ModelConfig(model="your-model", api_key=application_key)
+run_config = RunConfig(max_rounds=4, max_tokens=2000)
+provider = create_model_provider(config=model_config)
 agent = create_agent(
     provider=provider,
     workspace=Path("D:/dev/my-app"),
     data_dir=Path("D:/dev/agent-records"),
     mode="read-only",
+    timeout_seconds=model_config.timeout_seconds,
+    max_rounds=run_config.max_rounds,
+    max_tokens=run_config.max_tokens,
 )
 agent.register_extension(register)
 try:
@@ -22,7 +27,9 @@ finally:
     agent.close()
 ```
 
-应用先加载自己的模型配置；SDK 不自动读取 `.env`。示例中的 `create_model_provider` 读取进程环境，显式 Provider 配置将在 s17 补齐；注入已有 Provider 的 `create_agent` 不读取模型环境。
+示例中的 `application_key` 由应用提供。SDK 不自动读取 `.env`；`create_model_provider(config=...)` 显式消费模型、认证、地址、超时和重试配置，也可由调用方自建 Provider。`RunConfig` 供入口逐项展开，不是第二套 Agent 工厂接口。配置来源与校验见 [s17](../tutorials/s17_configuration/README.md)。
+
+环境配置可使用 `config` 模块的 `load_environment(明确路径, environ=映射)`、`model_config_from_env()` 和 `run_config_from_env()`，不修改进程环境。旧模型工厂的 `timeout_seconds=... / max_retries=...` 调用方式保留，读取进程环境并经过同样校验，不能与 `config=` 混用。旧 `runtime` 导出保持可用。
 
 `create_agent` 显式列出与 `Agent` 相同的关键字参数，构造时打开会话但不调用模型。传入 `compaction_policy=CompactionPolicy(实际窗口)` 才启用自动压缩；CLI 按必填环境配置启用。SDK 摘要额度默认 4096，CLI 默认预留额度的 80%；本阶段保留现有规则。
 
@@ -35,7 +42,8 @@ finally:
 | 模块 | 职责与来源 |
 |---|---|
 | `agent`、`loop` | s16 SDK 组装与明确参数；保留 s15 状态保存及拆分前已有失败状态保护 |
-| `models` | s10 Provider 协议与响应归一化 |
+| `config` | s17 显式模型与运行配置、环境快照及校验 |
+| `models` | s10 Provider 协议与响应归一化；s17 显式配置及旧调用适配 |
 | `session`、`observable_session` | s11/s15 有效历史、用量、扩展状态 |
 | `compaction_base`、`requests` | s07/s11 压缩计划、摘要、预算和模型请求 |
 | `events` | s11 事件分发、终端、Trace 和统计 |

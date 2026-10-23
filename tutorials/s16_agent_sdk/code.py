@@ -485,7 +485,8 @@ def main(arguments: Sequence[str] | None = None) -> None:
 
     # s16 修改：基础路径绑定实例；已有技能扫描由调用方显式作用于所选工作区。
     workspace = options.workspace.resolve(strict=True)
-    skill_catalog = SkillCatalog.scan(workspace / "skills")
+    # s16 修复：已选工作区显式传给扫描器，避免与启动目录不一致时拒绝合法技能目录。
+    skill_catalog = SkillCatalog.scan(workspace / "skills", workspace=workspace)
     system_prompt = build_system_prompt(SYSTEM, skill_catalog)
     # 来自 s15：保持；沿用模型窗口、预留、近期预算及摘要额度，不新增配置格式。
     policy = CompactionPolicy(

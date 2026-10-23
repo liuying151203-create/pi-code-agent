@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from pi_code_agent.compaction_base import CompactionPolicy
+from pi_code_agent.config import RunConfig, validate_timeout
 from pi_code_agent.events import (
     EventDispatcher,
     EventSink,
@@ -74,6 +75,14 @@ class Agent:
         自定义后端须同时提供 tools/dispatch/permission_hook，避免只换工具目录却遗漏门禁。
         data_dir 是显式宿主记录目录；外部产品不必写入底座安装位置。
         """
+        # s17 新增：显式 SDK 参数也先统一校验，避免非法额度在保存任务后才被发现。
+        run_config = RunConfig(
+            max_rounds=max_rounds,
+            max_tokens=max_tokens,
+            compaction_policy=compaction_policy,
+            summary_max_tokens=summary_max_tokens,
+        )
+        validate_timeout(timeout_seconds)
         self.workspace = Path(workspace).resolve(strict=True)
         if not self.workspace.is_dir() or self.workspace == Path(self.workspace.anchor):
             raise ValueError("工作区必须是已有项目目录，不能是磁盘根目录")
@@ -117,22 +126,24 @@ class Agent:
 
         assistant_request = StreamingModelRequester(provider, timeout_seconds, self.events.emit)
         self.requester = assistant_request
-        if compaction_policy is not None:
+        # s17 修改：请求链只使用已统一校验的压缩策略和摘要额度。
+        if run_config.compaction_policy is not None:
             summary_request = BlockingModelRequester(provider, timeout_seconds, self.events.emit)
             summarizer = ContextSummarizer(
                 create_message=summary_request,
                 session=self.session,
-                max_tokens=summary_max_tokens,
+                max_tokens=run_config.summary_max_tokens,
                 emit=self.events.emit,
                 request_options=summary_request_options(provider),
             )
-            compactor = ContextCompactor(self.session, compaction_policy, summarizer)
+            compactor = ContextCompactor(self.session, run_config.compaction_policy, summarizer)
             self.requester = CompactedContextRequester(
                 assistant_request, self.session, compactor, self.events.emit
             )
         self.system = system
-        self.max_tokens = max_tokens
-        self.max_rounds = max_rounds
+        # s17 修改：使用统一校验后的额度，循环及其计数语义保持 s16 行为。
+        self.max_tokens = run_config.max_tokens
+        self.max_rounds = run_config.max_rounds
         self._running = False
         self._closed = False
 

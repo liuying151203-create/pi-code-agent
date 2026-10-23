@@ -62,15 +62,16 @@ class SkillCatalog:
     skills: tuple[Skill, ...]
 
     @classmethod
-    def scan(cls, root: Path) -> SkillCatalog:
+    # s17 修复：SDK 工作区可独立于启动目录；仅增加明确边界参数，不放宽扫描范围。
+    def scan(cls, root: Path, *, workspace: Path | None = None) -> SkillCatalog:
         """扫描项目内技能头部，并拒绝无效目录项。
 
-        输入：技能根目录，相对路径按当前工作目录解析。
+        输入：技能根目录、可选工作区；未提供工作区时保持当前工作目录边界。
         输出：只包含 name、description、path 的 SkillCatalog。
         流程：按路径排序发现 SKILL.md → 校验工作区边界与必需字段 → 返回目录。
         """
         skills_root = root.resolve()
-        workspace = Path.cwd().resolve()
+        workspace = (Path.cwd() if workspace is None else workspace).resolve()
         if not skills_root.is_relative_to(workspace):
             raise ValueError("技能目录必须位于工作区内，才能使用 read_file 加载")
         if not skills_root.exists():
