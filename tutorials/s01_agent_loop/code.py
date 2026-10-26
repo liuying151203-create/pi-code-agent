@@ -30,7 +30,8 @@ from pi_code_agent.ui import (
 
 Message = dict[str, Any]
 CreateMessage = Callable[..., Any]
-ExecuteTool = Callable[[str], str]
+# s01 修改：从第一章就用工具名与参数对象作为执行契约，与正式 SDK 一致。
+DispatchTool = Callable[[str, dict[str, Any]], str]
 
 # ===== s01 新增：全局系统提示词 =====
 
@@ -76,13 +77,22 @@ def run_bash(command: str, *, cwd: str | None = None) -> str:
     except OSError as error:
         return f"Error: {error}"
 
-    output = (result.stdout + result.stderr).strip()
-    return output or "(no output)"
+    output = (result.stdout + result.stderr).strip() or "(no output)"
+    # s01 修改：参考 Pi bash，非零退出码必须作为工具失败报告。
+    if result.returncode:
+        return f"Error: command exited with code {result.returncode}\n{output}"
+    return output
 
 
 # s01 新增：终端 bash 工具提到顶层，避免 main() 同时承载工具实现。
-def execute_bash(command: str) -> str:
-    """显示并执行一条 bash 工具调用。"""
+def execute_bash(name: str, arguments: dict[str, Any]) -> str:
+    """接收工具名与参数，显示并执行本章唯一的 bash；返回结果文本。"""
+    # s01 修改：名称由循环核对；实际参数在执行前检查，避免错误参数启动子进程。
+    if name != "bash":
+        raise ValueError(f"unknown tool: {name}")
+    if set(arguments) != {"command"} or not isinstance(arguments["command"], str):
+        raise ValueError("bash 需要字符串 command")
+    command = arguments["command"]
     print(format_tool_call("bash", {"command": command}), flush=True)
     output = run_bash(command)
     print(format_tool_result(output), flush=True)
@@ -107,7 +117,7 @@ def agent_loop(
     messages: list[Message],
     *,
     create_message: CreateMessage,
-    execute_tool: ExecuteTool,
+    dispatch: DispatchTool,
     system: str,
     tools: list[dict[str, Any]] | None = None,
     max_tokens: int = 8000,
@@ -121,7 +131,7 @@ def agent_loop(
     输入：
         messages：已有的对话消息列表，会在原列表上追加 assistant 和 tool_result 消息。
         create_message：创建一次模型响应的函数，接收 system、messages、tools 和 max_tokens。
-        execute_tool：执行单个工具调用的函数，本章接收命令字符串并返回文本结果。
+        dispatch：接收工具名和参数对象的函数；本章只处理 bash，s02 增加注册表。
         system：发送给模型的系统提示词。
         tools：提供给模型的工具定义；未传入时使用本章唯一的 bash 工具。
         max_tokens：单次模型响应的最大 token 数。
@@ -136,31 +146,49 @@ def agent_loop(
         3. 没有工具调用则结束；有则逐个执行并收集 tool_result。
         4. 将工具结果作为 user 消息追加，回到第 1 步。
     """
+    # s01 修改：None 才使用默认目录，显式空列表不会扩大能力。
+    active_tools = TOOLS if tools is None else tools
     while True:
         response = create_message(
             system=system,
             messages=messages,
-            tools=tools or TOOLS,
+            tools=active_tools,
             max_tokens=max_tokens,
         )
         messages.append({"role": "assistant", "content": response.content})
-
+        # s01 修改：参考 Pi runLoop，模型失败时停止，不执行失败回答里的工具。
+        if _get(response, "stop_reason") in {"error", "aborted"}:
+            raise RuntimeError("模型返回失败或取消，已停止任务")
         tool_calls = [block for block in response.content if _get(block, "type") == "tool_use"]
         if not tool_calls:
             return messages
 
         results: list[dict[str, Any]] = []
         for block in tool_calls:
-            input_data = _get(block, "input") or {}
-            output = execute_tool(input_data["command"])
+            name = _get(block, "name")
+            arguments = _get(block, "input")
+            if arguments is None:
+                arguments = {}
+            # s01 修改：对齐 Pi 的声明查找、错误回传及不执行截断调用的边界。
+            if _get(response, "stop_reason") in {"max_tokens", "length"}:
+                output = "Error: tool call was truncated; retry with a complete call"
+            elif name not in {tool["name"] for tool in active_tools}:
+                output = f"Error: unknown tool: {name}"
+            elif not isinstance(arguments, dict):
+                output = "Error: tool arguments must be an object"
+            else:
+                try:
+                    output = dispatch(name, arguments)
+                except Exception as error:  # noqa: BLE001 - 对齐 Pi 的普通工具失败回传边界
+                    output = f"Error: {error}"
             results.append(
                 {
                     "type": "tool_result",
                     "tool_use_id": _get(block, "id"),
                     "content": output,
+                    "is_error": output.startswith("Error:"),
                 }
             )
-
         messages.append({"role": "user", "content": results})
 
 
@@ -229,10 +257,11 @@ def main() -> None:
 
         history.append({"role": "user", "content": query})
         try:
+            # s01 修改：终端注入带展示的执行器，SDK 可注入无展示的同契约后端。
             agent_loop(
                 history,
                 create_message=requester,
-                execute_tool=execute_bash,
+                dispatch=execute_bash,
                 system=SYSTEM,
             )
         except RuntimeError as error:

@@ -7,7 +7,7 @@ from time import perf_counter
 from typing import Any
 
 from pi_code_agent import serialization as s05
-from pi_code_agent.events import AgentEvent, EventDispatchError, EventSink
+from pi_code_agent.events import AgentEvent, EventDispatcher, EventDispatchError, EventSink
 from pi_code_agent.hooks import Hooks
 from pi_code_agent.observable_session import AssistantSaver
 from pi_code_agent.permissions import TOOLS
@@ -24,8 +24,9 @@ def agent_loop(
     create_message: Callable[..., Any],
     dispatch: DispatchTool,
     system: str,
-    hooks: Hooks,
-    emit: EventSink,
+    # s01 修改：基础 SDK 调用无需组装后续章节的 Hook 和观察者，显式传入时保持原行为。
+    hooks: Hooks | None = None,
+    emit: EventSink | None = None,
     save_message: SessionSaver | None = None,
     save_assistant: AssistantSaver | None = None,
     # 来自 s15：保持；单独注入工具批次保存回调，正文和 details 同时落盘。
@@ -42,6 +43,9 @@ def agent_loop(
     流程：请求模型 → 保存 assistant → 执行工具 → 保存正文与状态 → 发送结果事件 → 再次请求。
     带 details 的结果必须有专用保存回调；保存失败不发送成功事件，后端失败仍补齐配对。
     """
+    # s01 新增：正式 SDK 与最小教程使用同一调用契约，不另建产品核心循环。
+    hooks = hooks if hooks is not None else Hooks()
+    emit = emit if emit is not None else EventDispatcher().emit
     # 来自 s12：保持；轮数只计算回答请求；摘要由请求包装器负责，不隐含在计数中。
     # 来自 s12：保持；默认不限制轮数，有明确配置时才停止。
     if max_rounds is not None and max_rounds < 1:
@@ -109,7 +113,9 @@ def agent_loop(
         for block in tool_calls:
             tool_call_id = str(_get(block, "id") or "")
             name = str(_get(block, "name") or "")
-            arguments = _get(block, "input") or {}
+            arguments = _get(block, "input")
+            if arguments is None:
+                arguments = {}
             emit(
                 AgentEvent(
                     type="tool_call",
@@ -121,6 +127,13 @@ def agent_loop(
             if backend_failure is not None:
                 # 来自 s15：保持；错误也使用统一结果对象，但没有成功状态快照。
                 result = ToolResult("Error: tool execution stopped; this tool was not executed")
+            # s01 修改：按 Pi prepareToolCall 的顺序先校验声明及参数，不执行未知工具或截断调用。
+            elif _get(response, "stop_reason") in {"max_tokens", "length"}:
+                result = ToolResult("Error: tool call was truncated; retry with a complete call")
+            elif name not in {tool["name"] for tool in active_tools}:
+                result = ToolResult(f"Error: unknown tool: {name}")
+            elif not isinstance(arguments, dict):
+                result = ToolResult("Error: tool arguments must be an object")
             else:
                 try:
                     # 来自 s15：保持；已有 Hook 仍处理正文，结构化结果另外携带状态。
@@ -132,7 +145,13 @@ def agent_loop(
 
             # 来自 s15：保持；模型消息保持标准 tool_result 字段，details 不进入模型协议。
             results.append(
-                {"type": "tool_result", "tool_use_id": tool_call_id, "content": result.content}
+                {
+                    "type": "tool_result",
+                    "tool_use_id": tool_call_id,
+                    "content": result.content,
+                    # s01 修改：错误状态属于工具协议，不能只在界面事件里保存。
+                    "is_error": _tool_result_is_error(result.content),
+                }
             )
             if result.details is not None:
                 # 来自 s15：保持；名称和调用 ID 来自本次调用，不从模型结果正文猜测。

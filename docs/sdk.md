@@ -99,3 +99,5 @@ flowchart LR
 本地默认只读；default 的 shell/写入逐次确认，不是 OS 沙箱。自定义后端必须同时提供 `tools`、`dispatch`、`permission_hook`。可信扩展在宿主执行；注册 API 本身不提供隔离。
 
 外部产品也可使用公开 `runtime` 组件显式组装，再调用公开 `agent_loop`，适合独立修复编排，不需要复制循环。
+
+基础循环可直接使用 `agent_loop(messages, create_message=..., dispatch=..., system=..., tools=...)`；未提供 Hooks 或事件出口时使用空组件。`tools=[]` 明确禁用工具。模型失败停止，未知或截断调用回传工具错误。工作区实例可由 `LocalTools` 提供；基础用法见 s01，后续 SDK 章节不再重复包装已有功能。

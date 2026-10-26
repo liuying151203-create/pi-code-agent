@@ -8,7 +8,10 @@ from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any
 
+from pi_code_agent.events import EventDispatchError
 from pi_code_agent.hooks import Hooks, run_after_hooks, run_before_hooks
+from pi_code_agent.sandbox_copy.sandbox import SandboxError
+from pi_code_agent.session import SessionPersistenceError
 
 
 # s15 新增：参考 Pi 的 content/details 分工，不把扩展状态混进模型协议字段。
@@ -58,7 +61,13 @@ def execute_tool(
     if reason is not None:
         raw_result = reason
     else:
-        raw_result = dispatch(name, arguments)
+        # s01 修改：普通工具参数/文件错误回传模型，致命后端和观察链异常仍由外层停止。
+        try:
+            raw_result = dispatch(name, arguments)
+        except (EventDispatchError, SessionPersistenceError, SandboxError):
+            raise
+        except Exception as error:  # noqa: BLE001 - 对齐 Pi：普通 handler 失败属于工具结果
+            raw_result = f"Error: {error}"
     # s15 新增：旧工具字符串转为无元数据结果，扩展返回的快照保持独立。
     if isinstance(raw_result, ToolResult):
         result = raw_result
