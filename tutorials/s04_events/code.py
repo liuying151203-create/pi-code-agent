@@ -1,19 +1,20 @@
-"""s04：完整循环加入运行事件，复用正式消息、工具和事件组件。"""
+"""s04：完整循环加入运行事件，使用本章冻结的消息、工具和事件组件。"""
 
 from __future__ import annotations
 
 # ===== 来自 s03：保持 =====
-# 来自 s03：保持；统一消息和工具协议不变，复用正式错误类型便于 CLI 一致捕获。
+# 来自 s03：保持；统一消息和工具协议不变，使用本章错误类型便于 CLI 一致捕获。
 import asyncio
 from collections.abc import Sequence
 
+from .errors import TurnLimitError
+
 # ===== s04 新增 =====
-# s04 新增：导入 EventBus 和事件结果 ToolResult；其余协议导入来自 s03，保持复用。
-from pi_code_agent.events import EventBus
-from pi_code_agent.loop import TurnLimitError
-from pi_code_agent.messages import AssistantMessage, Message, ToolCall, ToolResultMessage
-from pi_code_agent.model import Model
-from pi_code_agent.tools import Tool, ToolResult, execute_tool
+# s04 新增：导入本章 EventBus 和事件结果 ToolResult；其余协议来自 s03，保持行为。
+from .events import EventBus
+from .messages import AssistantMessage, Message, ToolCall, ToolResultMessage
+from .model import Model
+from .tools import Tool, ToolResult, execute_tool
 
 
 # ===== s04 修改 =====
@@ -175,10 +176,10 @@ async def agent_loop(
 
 
 # ===== s04 新增 =====
-# s04 新增：明确使用本章完整循环，终端通过正式订阅组件展示进度。
+# s04 新增：明确使用本章完整循环，终端通过本章订阅组件展示进度。
 def main(arguments=None) -> int:
     """复用 s03 的配置和模型组装，输入终端参数，输出运行退出码。"""
-    from pi_code_agent.cli import main as cli_main
+    from .cli import main as cli_main
 
     return cli_main(arguments, loop=agent_loop)
 

@@ -5,11 +5,11 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Sequence
 
-# 来自 s01：保持；复用正式错误类型，让终端和外部调用方一致捕获。
-from pi_code_agent.loop import TurnLimitError
-from pi_code_agent.messages import AssistantMessage, Message, ToolCall, ToolResultMessage
-from pi_code_agent.model import Model
-from pi_code_agent.tools import Tool, execute_tool
+# 来自 s01：保持；使用本章错误类型，让终端和外部调用方一致捕获。
+from .errors import TurnLimitError
+from .messages import AssistantMessage, Message, ToolCall, ToolResultMessage
+from .model import Model
+from .tools import Tool, execute_tool
 
 
 # s01 新增：参考 Pi runLoop，选择其顺序执行模式；并行调度在后续章节加入。
@@ -78,8 +78,8 @@ async def main() -> None:
     """组装模型与工具，运行一轮完整闭环，不需要 API Key。"""
     from pathlib import Path
 
-    from pi_code_agent.demo import DemoModel, project_name_tool
-    from pi_code_agent.messages import Text, UserMessage
+    from .demo import DemoModel, project_name_tool
+    from .messages import Text, UserMessage
 
     workspace = Path.cwd()
     tool = project_name_tool(workspace)

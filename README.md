@@ -26,6 +26,6 @@ python -m ruff format --check src tests tutorials examples
 python -m pip wheel --no-deps --no-build-isolation -w dist .
 ```
 
-`src/` 是正式实现，`tutorials/` 是中文教学快照，`tests/` 是新主线测试，`examples/` 是 SDK 示例，`example_project/` 是独立练习项目。旧版完整保存在 `archive/v1/`，不参与新包导入、构建或默认测试。
+`src/` 是正式实现，`tutorials/` 按章保存独立的完整教学快照，`tests/` 是新主线测试，`examples/` 是 SDK 示例，`example_project/` 是独立练习项目。旧版完整保存在 `archive/v1/`，不参与新包导入、构建或默认测试。
 
 从 [教程](tutorials/README.md) 开始；接口见 [SDK 用法](docs/sdk.md)，旧版说明见 [归档](archive/README.md)。

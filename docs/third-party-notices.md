@@ -6,6 +6,8 @@
 
 s04 继续参考同一提交的 `packages/agent/src/types.ts`（AgentEvent）、`agent-loop.ts`（runAgentLoop/runLoop、顺序工具事件）和 `agent.ts`（subscribe/processEvents），以及 `packages/agent/test/agent-loop.test.ts`、`agent.test.ts`。Python 保留八种非增量事件和有序等待；字段改为 snake_case，通过 EventBus 而非有状态 Agent 提供订阅，逐订阅器复制观察数据，订阅变更从下个事件生效。HTTP 异常通知后继续抛出，原生任务取消取代尚未移植的 AbortSignal；这些区别在 s04 说明和测试中记录。
 
+s01–s04 的教学组件已按阶段独立保存，不再直接导入 src/。各章 NOTICE.md 同时保留本段许可，复制单章目录时应一并携带。s01 仅保留实际使用的空参数契约，s02 加入 Pydantic；s03 加入模型与配置，s04 加入事件。教学隔离不代表新增 Pi 功能或改变正式 SDK 的行为。
+
 以下 Pi MIT 声明适用于相关复用与移植部分，不代表归档之外的全部原创内容另行更换许可。
 
 ```text

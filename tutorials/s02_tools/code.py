@@ -5,11 +5,11 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Sequence
 
-# 来自 s01：保持；复用正式错误类型，让终端和外部调用方一致捕获。
-from pi_code_agent.loop import TurnLimitError
-from pi_code_agent.messages import AssistantMessage, Message, ToolCall, ToolResultMessage
-from pi_code_agent.model import Model
-from pi_code_agent.tools import Tool, execute_tool
+# 来自 s01：保持；使用本章错误类型，让终端和外部调用方一致捕获。
+from .errors import TurnLimitError
+from .messages import AssistantMessage, Message, ToolCall, ToolResultMessage
+from .model import Model
+from .tools import Tool, execute_tool
 
 
 # 来自 s01：保持；参考 Pi runLoop，选择其顺序执行模式；并行调度在后续章节加入。
@@ -76,8 +76,8 @@ async def agent_loop(
 # s02 新增：字符串参数先转换为整数，再由同一工具声明中的函数计算。
 async def main() -> None:
     """用可重复的离线模型验证工具声明、参数转换及结果回传。"""
-    from pi_code_agent.demo import DemoModel, add_tool
-    from pi_code_agent.messages import Text, UserMessage
+    from .demo import DemoModel, add_tool
+    from .messages import Text, UserMessage
 
     tool = add_tool()
     model = DemoModel("add", {"a": "2", "b": "3"})

@@ -17,10 +17,10 @@ python -m tutorials.s04_events.code --demo --workspace example_project/mini_app 
 想直接看到事件名称和顺序，可以运行：
 
 ```powershell
-python examples/events_sdk.py
+python -m tutorials.s04_events.example
 ```
 
-这个离线 SDK 示例实际计算 `2 + 3`，同时打印事件名称与工具结果 `5`。
+这个本章冻结的离线调用示例实际计算 `2 + 3`，同时打印事件名称与工具结果 `5`。
 
 ## Pi 怎样通知外部程序
 
@@ -59,14 +59,16 @@ display_event ── subscribe(listener) ──> EventBus
 EventBus ── events ──> agent_loop
 ```
 
-事件字段沿用 Python 命名：消息事件有 `message`；工具开始有 `tool_call_id/tool_name/args`；工具结束有 `result/is_error`；回合结束有 `message/tool_results`；运行结束的 `messages` 只含本次新增消息。事件定义见 [events.py](../../src/pi_code_agent/events.py)。
+事件字段沿用 Python 命名：消息事件有 `message`；工具开始有 `tool_call_id/tool_name/args`；工具结束有 `result/is_error`；回合结束有 `message/tool_results`；运行结束的 `messages` 只含本次新增消息。事件定义见本章 [events.py](events.py)。
 
 ## 在自己的程序中订阅
 
 ```python
 import asyncio
-from pi_code_agent import EventBus, UserMessage, agent_loop
-from pi_code_agent.demo import DemoModel, add_tool
+from tutorials.s04_events.code import agent_loop
+from tutorials.s04_events.events import EventBus
+from tutorials.s04_events.messages import UserMessage
+from tutorials.s04_events.demo import DemoModel, add_tool
 
 events = EventBus()
 unsubscribe = events.subscribe(lambda event: print(event["type"]))
@@ -102,7 +104,7 @@ finally:
 python -m pytest tests/test_s04_events.py tests/test_config_cli.py tests/test_boundaries.py
 ```
 
-测试同时运行 SDK 与本章循环，验证实际事件顺序、消息范围、异步等待、取消订阅、观察副本隔离，以及失败和取消路径。前三章保留原有无事件循环，s04 快照与当前正式循环保持结构一致。
+测试同时运行 SDK 与本章循环，验证实际事件顺序、消息范围、异步等待、取消订阅、观察副本隔离，以及失败和取消路径。前三章保留原有无事件循环，s04 使用本章的消息、工具、事件、模型适配和 CLI 快照；不导入产品或其他章节，也不要求未来仍与最新产品结构相同。
 
 ## 参考与差异
 
@@ -110,4 +112,4 @@ python -m pytest tests/test_s04_events.py tests/test_config_cli.py tests/test_bo
 - 扩展与调整：Python 用 `EventBus` 提供订阅，不提前加入有状态 Agent 外壳；接收字典事件和现有消息对象。每个订阅器得到独立副本，订阅表变化从下个事件生效，避免观察者改写工具参数或使当前分发过程不确定。Pi 直接遍历 Set 并传递事件引用。上述差异均在本章测试中验证。
 - 暂缓：`message_update` 和文本流式在 s05；工具增量、并行调度、订阅器取消信号及有状态 Agent 生命周期编号待定。当前使用 Python 任务取消，保留异常传播，不能声称已经移植 Pi 的完整 Agent 外壳。
 
-来源、修改范围及 MIT 声明见 [第三方归属](../../docs/third-party-notices.md)。
+来源、修改范围及 MIT 声明见本章 [NOTICE](NOTICE.md)。

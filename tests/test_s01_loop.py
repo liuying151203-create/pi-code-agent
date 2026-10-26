@@ -4,98 +4,90 @@ import asyncio
 from unittest.mock import AsyncMock
 
 import pytest
-from conftest import ScriptedModel
-
-from pi_code_agent import (
-    AssistantMessage,
-    Text,
-    Tool,
-    ToolCall,
-    ToolResult,
-    ToolResultMessage,
-    TurnLimitError,
-    UserMessage,
-)
-from pi_code_agent import agent_loop as sdk_loop
-from tutorials.s01_agent_loop.code import agent_loop as chapter_loop
+from conftest import ScriptedModel, load_runtime
 
 
-@pytest.fixture(params=[sdk_loop, chapter_loop], ids=["sdk", "chapter"])
-def loop(request):
-    return request.param
-
-
-def test_tool_result_reaches_the_next_model_request(loop, capsys):
-    execute = AsyncMock(return_value=ToolResult("real result"))
-    tool = Tool("probe", "test tool", execute)
+def test_tool_result_reaches_the_next_model_request(api, capsys):
+    execute = AsyncMock(return_value=api.ToolResult("real result"))
+    tool = api.Tool("probe", "test tool", execute)
     model = ScriptedModel(
-        AssistantMessage((ToolCall("one", "probe", {}),), "tool_use"),
-        AssistantMessage((Text("done"),)),
+        api.AssistantMessage((api.ToolCall("one", "probe", {}),), "tool_use"),
+        api.AssistantMessage((api.Text("done"),)),
     )
-    history = [UserMessage("test")]
-    result = asyncio.run(loop(history, model=model, tools=[tool]))
+    history = [api.UserMessage("test")]
+    result = asyncio.run(api.agent_loop(history, model=model, tools=[tool]))
     assert result is history
     assert execute.await_count == 1
-    assert isinstance(model.calls[1]["messages"][-1], ToolResultMessage)
+    assert isinstance(model.calls[1]["messages"][-1], api.ToolResultMessage)
     assert model.calls[1]["messages"][-1].content == "real result"
     assert model.calls[1]["messages"][-1].tool_call_id == "one"
     assert len(model.calls[0]["messages"]) == 1
     assert capsys.readouterr().out == ""
 
 
-def test_explicit_empty_tools_do_not_get_replaced(loop):
-    model = ScriptedModel(AssistantMessage((Text("hello"),)))
-    asyncio.run(loop([UserMessage("hi")], model=model, tools=[]))
+def test_explicit_empty_tools_do_not_get_replaced(api):
+    model = ScriptedModel(api.AssistantMessage((api.Text("hello"),)))
+    asyncio.run(api.agent_loop([api.UserMessage("hi")], model=model, tools=[]))
     assert model.calls[0]["tools"] == []
 
 
 @pytest.mark.parametrize("reason", ["error", "aborted"])
-def test_failed_model_message_is_recorded_without_executing_tools(loop, reason):
+def test_failed_model_message_is_recorded_without_executing_tools(api, reason):
     execute = AsyncMock()
-    response = AssistantMessage(
-        (ToolCall("one", "probe", {}), ToolCall("one", "probe", {})), reason
+    response = api.AssistantMessage(
+        (api.ToolCall("one", "probe", {}), api.ToolCall("one", "probe", {})), reason
     )
     history = asyncio.run(
-        loop([], model=ScriptedModel(response), tools=[Tool("probe", "test", execute)])
+        api.agent_loop(
+            [], model=ScriptedModel(response), tools=[api.Tool("probe", "test", execute)]
+        )
     )
     assert history == [response]
     execute.assert_not_called()
 
 
-def test_all_calls_in_length_response_are_failed_without_execution(loop):
+def test_all_calls_in_length_response_are_failed_without_execution(api):
     execute = AsyncMock()
     model = ScriptedModel(
-        AssistantMessage((ToolCall("a", "probe", {}), ToolCall("b", "probe", {})), "length"),
-        AssistantMessage((Text("retry complete"),)),
+        api.AssistantMessage(
+            (api.ToolCall("a", "probe", {}), api.ToolCall("b", "probe", {})), "length"
+        ),
+        api.AssistantMessage((api.Text("retry complete"),)),
     )
-    result = asyncio.run(loop([], model=model, tools=[Tool("probe", "test", execute)]))
+    result = asyncio.run(
+        api.agent_loop([], model=model, tools=[api.Tool("probe", "test", execute)])
+    )
     assert [
-        message.tool_call_id for message in result if isinstance(message, ToolResultMessage)
+        message.tool_call_id for message in result if isinstance(message, api.ToolResultMessage)
     ] == ["a", "b"]
-    assert all(message.is_error for message in result if isinstance(message, ToolResultMessage))
+    assert all(message.is_error for message in result if isinstance(message, api.ToolResultMessage))
     execute.assert_not_called()
 
 
-def test_same_batch_runs_in_source_order_and_preserves_error_status(loop):
+def test_same_batch_runs_in_source_order_and_preserves_error_status(api):
     order = []
 
     async def execute(arguments):
         order.append(len(order))
         if len(order) == 1:
             raise ValueError("first failed")
-        return ToolResult("Error: this is ordinary successful text")
+        return api.ToolResult("Error: this is ordinary successful text")
 
     model = ScriptedModel(
-        AssistantMessage((ToolCall("a", "probe", {}), ToolCall("b", "probe", {})), "tool_use"),
-        AssistantMessage((Text("done"),)),
+        api.AssistantMessage(
+            (api.ToolCall("a", "probe", {}), api.ToolCall("b", "probe", {})), "tool_use"
+        ),
+        api.AssistantMessage((api.Text("done"),)),
     )
-    result = asyncio.run(loop([], model=model, tools=[Tool("probe", "test", execute)]))
-    results = [message for message in result if isinstance(message, ToolResultMessage)]
+    result = asyncio.run(
+        api.agent_loop([], model=model, tools=[api.Tool("probe", "test", execute)])
+    )
+    results = [message for message in result if isinstance(message, api.ToolResultMessage)]
     assert order == [0, 1]
     assert [message.is_error for message in results] == [True, False]
 
 
-def test_cancellation_propagates_and_finishes_unexecuted_tool_pairs(loop):
+def test_cancellation_propagates_and_finishes_unexecuted_tool_pairs(api):
     async def run():
         started = asyncio.Event()
         cleaned = []
@@ -108,11 +100,13 @@ def test_cancellation_propagates_and_finishes_unexecuted_tool_pairs(loop):
                 cleaned.append(True)
 
         model = ScriptedModel(
-            AssistantMessage((ToolCall("a", "probe", {}), ToolCall("b", "probe", {})), "tool_use")
+            api.AssistantMessage(
+                (api.ToolCall("a", "probe", {}), api.ToolCall("b", "probe", {})), "tool_use"
+            )
         )
         history = []
         task = asyncio.create_task(
-            loop(history, model=model, tools=[Tool("probe", "test", execute)])
+            api.agent_loop(history, model=model, tools=[api.Tool("probe", "test", execute)])
         )
         await started.wait()
         task.cancel()
@@ -120,41 +114,58 @@ def test_cancellation_propagates_and_finishes_unexecuted_tool_pairs(loop):
             await task
         assert cleaned == [True]
         assert [
-            message.tool_call_id for message in history if isinstance(message, ToolResultMessage)
+            message.tool_call_id
+            for message in history
+            if isinstance(message, api.ToolResultMessage)
         ] == ["a", "b"]
 
     asyncio.run(run())
 
 
-def test_duplicate_tools_and_invalid_limits_fail_before_request(loop):
+def test_duplicate_tools_and_invalid_limits_fail_before_request(api):
     model = ScriptedModel()
-    tool = Tool("same", "test", AsyncMock())
+    tool = api.Tool("same", "test", AsyncMock())
     for kwargs in ({"tools": [tool, tool]}, {"max_tokens": 0}, {"max_turns": True}):
         with pytest.raises(ValueError):
-            asyncio.run(loop([], model=model, **kwargs))
+            asyncio.run(api.agent_loop([], model=model, **kwargs))
     assert model.calls == []
 
 
-def test_explicit_turn_limit_keeps_completed_tool_results(loop):
-    model = ScriptedModel(AssistantMessage((ToolCall("one", "probe", {}),), "tool_use"))
+def test_explicit_turn_limit_keeps_completed_tool_results(api):
+    model = ScriptedModel(api.AssistantMessage((api.ToolCall("one", "probe", {}),), "tool_use"))
     history = []
-    with pytest.raises(TurnLimitError):
+    with pytest.raises(api.TurnLimitError):
         asyncio.run(
-            loop(
+            api.agent_loop(
                 history,
                 model=model,
-                tools=[Tool("probe", "test", AsyncMock(return_value=ToolResult("ok")))],
+                tools=[api.Tool("probe", "test", AsyncMock(return_value=api.ToolResult("ok")))],
                 max_turns=1,
             )
         )
-    assert isinstance(history[-1], ToolResultMessage)
+    assert isinstance(history[-1], api.ToolResultMessage)
 
 
-def test_repeated_call_ids_are_rejected_before_tool_execution(loop):
+def test_repeated_call_ids_are_rejected_before_tool_execution(api):
     execute = AsyncMock()
     model = ScriptedModel(
-        AssistantMessage((ToolCall("same", "probe", {}), ToolCall("same", "probe", {})), "tool_use")
+        api.AssistantMessage(
+            (api.ToolCall("same", "probe", {}), api.ToolCall("same", "probe", {})), "tool_use"
+        )
     )
     with pytest.raises(ValueError, match="ID"):
-        asyncio.run(loop([], model=model, tools=[Tool("probe", "test", execute)]))
+        asyncio.run(api.agent_loop([], model=model, tools=[api.Tool("probe", "test", execute)]))
     execute.assert_not_called()
+
+
+@pytest.fixture(
+    params=[
+        "pi_code_agent",
+        "tutorials.s01_agent_loop",
+        "tutorials.s02_tools",
+        "tutorials.s03_models",
+        "tutorials.s04_events",
+    ]
+)
+def api(request):
+    return load_runtime(request.param)

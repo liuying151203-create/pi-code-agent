@@ -1,4 +1,4 @@
-"""s04：终端通过订阅展示当前进度，保留 s03 的完整响应入口。"""
+"""s04：终端通过订阅展示当前进度，使用本章的模型和工具组件。"""
 
 from __future__ import annotations
 
@@ -39,12 +39,11 @@ def display_event(event: AgentEvent) -> None:
 
 
 # ===== s04 修改 =====
-# s04 修改：当前入口默认使用事件；旧 s03 教学入口明确保留无事件的展示方式。
+# s04 修改：入口通过事件显示结果；s03 的无事件组装保存在 s03 自己的快照。
 async def run(
     options: argparse.Namespace,
     *,
     loop: Callable[..., Awaitable[list[Message]]],
-    use_events: bool,
 ) -> int:
     """按依赖层次运行终端入口，真实客户端在 finally 中关闭。
 
@@ -64,9 +63,8 @@ async def run(
         max_tokens = config.max_tokens
     history: list[Message] = []
     # s04 新增：每个终端实例只有一份订阅表；不会在多轮输入时反复注册。
-    events = EventBus() if use_events else None
-    if events is not None:
-        events.subscribe(display_event)
+    events = EventBus()
+    events.subscribe(display_event)
     try:
         while True:
             if options.prompt is not None:
@@ -78,30 +76,16 @@ async def run(
                     return 0
                 if prompt.lower() in {"", "q", "exit"}:
                     return 0
-            start = len(history)
-            if events is not None:
-                # s04 修改：把本次输入单独传入，旧历史不重新发 message 事件。
-                await loop(
-                    history,
-                    model=model,
-                    tools=tools,
-                    max_tokens=max_tokens,
-                    max_turns=options.max_turns,
-                    prompts=[UserMessage(prompt)],
-                    events=events,
-                )
-            else:
-                # 来自 s03：保持；旧章节没有事件参数，运行后显示本次追加的消息。
-                history.append(UserMessage(prompt))
-                await loop(
-                    history,
-                    model=model,
-                    tools=tools,
-                    max_tokens=max_tokens,
-                    max_turns=options.max_turns,
-                )
-                for message in history[start:]:
-                    display_event({"type": "message_end", "message": message})
+            # s04 修改：本次输入独立传入，旧历史不重播，消息只通过订阅显示。
+            await loop(
+                history,
+                model=model,
+                tools=tools,
+                max_tokens=max_tokens,
+                max_turns=options.max_turns,
+                prompts=[UserMessage(prompt)],
+                events=events,
+            )
             last = history[-1]
             if isinstance(last, AssistantMessage) and last.usage is not None:
                 print(f"[用量] 输入 {last.usage.input_tokens}，输出 {last.usage.output_tokens}")
@@ -122,7 +106,6 @@ def main(
     arguments: Sequence[str] | None = None,
     *,
     loop: Callable[..., Awaitable[list[Message]]] = agent_loop,
-    use_events: bool = True,
 ) -> int:
     """解析终端选项后运行异步应用，不执行安装或环境初始化。"""
     parser = argparse.ArgumentParser(description="Pi Code Agent：异步模型、工具与运行事件")
@@ -135,7 +118,7 @@ def main(
     if options.max_turns is not None and options.max_turns < 1:
         parser.error("--max-turns 必须是正整数")
     try:
-        return asyncio.run(run(options, loop=loop, use_events=use_events))
+        return asyncio.run(run(options, loop=loop))
     except KeyboardInterrupt:
         print("已取消", file=sys.stderr)
         return 130

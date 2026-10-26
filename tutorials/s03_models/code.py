@@ -5,11 +5,11 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Sequence
 
-# 来自 s01：保持；复用正式错误类型，让终端和外部调用方一致捕获。
-from pi_code_agent.loop import TurnLimitError
-from pi_code_agent.messages import AssistantMessage, Message, ToolCall, ToolResultMessage
-from pi_code_agent.model import Model
-from pi_code_agent.tools import Tool, execute_tool
+# 来自 s01：保持；使用本章错误类型，让终端和外部调用方一致捕获。
+from .errors import TurnLimitError
+from .messages import AssistantMessage, Message, ToolCall, ToolResultMessage
+from .model import Model
+from .tools import Tool, execute_tool
 
 
 # 来自 s01：保持；参考 Pi runLoop，选择其顺序执行模式；并行调度在后续章节加入。
@@ -73,13 +73,13 @@ async def agent_loop(
     raise TurnLimitError(f"已达到 {max_turns} 轮上限；任务尚未完成")
 
 
-# s03 新增：入口复用正式配置/模型组装，明确选择本章的完整循环。
+# s03 新增：入口使用本章冻结的配置和模型组装，明确选择本章的完整循环。
 def main(arguments=None) -> int:
-    """使用与正式入口相同的配置和模型组件，执行本章保留的循环。"""
-    from pi_code_agent.cli import main as cli_main
+    """组装本章的配置、模型与工具，输入终端参数，输出运行退出码。"""
+    from .cli import main as cli_main
 
-    # 来自 s03：保持；复用终端组装，但不启用 s04 新增的事件参数。
-    return cli_main(arguments, loop=agent_loop, use_events=False)
+    # 来自 s03：保持；使用本章无事件终端组装，不引用 s04 或正式 CLI。
+    return cli_main(arguments, loop=agent_loop)
 
 
 if __name__ == "__main__":

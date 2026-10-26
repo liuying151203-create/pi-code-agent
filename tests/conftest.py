@@ -1,6 +1,8 @@
 """新主线的离线模型替身，不导入归档实现。"""
 
 from copy import deepcopy
+from importlib import import_module
+from types import SimpleNamespace
 
 
 class ScriptedModel:
@@ -13,3 +15,32 @@ class ScriptedModel:
     async def complete(self, **kwargs):
         self.calls.append(deepcopy(kwargs))
         return next(self.responses)
+
+
+def load_runtime(package: str) -> SimpleNamespace:
+    """给行为测试提供同一版本的组件，防止拿产品消息误测教学循环。
+
+    输入：正式包或单个章节包名；输出：该版本实际拥有的类、方法和适配器。
+    流程：加载本包消息/工具/循环 → 按章节阶段加载真实存在的组件；不做类型桥接。
+    """
+    stage = int(package.split(".")[-1][1:3]) if package.startswith("tutorials.") else 4
+    loop_module = "code" if package.startswith("tutorials.") else "loop"
+    exports = {}
+    components = {
+        "messages": ("UserMessage", "AssistantMessage", "Text", "ToolCall", "ToolResultMessage"),
+        "tools": ("Tool", "ToolResult", "execute_tool"),
+        loop_module: ("agent_loop", "TurnLimitError"),
+    }
+    if stage >= 2:
+        components["file_tools"] = ("read_tool",)
+        components["demo"] = ("AddArguments", "add_tool")
+    if stage >= 3:
+        components["config"] = ("ModelConfig", "load_model_config")
+        components["providers"] = ("AnthropicModel", "OpenAIModel", "ProviderError", "create_model")
+    if stage >= 4:
+        components["events"] = ("EventBus", "EventListenerError")
+    for module_name, names in components.items():
+        module = import_module(f"{package}.{module_name}")
+        exports[module_name] = module
+        exports.update({name: getattr(module, name) for name in names})
+    return SimpleNamespace(**exports)

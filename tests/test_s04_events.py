@@ -4,43 +4,23 @@ import asyncio
 from unittest.mock import AsyncMock
 
 import pytest
-from conftest import ScriptedModel
-
-from pi_code_agent import (
-    AssistantMessage,
-    EventBus,
-    EventListenerError,
-    ProviderError,
-    Text,
-    Tool,
-    ToolCall,
-    ToolResult,
-    ToolResultMessage,
-    TurnLimitError,
-    UserMessage,
-    agent_loop,
-)
-from pi_code_agent.demo import AddArguments
-from tutorials.s04_events.code import agent_loop as chapter_loop
+from conftest import ScriptedModel, load_runtime
 
 
-@pytest.fixture(params=[agent_loop, chapter_loop], ids=["sdk", "chapter"])
-def loop(request):
-    return request.param
-
-
-def test_pi_sequence_and_per_turn_payloads(loop):
-    events = EventBus()
+def test_pi_sequence_and_per_turn_payloads(api):
+    events = api.EventBus()
     seen = []
     events.subscribe(seen.append)
-    tool = Tool("probe", "probe", AsyncMock(return_value=ToolResult("value")))
-    first = AssistantMessage((ToolCall("one", "probe", {}),), "tool_use")
-    last = AssistantMessage((Text("done"),))
+    tool = api.Tool("probe", "probe", AsyncMock(return_value=api.ToolResult("value")))
+    first = api.AssistantMessage((api.ToolCall("one", "probe", {}),), "tool_use")
+    last = api.AssistantMessage((api.Text("done"),))
     model = ScriptedModel(first, last)
-    old = UserMessage("old history")
-    prompt = UserMessage("new prompt")
+    old = api.UserMessage("old history")
+    prompt = api.UserMessage("new prompt")
     history = [old]
-    result = asyncio.run(loop(history, model=model, tools=[tool], prompts=[prompt], events=events))
+    result = asyncio.run(
+        api.agent_loop(history, model=model, tools=[tool], prompts=[prompt], events=events)
+    )
     assert result is history
     assert [event["type"] for event in seen] == [
         "agent_start",
@@ -67,46 +47,48 @@ def test_pi_sequence_and_per_turn_payloads(loop):
     assert turns[0]["tool_results"] == [history[3]]
     assert turns[1]["tool_results"] == []
     assert seen[-1]["messages"] == history[1:]
-    assert seen[7]["result"] == ToolResult("value")
+    assert seen[7]["result"] == api.ToolResult("value")
 
 
-def test_continuation_and_reuse_do_not_replay_existing_history(loop):
-    events = EventBus()
+def test_continuation_and_reuse_do_not_replay_existing_history(api):
+    events = api.EventBus()
     seen = []
     events.subscribe(seen.append)
-    history = [UserMessage("already recorded")]
+    history = [api.UserMessage("already recorded")]
     asyncio.run(
-        loop(history, model=ScriptedModel(AssistantMessage((Text("first"),))), events=events)
+        api.agent_loop(
+            history, model=ScriptedModel(api.AssistantMessage((api.Text("first"),))), events=events
+        )
     )
     assert not any(event.get("message") == history[0] for event in seen)
     first_end = seen[-1]
     seen.clear()
     asyncio.run(
-        loop(
+        api.agent_loop(
             history,
-            model=ScriptedModel(AssistantMessage((Text("second"),))),
-            prompts=[UserMessage("next")],
+            model=ScriptedModel(api.AssistantMessage((api.Text("second"),))),
+            prompts=[api.UserMessage("next")],
             events=events,
         )
     )
-    assert first_end["messages"] == [AssistantMessage((Text("first"),))]
+    assert first_end["messages"] == [api.AssistantMessage((api.Text("first"),))]
     assert seen[-1]["messages"] == history[-2:]
 
 
-def test_subscribers_are_awaited_in_order_before_tools_and_run_settlement(loop):
+def test_subscribers_are_awaited_in_order_before_tools_and_run_settlement(api):
     async def run():
-        bus = EventBus()
+        bus = api.EventBus()
         message_waiting = asyncio.Event()
         allow_tool = asyncio.Event()
         end_waiting = asyncio.Event()
         allow_end = asyncio.Event()
         order = []
-        execute = AsyncMock(return_value=ToolResult("ok"))
+        execute = AsyncMock(return_value=api.ToolResult("ok"))
 
         async def first(event):
             if (
                 event["type"] == "message_end"
-                and isinstance(event["message"], AssistantMessage)
+                and isinstance(event["message"], api.AssistantMessage)
                 and event["message"].stop_reason == "tool_use"
             ):
                 message_waiting.set()
@@ -123,11 +105,11 @@ def test_subscribers_are_awaited_in_order_before_tools_and_run_settlement(loop):
         bus.subscribe(first)
         bus.subscribe(second)
         model = ScriptedModel(
-            AssistantMessage((ToolCall("a", "probe", {}),), "tool_use"),
-            AssistantMessage((Text("done"),)),
+            api.AssistantMessage((api.ToolCall("a", "probe", {}),), "tool_use"),
+            api.AssistantMessage((api.Text("done"),)),
         )
         task = asyncio.create_task(
-            loop([], model=model, tools=[Tool("probe", "probe", execute)], events=bus)
+            api.agent_loop([], model=model, tools=[api.Tool("probe", "probe", execute)], events=bus)
         )
         await asyncio.wait_for(message_waiting.wait(), 2)
         execute.assert_not_called()
@@ -143,8 +125,8 @@ def test_subscribers_are_awaited_in_order_before_tools_and_run_settlement(loop):
     asyncio.run(run())
 
 
-def test_subscription_deduplication_removal_and_next_event_changes():
-    bus = EventBus()
+def test_subscription_deduplication_removal_and_next_event_changes(api):
+    bus = api.EventBus()
     seen = []
     unsubscribe = bus.subscribe(seen.append)
     bus.subscribe(seen.append)
@@ -166,14 +148,14 @@ def test_subscription_deduplication_removal_and_next_event_changes():
     assert len(seen) == 2
 
 
-def test_observer_cannot_rewrite_arguments_or_other_observers(loop):
-    bus = EventBus()
+def test_observer_cannot_rewrite_arguments_or_other_observers(api):
+    bus = api.EventBus()
     observed = []
 
     def mutate(event):
-        if event["type"] == "message_end" and isinstance(event["message"], AssistantMessage):
+        if event["type"] == "message_end" and isinstance(event["message"], api.AssistantMessage):
             for block in event["message"].content:
-                if isinstance(block, ToolCall):
+                if isinstance(block, api.ToolCall):
                     block.arguments["a"] = 999
         if event["type"] == "tool_execution_start":
             event["args"]["a"] = 999
@@ -182,13 +164,15 @@ def test_observer_cannot_rewrite_arguments_or_other_observers(loop):
 
     bus.subscribe(mutate)
     bus.subscribe(observed.append)
-    execute = AsyncMock(return_value=ToolResult("5"))
+    execute = AsyncMock(return_value=api.ToolResult("5"))
     model = ScriptedModel(
-        AssistantMessage((ToolCall("a", "add", {"a": 2, "b": 3}),), "tool_use"),
-        AssistantMessage((Text("done"),)),
+        api.AssistantMessage((api.ToolCall("a", "add", {"a": 2, "b": 3}),), "tool_use"),
+        api.AssistantMessage((api.Text("done"),)),
     )
     history = asyncio.run(
-        loop([], model=model, tools=[Tool("add", "sum", execute, AddArguments)], events=bus)
+        api.agent_loop(
+            [], model=model, tools=[api.Tool("add", "sum", execute, api.AddArguments)], events=bus
+        )
     )
     execute.assert_awaited_once_with({"a": 2, "b": 3})
     start = next(event for event in observed if event["type"] == "tool_execution_start")
@@ -198,14 +182,16 @@ def test_observer_cannot_rewrite_arguments_or_other_observers(loop):
 
 
 @pytest.mark.parametrize("reason", ["error", "aborted"])
-def test_failed_model_reply_closes_lifecycle_without_tool_attempts(loop, reason):
-    bus = EventBus()
+def test_failed_model_reply_closes_lifecycle_without_tool_attempts(api, reason):
+    bus = api.EventBus()
     seen = []
     bus.subscribe(seen.append)
     execute = AsyncMock()
-    reply = AssistantMessage((ToolCall("a", "probe", {}),), reason)
+    reply = api.AssistantMessage((api.ToolCall("a", "probe", {}),), reason)
     asyncio.run(
-        loop([], model=ScriptedModel(reply), tools=[Tool("probe", "probe", execute)], events=bus)
+        api.agent_loop(
+            [], model=ScriptedModel(reply), tools=[api.Tool("probe", "probe", execute)], events=bus
+        )
     )
     assert [event["type"] for event in seen] == [
         "agent_start",
@@ -220,15 +206,19 @@ def test_failed_model_reply_closes_lifecycle_without_tool_attempts(loop, reason)
 
 
 @pytest.mark.parametrize("reason", ["tool_use", "length"])
-def test_rejected_tool_attempts_have_end_and_message_events(loop, reason):
-    bus = EventBus()
+def test_rejected_tool_attempts_have_end_and_message_events(api, reason):
+    bus = api.EventBus()
     seen = []
     bus.subscribe(seen.append)
     execute = AsyncMock()
-    calls = (ToolCall("a", "missing", {}), ToolCall("b", "add", {"a": "wrong", "b": 3}))
-    model = ScriptedModel(AssistantMessage(calls, reason), AssistantMessage((Text("done"),)))
+    calls = (api.ToolCall("a", "missing", {}), api.ToolCall("b", "add", {"a": "wrong", "b": 3}))
+    model = ScriptedModel(
+        api.AssistantMessage(calls, reason), api.AssistantMessage((api.Text("done"),))
+    )
     history = asyncio.run(
-        loop([], model=model, tools=[Tool("add", "sum", execute, AddArguments)], events=bus)
+        api.agent_loop(
+            [], model=model, tools=[api.Tool("add", "sum", execute, api.AddArguments)], events=bus
+        )
     )
     starts = [event for event in seen if event["type"] == "tool_execution_start"]
     ends = [event for event in seen if event["type"] == "tool_execution_end"]
@@ -239,16 +229,16 @@ def test_rejected_tool_attempts_have_end_and_message_events(loop, reason):
     execute.assert_not_called()
 
 
-def test_provider_exception_closes_events_and_still_propagates(loop):
-    bus = EventBus()
+def test_provider_exception_closes_events_and_still_propagates(api):
+    bus = api.EventBus()
     seen = []
     bus.subscribe(seen.append)
     model = ScriptedModel()
-    error = ProviderError("offline failure")
+    error = api.ProviderError("offline failure")
     model.complete = AsyncMock(side_effect=error)
     history = []
-    with pytest.raises(ProviderError) as raised:
-        asyncio.run(loop(history, model=model, events=bus))
+    with pytest.raises(api.ProviderError) as raised:
+        asyncio.run(api.agent_loop(history, model=model, events=bus))
     assert raised.value is error
     assert history[-1].stop_reason == "error"
     assert history[-1].error_message == "offline failure"
@@ -256,24 +246,26 @@ def test_provider_exception_closes_events_and_still_propagates(loop):
     assert seen[-1] == {"type": "agent_end", "messages": history}
 
 
-@pytest.mark.parametrize(
-    "reply",
-    [
-        None,
-        AssistantMessage(
-            (ToolCall("same", "probe", {}), ToolCall("same", "probe", {})), "tool_use"
-        ),
-    ],
-)
-def test_invalid_model_contract_closes_failure_events(loop, reply):
-    bus = EventBus()
+@pytest.mark.parametrize("kind", ["not_message", "duplicate_ids"])
+def test_invalid_model_contract_closes_failure_events(api, kind):
+    reply = (
+        None
+        if kind == "not_message"
+        else api.AssistantMessage(
+            (api.ToolCall("same", "probe", {}), api.ToolCall("same", "probe", {})), "tool_use"
+        )
+    )
+    bus = api.EventBus()
     seen = []
     bus.subscribe(seen.append)
     execute = AsyncMock()
     with pytest.raises((TypeError, ValueError)):
         asyncio.run(
-            loop(
-                [], model=ScriptedModel(reply), tools=[Tool("probe", "probe", execute)], events=bus
+            api.agent_loop(
+                [],
+                model=ScriptedModel(reply),
+                tools=[api.Tool("probe", "probe", execute)],
+                events=bus,
             )
         )
     assert seen[-1]["type"] == "agent_end"
@@ -282,9 +274,9 @@ def test_invalid_model_contract_closes_failure_events(loop, reply):
 
 
 @pytest.mark.parametrize("during", ["model", "message", "tool"])
-def test_cancellation_preserves_history_and_finishes_run_events(loop, during):
+def test_cancellation_preserves_history_and_finishes_run_events(api, during):
     async def run():
-        bus = EventBus()
+        bus = api.EventBus()
         waiting = asyncio.Event()
         seen = []
         bus.subscribe(seen.append)
@@ -307,13 +299,17 @@ def test_cancellation_preserves_history_and_finishes_run_events(loop, during):
         if during == "message":
             unsubscribe = bus.subscribe(pause)
         model = ScriptedModel(
-            AssistantMessage((ToolCall("a", "probe", {}), ToolCall("b", "probe", {})), "tool_use")
+            api.AssistantMessage(
+                (api.ToolCall("a", "probe", {}), api.ToolCall("b", "probe", {})), "tool_use"
+            )
         )
         if during == "model":
             model.complete = complete
         history = []
         task = asyncio.create_task(
-            loop(history, model=model, tools=[Tool("probe", "probe", execute)], events=bus)
+            api.agent_loop(
+                history, model=model, tools=[api.Tool("probe", "probe", execute)], events=bus
+            )
         )
         await asyncio.wait_for(waiting.wait(), 2)
         if during == "message":
@@ -326,7 +322,7 @@ def test_cancellation_preserves_history_and_finishes_run_events(loop, during):
         if during == "model":
             assert history[-1].stop_reason == "aborted"
         else:
-            results = [message for message in history if isinstance(message, ToolResultMessage)]
+            results = [message for message in history if isinstance(message, api.ToolResultMessage)]
             assert [result.tool_call_id for result in results] == ["a", "b"]
             assert all(result.is_error for result in results)
             assert len(executed) == (1 if during == "tool" else 0)
@@ -336,44 +332,55 @@ def test_cancellation_preserves_history_and_finishes_run_events(loop, during):
 
 
 @pytest.mark.parametrize("at", ["message_end", "tool_execution_start", "tool_execution_end"])
-def test_observer_failure_is_not_tool_failure_and_keeps_real_results(loop, at):
-    bus = EventBus()
+def test_observer_failure_is_not_tool_failure_and_keeps_real_results(api, at):
+    bus = api.EventBus()
 
     def fail(event):
         if event["type"] == at:
             raise RuntimeError("display failed")
 
     bus.subscribe(fail)
-    execute = AsyncMock(return_value=ToolResult("actual output"))
+    execute = AsyncMock(return_value=api.ToolResult("actual output"))
     model = ScriptedModel(
-        AssistantMessage((ToolCall("a", "probe", {}), ToolCall("b", "probe", {})), "tool_use")
+        api.AssistantMessage(
+            (api.ToolCall("a", "probe", {}), api.ToolCall("b", "probe", {})), "tool_use"
+        )
     )
     history = []
-    with pytest.raises(EventListenerError, match="display failed") as raised:
-        asyncio.run(loop(history, model=model, tools=[Tool("probe", "probe", execute)], events=bus))
+    with pytest.raises(api.EventListenerError, match="display failed") as raised:
+        asyncio.run(
+            api.agent_loop(
+                history, model=model, tools=[api.Tool("probe", "probe", execute)], events=bus
+            )
+        )
     assert isinstance(raised.value.__cause__, RuntimeError)
-    results = [message for message in history if isinstance(message, ToolResultMessage)]
+    results = [message for message in history if isinstance(message, api.ToolResultMessage)]
     assert [result.tool_call_id for result in results] == ["a", "b"]
     assert execute.await_count == (1 if at == "tool_execution_end" else 0)
     if at == "tool_execution_end":
-        assert results[0] == ToolResultMessage("a", "probe", "actual output")
+        assert results[0] == api.ToolResultMessage("a", "probe", "actual output")
     assert results[-1].is_error
 
 
-def test_turn_limit_has_final_event_without_claiming_success(loop):
-    bus = EventBus()
+def test_turn_limit_has_final_event_without_claiming_success(api):
+    bus = api.EventBus()
     seen = []
     bus.subscribe(seen.append)
-    model = ScriptedModel(AssistantMessage((ToolCall("a", "probe", {}),), "tool_use"))
-    with pytest.raises(TurnLimitError):
+    model = ScriptedModel(api.AssistantMessage((api.ToolCall("a", "probe", {}),), "tool_use"))
+    with pytest.raises(api.TurnLimitError):
         asyncio.run(
-            loop(
+            api.agent_loop(
                 [],
                 model=model,
-                tools=[Tool("probe", "probe", AsyncMock(return_value=ToolResult("ok")))],
+                tools=[api.Tool("probe", "probe", AsyncMock(return_value=api.ToolResult("ok")))],
                 max_turns=1,
                 events=bus,
             )
         )
     assert seen[-1]["type"] == "agent_end"
     assert seen[-2]["type"] == "turn_end"
+
+
+@pytest.fixture(params=["pi_code_agent", "tutorials.s04_events"])
+def api(request):
+    return load_runtime(request.param)

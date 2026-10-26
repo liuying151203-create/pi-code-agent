@@ -10,13 +10,15 @@ python -m tutorials.s02_tools.code
 
 脚本模型请求加法工具，参数是字符串 `"2"` 和 `"3"`。参数模型将它们转换为整数，处理函数实际相加，再把结果 `5` 交回模型。这个例子不请求网络。
 
+消息、工具、脚本模型及文件工具都保存在本目录；运行时不引用 s01 或 `src/`。来源标记说明哪些设计保持不变，后续修改不会自动传回本章。
+
 ## 定义和执行放在一起
 
 `Tool` 将名称、说明、参数模型和执行函数绑定在同一个对象里：
 
 ```python
 from pydantic import BaseModel
-from pi_code_agent import Tool, ToolResult
+from tutorials.s02_tools.tools import Tool, ToolResult
 
 
 class Inputs(BaseModel):
@@ -41,16 +43,16 @@ tool = Tool("add", "两个整数相加", add, Inputs)
 
 ## 一个实际文件工具
 
-正式包提供当前用到的只读 `read` 工具：
+本章 [file_tools.py](file_tools.py) 提供当前用到的只读 `read` 工具：
 
 ```python
 from pathlib import Path
-from pi_code_agent.file_tools import read_tool
+from tutorials.s02_tools.file_tools import read_tool
 
 tool = read_tool(Path("example_project/mini_app"))
 ```
 
-将它传给第一章的 `agent_loop(..., tools=[tool])` 即可，循环无需改动。`path` 指定文件，`offset` 是从 1 开始的行号，`limit` 最多 2000 行。实际返回受 50 KiB 限制，超限给出下一次 offset。
+将它传给本章的 `agent_loop(..., tools=[tool])` 即可，循环沿用 s01 的执行顺序。`path` 指定文件，`offset` 是从 1 开始的行号，`limit` 最多 2000 行。实际返回受 50 KiB 限制，超限给出下一次 offset。
 
 ```text
 参数模型 ──parameters──> Tool <──execute── 异步处理函数
@@ -69,7 +71,7 @@ python -m pytest tests/test_s02_tools.py
 
 ## 参考与差异
 
-参考 Pi `e4c75a732` 的工具定义、`packages/ai/src/utils/validation.ts` 和 `packages/agent/test/agent-loop.test.ts`，解决“定义给模型看了，执行时是否真的按定义检查”的问题。来源与许可见 [第三方归属](../../docs/third-party-notices.md)。
+参考 Pi `e4c75a732` 的工具定义、`packages/ai/src/utils/validation.ts` 和 `packages/agent/test/agent-loop.test.ts`，解决“定义给模型看了，执行时是否真的按定义检查”的问题。来源与许可见 本章 [NOTICE](NOTICE.md)。
 
 - 已对齐：声明与执行绑定，先校验副本再执行，失败带调用 ID 回传，不修改原始参数。
 - 本项目调整：Python 使用 Pydantic 同时生成 schema 和执行校验，转换细则与 TypeBox 有差异；read 保留本项目的工作区边界。嵌套校验与文件边界在本章测试中验证。

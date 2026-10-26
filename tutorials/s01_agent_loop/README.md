@@ -12,6 +12,8 @@ python -m tutorials.s01_agent_loop.code
 
 脚本模型先请求 `project_name`，工具返回当前目录名，然后模型用实际结果回答。这里故意使用可重复的脚本模型，便于先看清闭环；第三章再接入真实模型。
 
+本章的 `messages.py`、`model.py`、`tools.py`、`demo.py` 和 `errors.py` 都保存在本目录，后续修改 `src/` 不会改变它们。本章只有无参数工具，不包含 s02 的 Pydantic 参数模型或 s03 的用量字段。
+
 ## 循环怎样工作
 
 [code.py](code.py) 保留完整的 `async agent_loop()`：
@@ -28,13 +30,14 @@ python -m tutorials.s01_agent_loop.code
 
 ## 程序里怎样调用
 
-命令行和外部程序使用同一能力，正式包不导入教程：
+下面直接调用本章版本；正式产品接口见 [SDK 用法](../../docs/sdk.md)：
 
 ```python
 import asyncio
 from pathlib import Path
-from pi_code_agent import UserMessage, agent_loop
-from pi_code_agent.demo import DemoModel, project_name_tool
+from tutorials.s01_agent_loop.code import agent_loop
+from tutorials.s01_agent_loop.messages import UserMessage
+from tutorials.s01_agent_loop.demo import DemoModel, project_name_tool
 
 history = [UserMessage("当前项目叫什么？")]
 model = DemoModel()
@@ -60,8 +63,8 @@ python -m pytest tests/test_s01_loop.py
 
 ## 参考与差异
 
-参考 Pi `e4c75a732`（0.85.1）的 `packages/agent/README.md`、`packages/agent/src/agent-loop.ts` 及对应测试，其核心解决“模型请求工具后怎样继续运行”。来源与许可见 [第三方归属](../../docs/third-party-notices.md)。
+参考 Pi `e4c75a732`（0.85.1）的 `packages/agent/README.md`、`packages/agent/src/agent-loop.ts` 及对应测试，其核心解决“模型请求工具后怎样继续运行”。来源与许可见 本章 [NOTICE](NOTICE.md)。
 
 - 已对齐：独立工具结果、失败结束、截断调用拒绝执行；当前采用 Pi 支持的顺序执行方式，让执行顺序先看得见。
-- 本项目调整：返回更新后的全部历史，便于调用方直接继续使用；Pi 低层接口返回本次新增消息。两者都需要调用方管理历史。
+- 本项目调整：返回更新后的全部历史，便于调用方直接继续使用；Pi 低层接口返回本次新增消息。两者都需要调用方管理历史。本章只声明空参数 schema 并检查空对象，s02 才引入完整参数模型，不称为通用校验。
 - 暂缓：事件在 s04 加入，流式在 s05 加入；并行调度与后台运行控制编号待定，在对应章节再验证调度和取消语义。
