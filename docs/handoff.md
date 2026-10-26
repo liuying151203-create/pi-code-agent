@@ -6,7 +6,8 @@
 
 本节是最新实施状态，下方同日修订方向和 2026-10-22 快照保留作历史追溯。仍须检查实际 Git 与源码。
 
-- 当前 Git 基线为 `5f4416c`（Pi 对齐与教学原则），本轮 s18/s19 运行时、教程、测试和文档尚未提交；没有安装依赖或创建环境，复用 `..\zero2pi\.venv\Scripts\python.exe` 进行离线验证。
+- s18 已提交为 `7a2f320`，s19 已提交为 `5c108e9`；继续工作时重新检查 Git。实现阶段没有安装依赖或创建环境，复用 `..\zero2pi\.venv\Scripts\python.exe` 进行离线验证。
+- 用户最新要求：章节 README 要用通俗语言讲清设计，再给出简单测试方法；不堆接口清单、固定栏目或强制多张图。本轮据此重写 s18/s19 教程文字，运行时代码未改。
 - s18：`handler(args, ctx)`，`ctx.ui.notify`、`append_entry`、`send_message`、`send_user_message` 分别控制通知、私有状态、模型消息和回合触发。CommandResult 只表示命令处理状态，CommandEntry 只审计，不自动进入模型上下文。`display` 与 `trigger_turn` 独立；命令内触发在 handler 和审计完成后执行同一个 agent_loop。
 - `/help`、`/stats`、`/todos` 默认只通知用户。CustomEntry 保存 JSON 状态；CustomMessageEntry 仅投影 content，details 不发送模型。私有状态可在运行期间追加；模型忙时的消息投递仍明确拒绝，队列机制尚未实现。初版 command 失败记录仍可读作审计，不自动重发给模型。
 - s19：FlagRegistry 提供 boolean/string 声明、默认值、覆盖和帮助；ExtensionAPI 可先无运行时声明，再 bind_runtime 一次。CLI 两遍解析但扩展 register 只执行一次，错误参数和扩展帮助在创建 Provider/Session 前处理。SDK 使用 `extensions=` 与 `flag_values=`；默认构造后注册的未知参数在首条任务保存前拒绝。
