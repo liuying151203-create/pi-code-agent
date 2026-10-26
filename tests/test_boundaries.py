@@ -18,8 +18,10 @@ def test_production_imports_do_not_depend_on_tutorials_or_archive():
             assert not any(name.startswith(("archive", "tutorials")) for name in imports)
 
 
-def test_all_chapters_preserve_the_complete_product_loop():
-    paths = [ROOT / "src/pi_code_agent/loop.py"] + list((ROOT / "tutorials").glob("s*/code.py"))
+def test_early_chapters_preserve_the_pre_event_loop():
+    paths = [ROOT / "tutorials" / chapter / "code.py" for chapter in (
+        "s01_agent_loop", "s02_tools", "s03_models"
+    )]
     loops = []
     for path in paths:
         tree = ast.parse(path.read_text(encoding="utf-8"))
@@ -29,8 +31,19 @@ def test_all_chapters_preserve_the_complete_product_loop():
             if isinstance(node, ast.AsyncFunctionDef) and node.name == "agent_loop"
         )
         loops.append(ast.dump(ast.Module(body=loop.body[1:], type_ignores=[])))
-    assert len(loops) == 4
+    assert len(loops) == 3
     assert len(set(loops)) == 1
+
+
+def test_s04_preserves_the_complete_current_product_loop():
+    paths = [ROOT / "src/pi_code_agent/loop.py", ROOT / "tutorials/s04_events/code.py"]
+    loops = []
+    for path in paths:
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        loop = next(node for node in tree.body if isinstance(node, ast.AsyncFunctionDef)
+                    and node.name == "agent_loop")
+        loops.append(ast.dump(ast.Module(body=loop.body[1:], type_ignores=[])))
+    assert loops[0] == loops[1]
 
 
 def test_v1_archive_matches_every_original_file():

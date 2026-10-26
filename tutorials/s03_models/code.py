@@ -78,7 +78,8 @@ def main(arguments=None) -> int:
     """使用与正式入口相同的配置和模型组件，执行本章保留的循环。"""
     from pi_code_agent.cli import main as cli_main
 
-    return cli_main(arguments, loop=agent_loop)
+    # 来自 s03：保持；复用终端组装，但不启用 s04 新增的事件参数。
+    return cli_main(arguments, loop=agent_loop, use_events=False)
 
 
 if __name__ == "__main__":
