@@ -17,6 +17,9 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+# s02 修改：编辑算法与正式 SDK 共用，参考 Pi 的原文定位与整批校验。
+from pi_code_agent.editing import edit_text_file
+
 # ===== 来自 s01：消息类型与模型调用类型 =====
 # s02 保留 s01 的消息结构，并新增工具处理函数和分发器类型。
 
@@ -51,6 +54,9 @@ def run_bash(command: str) -> str:
     流程：在 WORKDIR 执行 → 合并标准输出与错误 → 截取/存档 → 报告退出状态。
     边界：超时 120 秒；预算限制回传内容，不是子进程沙箱或完整输出内存限制。
     """
+    # s02 修改：先校验模型参数类型，不能把 JSON 数组当作子进程 argv 执行。
+    if not isinstance(command, str):
+        return "Error: command must be a string"
     try:
         result = subprocess.run(
             command,
@@ -206,14 +212,17 @@ def run_write(path: str, content: str) -> str:
         return f"Error: {error}"
 
 
-def run_edit(path: str, old_text: str, new_text: str) -> str:
-    """在文件中替换第一次出现的精确文本。"""
+# s02 修改：兼容原单块接口，同时支持 Pi edits 批量替换，拒绝歧义后才写入。
+def run_edit(
+    path: str,
+    old_text: str | None = None,
+    new_text: str | None = None,
+    *,
+    edits: list[dict[str, str]] | None = None,
+) -> str:
+    """在工作区内编辑文件；输入替换列表，输出成功或错误文本，整批先校验再写入。"""
     try:
-        file_path = safe_path(path)
-        text = file_path.read_text(encoding="utf-8")
-        if old_text not in text:
-            return f"Error: text not found in {path}"
-        file_path.write_text(text.replace(old_text, new_text, 1), encoding="utf-8")
+        edit_text_file(safe_path(path), old_text, new_text, edits=edits)
         return f"Edited {path}"
     except (OSError, UnicodeError, ValueError) as error:
         return f"Error: {error}"
@@ -293,16 +302,27 @@ TOOLS = [
         },
     },
     {
+        # s02 修改：模型使用批量 edits，旧单块参数由处理函数兼容。
         "name": "edit_file",
-        "description": "Replace the first exact text occurrence in a workspace file.",
+        "description": "按原文件定位 edits 中的替换；每项 oldText 必须唯一且不重叠，整批校验通过才写入。",
         "input_schema": {
             "type": "object",
             "properties": {
                 "path": {"type": "string"},
-                "old_text": {"type": "string"},
-                "new_text": {"type": "string"},
+                "edits": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "oldText": {"type": "string", "minLength": 1},
+                            "newText": {"type": "string"},
+                        },
+                        "required": ["oldText", "newText"],
+                    },
+                },
             },
-            "required": ["path", "old_text", "new_text"],
+            "required": ["path", "edits"],
         },
     },
     {

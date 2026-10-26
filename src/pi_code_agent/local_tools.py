@@ -8,6 +8,8 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
+# s02 修改：实例后端与教程共用 Pi 风格编辑，路径及权限仍由本实例检查。
+from pi_code_agent.editing import edit_text_file
 from pi_code_agent.permissions import TOOLS, confirm_permission
 from pi_code_agent.sandbox_shared.workspace_access import is_protected_name
 from pi_code_agent.tools import _limit_shell_output, _read_file_window, _search_file
@@ -107,17 +109,25 @@ class LocalTools:
         target.write_text(content, encoding="utf-8")
         return f"Wrote {len(content)} characters to {path}"
 
-    def edit_file(self, path: str, old_text: str, new_text: str) -> str:
-        """保持首次精确替换的原有语义。"""
+    # s02 修改：整批定位、唯一匹配和格式保留同步用于正式 SDK。
+    def edit_file(
+        self,
+        path: str,
+        old_text: str | None = None,
+        new_text: str | None = None,
+        *,
+        edits: list[dict[str, str]] | None = None,
+    ) -> str:
+        """校验工作区路径后应用整批替换；输出成功文本，失败交给 dispatch 转成错误。"""
         target = self._path(path)
-        text = target.read_text(encoding="utf-8")
-        if old_text not in text:
-            return f"Error: text not found in {path}"
-        target.write_text(text.replace(old_text, new_text, 1), encoding="utf-8")
+        edit_text_file(target, old_text, new_text, edits=edits)
         return f"Edited {path}"
 
     def bash(self, command: str) -> str:
         """在宿主工作区运行 shell，权限入口已要求逐次确认。"""
+        # s02 修改：先校验模型参数类型，不能把 JSON 数组当作子进程 argv 执行。
+        if not isinstance(command, str):
+            return "Error: command must be a string"
         try:
             result = subprocess.run(
                 command,

@@ -168,3 +168,20 @@ def test_shell_nonzero_exit_is_reported_as_an_error(monkeypatch):
         lambda *args, **kwargs: SimpleNamespace(stdout="", stderr="invalid option", returncode=2),
     )
     assert chapter.run_bash("offline-command").startswith("Error: command exited with code 2")
+
+
+def test_shell_rejects_array_arguments_before_starting_a_process(tmp_path, monkeypatch):
+    from pi_code_agent import permissions, tools
+    from pi_code_agent.local_tools import LocalTools
+
+    called = []
+    monkeypatch.setattr(chapter.subprocess, "run", lambda *args, **kwargs: called.append(args))
+    backends = [
+        chapter.run_bash,
+        tools.run_bash,
+        permissions.run_bash,
+        LocalTools(tmp_path, "default").bash,
+    ]
+    for backend in backends:
+        assert backend(["must not run"]).startswith("Error:")
+    assert called == []

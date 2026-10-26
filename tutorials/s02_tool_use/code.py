@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """s02：工具调用与工具分发。
 
-本章保留 s01 的核心循环，只把“执行一个 bash 命令”扩展为：
+本章保留 s01 的核心循环，把单工具分发扩展为工具注册表：
 
     tool_name + tool_arguments -> TOOL_HANDLERS -> tool_result
 
@@ -22,6 +22,8 @@ from uuid import uuid4
 from anthropic import Anthropic
 from dotenv import load_dotenv
 
+# s02 修改：编辑算法与正式 SDK 共用，参考 Pi 的原文定位与整批校验。
+from pi_code_agent.editing import edit_text_file
 from pi_code_agent.model import ModelRequester
 from pi_code_agent.ui import (
     format_assistant_message,
@@ -55,7 +57,7 @@ SYSTEM = (
 )
 
 
-# ===== 来自 s01：bash 工具（保持） =====
+# ===== s02 修改：bash 工具增加输出预算与完整结果存档 =====
 
 
 def run_bash(command: str) -> str:
@@ -65,6 +67,9 @@ def run_bash(command: str) -> str:
     流程：在 WORKDIR 执行 → 合并标准输出与错误 → 截取/存档 → 报告退出状态。
     边界：超时 120 秒；预算限制回传内容，不是子进程沙箱或完整输出内存限制。
     """
+    # s02 修改：先校验模型参数类型，不能把 JSON 数组当作子进程 argv 执行。
+    if not isinstance(command, str):
+        return "Error: command must be a string"
     try:
         result = subprocess.run(
             command,
@@ -220,14 +225,17 @@ def run_write(path: str, content: str) -> str:
         return f"Error: {error}"
 
 
-def run_edit(path: str, old_text: str, new_text: str) -> str:
-    """在文件中替换第一次出现的精确文本。"""
+# s02 修改：兼容原单块接口，同时支持 Pi edits 批量替换，拒绝歧义后才写入。
+def run_edit(
+    path: str,
+    old_text: str | None = None,
+    new_text: str | None = None,
+    *,
+    edits: list[dict[str, str]] | None = None,
+) -> str:
+    """在工作区内编辑文件；输入替换列表，输出成功或错误文本，整批先校验再写入。"""
     try:
-        file_path = safe_path(path)
-        text = file_path.read_text(encoding="utf-8")
-        if old_text not in text:
-            return f"Error: text not found in {path}"
-        file_path.write_text(text.replace(old_text, new_text, 1), encoding="utf-8")
+        edit_text_file(safe_path(path), old_text, new_text, edits=edits)
         return f"Edited {path}"
     except (OSError, UnicodeError, ValueError) as error:
         return f"Error: {error}"
@@ -307,16 +315,27 @@ TOOLS = [
         },
     },
     {
+        # s02 修改：对齐 Pi 的原文件批量替换声明，旧单块调用仅作为兼容入口。
         "name": "edit_file",
-        "description": "Replace the first exact text occurrence in a workspace file.",
+        "description": "按原文件定位 edits 中的替换；每项 oldText 必须唯一且不重叠，整批校验通过才写入。",
         "input_schema": {
             "type": "object",
             "properties": {
                 "path": {"type": "string"},
-                "old_text": {"type": "string"},
-                "new_text": {"type": "string"},
+                "edits": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "oldText": {"type": "string", "minLength": 1},
+                            "newText": {"type": "string"},
+                        },
+                        "required": ["oldText", "newText"],
+                    },
+                },
             },
-            "required": ["path", "old_text", "new_text"],
+            "required": ["path", "edits"],
         },
     },
     {
@@ -376,6 +395,15 @@ def dispatch_tool(name: str, arguments: dict[str, Any]) -> str:
         return f"Error running {name}: {error}"
 
 
+# s02 新增：终端展示是独立职责；SDK 直接使用无打印的 dispatch_tool。
+def display_tool(name: str, arguments: dict[str, Any]) -> str:
+    """显示一次工具调用及结果，返回值保持与无界面分发器一致。"""
+    print(format_tool_call(name, arguments), flush=True)
+    output = dispatch_tool(name, arguments)
+    print(format_tool_result(output), flush=True)
+    return output
+
+
 # ===== 来自 s01：响应读取辅助（保持） =====
 
 
@@ -386,8 +414,8 @@ def _get(block: Any, name: str) -> Any:
     return getattr(block, name, None)
 
 
-# ===== 来自 s01：核心循环；s02 修改工具执行入口 =====
-# 与 lcc 只把 bash 替换为查表调用的写法一致；s02 额外保留 dispatch 注入，便于测试和复用。
+# ===== 来自 s01：核心循环保持，s02 注入多工具分发器 =====
+# 来自 s01：保持；参考 Pi 顺序工具模式，新增工具只改变目录与分发器。
 
 
 def agent_loop(
@@ -401,8 +429,7 @@ def agent_loop(
 ) -> list[Message]:
     """运行支持多个工具的 Agent 循环。
 
-    作用：在 s01 的基础上，把固定的 `run_bash(command)` 替换成通用的
-    `dispatch(tool_name, arguments)`，让模型可以选择不同工具并传入各自参数。
+    作用：复用 s01 的 dispatch 调用契约，本章通过注册表提供多个工具。
 
     输入：
         messages：已有消息历史，会原地追加 assistant 和 tool_result 消息。
@@ -416,17 +443,21 @@ def agent_loop(
         返回包含完整执行过程的消息历史。模型不再返回 `tool_use` 时结束。
 
     流程：模型响应 → 提取所有工具调用 → 按原始顺序分发 → 追加工具结果
-    → 再次请求模型。核心 while 循环与 s01 相同，新增逻辑集中在分发器。
+    → 再次请求模型。核心循环与 s01 相同，新增逻辑集中在分发器。
     """
+    # 来自 s01：保持；None 才使用默认目录，显式空列表不会扩大能力。
+    active_tools = TOOLS if tools is None else tools
     while True:
         response = create_message(
             system=system,
             messages=messages,
-            tools=tools or TOOLS,
+            tools=active_tools,
             max_tokens=max_tokens,
         )
         messages.append({"role": "assistant", "content": response.content})
-
+        # 来自 s01：保持；参考 Pi runLoop，模型失败时停止，不执行失败回答里的工具。
+        if _get(response, "stop_reason") in {"error", "aborted"}:
+            raise RuntimeError("模型返回失败或取消，已停止任务")
         tool_calls = [block for block in response.content if _get(block, "type") == "tool_use"]
         if not tool_calls:
             return messages
@@ -434,19 +465,29 @@ def agent_loop(
         results: list[dict[str, Any]] = []
         for block in tool_calls:
             name = _get(block, "name")
-            arguments = _get(block, "input") or {}
-            print(format_tool_call(name, arguments), flush=True)
-            # s02 修改：相对 s01，工具执行从固定 bash 改为名称和参数分发。
-            output = dispatch(name, arguments)
-            print(format_tool_result(output), flush=True)
+            arguments = _get(block, "input")
+            if arguments is None:
+                arguments = {}
+            # 来自 s01：保持；对齐 Pi 的声明查找、错误回传及不执行截断调用的边界。
+            if _get(response, "stop_reason") in {"max_tokens", "length"}:
+                output = "Error: tool call was truncated; retry with a complete call"
+            elif name not in {tool["name"] for tool in active_tools}:
+                output = f"Error: unknown tool: {name}"
+            elif not isinstance(arguments, dict):
+                output = "Error: tool arguments must be an object"
+            else:
+                try:
+                    output = dispatch(name, arguments)
+                except Exception as error:  # noqa: BLE001 - 来自 s01：普通工具失败回传模型
+                    output = f"Error: {error}"
             results.append(
                 {
                     "type": "tool_result",
                     "tool_use_id": _get(block, "id"),
                     "content": output,
+                    "is_error": output.startswith("Error:"),
                 }
             )
-
         messages.append({"role": "user", "content": results})
 
 
@@ -518,7 +559,7 @@ def main() -> None:
             agent_loop(
                 history,
                 create_message=requester,
-                dispatch=dispatch_tool,
+                dispatch=display_tool,
                 system=SYSTEM,
             )
         except RuntimeError as error:
