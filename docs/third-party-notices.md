@@ -1,10 +1,10 @@
-# 第三方代码归属
+# 第三方来源与许可
 
-s01/s02 的循环边界与工具编辑、s18 的命令动作、扩展记录与模型投影，及 s19 的扩展参数机制，参考并按 Python 同步运行时移植 Pi 的设计和部分控制流程。参考仓库为 https://github.com/earendil-works/pi，本地提交 `e4c75a732`（包版本 0.85.1）。
+参考 Pi 本地提交 `e4c75a732`，coding-agent 包版本 0.85.1。核心循环、工具参数校验顺序和消息转换流程按 Python 异步生态移植并重新实现。参考入口：`packages/agent/src/agent-loop.ts`、`packages/ai/src/types.ts`、`utils/validation.ts`、`api/anthropic-messages.ts`、`api/openai-completions.ts` 及相关测试。
 
-s01/s02 对照 `packages/agent/src/agent-loop.ts`、`packages/agent/src/harness/tools/edit-diff.ts`、`edit.ts`、`bash.ts`、`coding-agent/src/core/tools/` 及相关测试。`src/pi_code_agent/editing.py` 是编辑定位与未修改行保留流程的 Python 移植；使用同步 I/O、沿用旧单块参数兼容入口，不包含 Pi 的 diff 展示与文件修改队列。循环保留顺序执行，使用 Anthropic 消息格式。
+保留顺序执行、独立工具结果角色、失败结束与截断调用拒绝；Python 使用 Pydantic 参数模型，当前只提供文本与客户端函数工具，未移植事件流、并行调度或完整模型能力。SDK 返回追加后的全部历史，区别于 Pi 低层循环返回本次新增消息的方式。后续迁移按中文章节明确记录差异，不把本轮当作完整复刻。
 
-对应源码：`core/extensions/types.ts`、`loader.ts`、`agent-session.ts`、`session-manager.ts`、`messages.ts`、`cli/args.ts`。本项目新增命令审计、Python 类型校验与同步调度边界；具体差异见各章 README。保留以下 Pi 许可声明，不代表本项目其余代码自动变更许可证。
+以下 Pi MIT 声明适用于相关复用与移植部分，不代表归档之外的全部原创内容另行更换许可。
 
 ```text
 MIT License

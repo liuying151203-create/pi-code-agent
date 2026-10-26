@@ -1,79 +1,67 @@
-# s01：Agent 的核心循环
+# s01：异步核心循环
 
-这一章实现一个能调用工具的 Agent。模型决定下一步做什么，程序执行工具，再把结果交还模型；模型给出最终回答后结束。
+模型会提出“调用工具”，但需要程序替它执行，再把结果交回去。这一章把这个过程连起来：模型决定下一步，循环负责执行，模型不再请求工具时结束。
 
-## 运行
+## 先运行一次
 
-先按根目录 [README](../../README.md) 配好 Python 环境和 `.env`。本章使用 Anthropic Messages 接口，需要 `ANTHROPIC_API_KEY` 和 `MODEL_ID`。
+在配置好根目录 Python 环境后执行，不需要模型密钥：
 
 ```powershell
 python -m tutorials.s01_agent_loop.code
 ```
 
-可以输入“用 echo 输出 hello”，观察一次工具调用，再输入“你好”，观察直接回答。输入 `q` 退出。本章的 bash 工具在 Windows 上实际使用 cmd.exe；它直接运行模型生成的命令，请选择练习项目，权限控制在 s03 讲解。
+脚本模型先请求 `project_name`，工具返回当前目录名，然后模型用实际结果回答。这里故意使用可重复的脚本模型，便于先看清闭环；第三章再接入真实模型。
 
-## 循环为什么能完成任务
+## 循环怎样工作
 
-一次普通模型请求只返回一个回答。Agent 遇到工具调用时还要继续：
+[code.py](code.py) 保留完整的 `async agent_loop()`：
 
 ```text
-用户任务 → 模型 → 工具调用 → 执行工具 → 回传结果 → 再次请求模型
+用户消息 → await model.complete → 工具调用 → await execute_tool → 工具结果 → 再请求模型
 ```
 
-在 [code.py](code.py) 中，`agent_loop()` 每轮做四件事：
+用户输入、模型回答和工具结果分别是 `UserMessage`、`AssistantMessage` 和 `ToolResultMessage`。工具结果带着原调用 ID，因此模型知道它对应哪一次请求。这些内部消息不使用 Anthropic 或 OpenAI 的专属字段。
 
-1. 把已有消息和工具定义交给 `create_message()`。
-2. 把模型回答加入历史。回答里没有 `tool_use`，就返回。
-3. 有工具调用时，把工具名和参数交给 `dispatch()`，逐个执行。
-4. 用原来的调用 ID 生成 `tool_result`，加入历史，回到第一步。
+循环先保存模型回答，再看有没有 `ToolCall`。没有就返回；有则按顺序执行，把整批工具结果交给下一次模型请求。模型失败或取消时直接结束；回答因额度被截断时，其中的工具调用不会执行。
 
-调用 ID 把结果与请求对应起来。模型看到命令输出后，才能判断任务是否完成，或者继续选择工具。一轮回答中的多个工具按原顺序执行，整批结果一起回传。
+工具失败会成为 `is_error=True` 的结果，让模型选择修正。正文恰好以 `Error:` 开头也可以是成功，程序不再从文字猜状态。
 
-`TOOLS` 只是告诉模型有哪些工具，不会执行命令。循环会检查工具名是否在本次目录中，再调用实际执行函数。未知工具、参数不是对象、命令失败都会作为带 `is_error` 的工具结果回传，让模型根据错误修正。模型自身失败或取消则停止；输出被截断时，其中的工具调用不会执行。
+## 程序里怎样调用
 
-## 作为 SDK 调用
-
-循环不读取 `.env`，也不自己创建模型客户端。`main()` 负责组装依赖并接收终端输入，外部程序通过正式包使用同样的调用方式：
+命令行和外部程序使用同一能力，正式包不导入教程：
 
 ```python
+import asyncio
 from pathlib import Path
-from pi_code_agent import agent_loop
-from pi_code_agent.local_tools import LocalTools
+from pi_code_agent import UserMessage, agent_loop
+from pi_code_agent.demo import DemoModel, project_name_tool
 
-backend = LocalTools(Path.cwd(), mode="default")
-history = [{"role": "user", "content": "用 echo 输出 hello"}]
-agent_loop(
-    history,
-    create_message=requester,
-    dispatch=backend.dispatch,
-    system="你是编程助手，任务完成后停止。",
-    tools=[tool for tool in backend.tools if tool["name"] == "bash"],
-)
+history = [UserMessage("当前项目叫什么？")]
+model = DemoModel()
+tool = project_name_tool(Path.cwd())
+asyncio.run(agent_loop(history, model=model, tools=[tool]))
+print(history[-1])
 ```
-
-这里的 `requester` 由调用方提供，接收 `system/messages/tools/max_tokens`，返回含 `content` 和 `stop_reason` 的模型响应；本章 `main()` 使用 `ModelRequester` 组装它。`history` 会原地追加消息，也是返回值。SDK 本身不打印结果，界面由调用方负责。
-
-依赖关系就是：
 
 ```text
-模型请求函数 ──create_message──> agent_loop <──dispatch── 工具执行器
-工具定义列表 ─────tools────────> agent_loop
+DemoModel ──model──> agent_loop <──tools── Tool
+消息列表 ──messages──> agent_loop
 ```
 
-教程保留完整循环便于阅读；正式 SDK 使用 `src/pi_code_agent/loop.py` 中的产品循环，不导入教程。Hooks、观察者和保存回调按后续章节需要加入；本章无需先学习或组装它们。
+循环原地追加并返回同一份历史，不读取 `.env`、不打印、不保存文件。默认不限制轮数；显式传 `max_turns` 才限制。原生协程取消会向上传播，并补齐未完成的工具结果；完整的后台执行取消在后续运行控制章节展开，编号待定。
 
 ## 测试
 
-在项目根目录执行，不需要 API Key：
-
 ```powershell
-python -m pytest tests/test_s01_agent_loop.py
+python -m pytest tests/test_s01_loop.py
 ```
 
-测试模拟“模型先调用工具、再回答”的过程，并检查结果确实回到下一次请求、未知或截断调用不会执行、显式空工具列表不会被默认工具替换。相同边界同时验证教程和正式 SDK。
+测试同时验证正式接口和教程循环：结果进入下一次请求、顺序执行、错误与截断处理、取消传播以及显式轮数保护。
 
 ## 参考与差异
 
-参考本地 Pi `e4c75a732`（0.85.1）的 [agent-core README](../../../pi/packages/agent/README.md)、`packages/agent/src/agent-loop.ts` 和 `test/agent-loop.test.ts`。Pi 将循环、模型请求和工具实现分开，本章沿用这种分工。
+参考 Pi `e4c75a732`（0.85.1）的 `packages/agent/README.md`、`packages/agent/src/agent-loop.ts` 及对应测试，其核心解决“模型请求工具后怎样继续运行”。来源与许可见 [第三方归属](../../docs/third-party-notices.md)。
 
-已对齐工具名查找、调用 ID 对应、工具错误回传、失败停止和截断调用不执行。当前选用 Pi 支持的顺序执行方式，使用 Python/Anthropic 消息格式；没有声称对齐 Pi 默认的并行执行。完整 schema 校验待 s03 修订接入，事件流和流式模型请求分别在 s08/s09 展开，并行及运行中取消编号待定。工具输出预算在 s02 加入。来源与 MIT 许可见 [第三方归属](../../docs/third-party-notices.md)。
+- 已对齐：独立工具结果、失败结束、截断调用拒绝执行；当前采用 Pi 支持的顺序执行方式，让执行顺序先看得见。
+- 本项目调整：返回更新后的全部历史，便于调用方直接继续使用；Pi 低层接口返回本次新增消息。两者都需要调用方管理历史。
+- 暂缓：事件在 s04 加入，流式在 s05 加入；并行调度与后台运行控制编号待定，在对应章节再验证调度和取消语义。

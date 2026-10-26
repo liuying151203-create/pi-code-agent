@@ -1,1 +1,1 @@
-"""Chapter 01: the smallest useful agent loop."""
+"""第一章：异步核心循环。"""

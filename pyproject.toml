@@ -1,17 +1,18 @@
 [build-system]
-requires = ["setuptools>=69"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "pi-code-agent"
-version = "0.1.0"
+version = "0.2.0"
 description = "A Pi-inspired Python coding agent and reusable agent harness."
 readme = "README.md"
+license-files = ["docs/third-party-notices.md"]
 requires-python = ">=3.12"
-dependencies = ["anthropic>=0.25.0", "openai>=1.0.0", "python-dotenv>=1.0.0", "pyyaml>=6.0"]
+dependencies = ["anthropic>=0.25.0", "openai>=1.0.0", "python-dotenv>=1.0.0", "pydantic>=2.0"]
 
 [project.optional-dependencies]
-dev = ["pytest>=8.0", "ruff>=0.9.0", "setuptools>=69", "wheel>=0.43"]
+dev = ["pytest>=8.0", "ruff>=0.9.0", "setuptools>=77", "wheel>=0.43"]
 
 [project.scripts]
 pi-code-agent = "pi_code_agent.cli:main"
@@ -25,10 +26,9 @@ namespaces = false
 testpaths = ["tests"]
 pythonpath = ["src", ".", "tests"]
 addopts = "-q"
+norecursedirs = ["archive", ".sessions", ".git", ".venv"]
 
 [tool.ruff]
 line-length = 100
 target-version = "py312"
-
-[tool.ruff.lint.per-file-ignores]
-"src/pi_code_agent/runtime.py" = ["F401"]
+extend-exclude = ["archive", ".sessions"]

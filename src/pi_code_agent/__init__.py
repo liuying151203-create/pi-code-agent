@@ -1,37 +1,40 @@
-"""受 Pi 启发、使用 Python 独立实现的 Agent 与 Harness；非官方项目。"""
+"""从功能实现时就提供的公开异步接口，不导入教学或归档实现。"""
 
-from pi_code_agent.agent import Agent, create_agent
-from pi_code_agent.commands import CommandContext, CommandResult
+from pi_code_agent.config import ModelConfig, load_model_config
+from pi_code_agent.loop import TurnLimitError, agent_loop
+from pi_code_agent.messages import (
+    AssistantMessage,
+    Message,
+    Text,
+    ToolCall,
+    ToolResultMessage,
+    Usage,
+    UserMessage,
+)
+from pi_code_agent.model import Model, ToolDefinition
+from pi_code_agent.providers import AnthropicModel, OpenAIModel, ProviderError, create_model
+from pi_code_agent.tools import NoArguments, Tool, ToolResult
 
-# s17 新增：SDK 调用方可以直接构造配置，不必经由进程环境。
-from pi_code_agent.config import ModelConfig, RunConfig
-from pi_code_agent.events import AgentEvent, EventDispatcher
-from pi_code_agent.extension_entries import CustomEntry, CustomMessageEntry
-from pi_code_agent.hooks import Hooks
-from pi_code_agent.loop import agent_loop
-from pi_code_agent.models import ModelProvider, ModelResponse, ModelUsage
-from pi_code_agent.registry import ExtensionAPI
-from pi_code_agent.result import ToolResult
-from pi_code_agent.session import SessionManager
-
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 __all__ = [
-    "Agent",
-    "AgentEvent",
-    "CommandContext",
-    "CommandResult",
-    "CustomEntry",
-    "CustomMessageEntry",
-    "EventDispatcher",
-    "ExtensionAPI",
-    "Hooks",
+    "AnthropicModel",
+    "AssistantMessage",
+    "Message",
+    "Model",
     "ModelConfig",
-    "ModelProvider",
-    "ModelResponse",
-    "ModelUsage",
-    "RunConfig",
-    "SessionManager",
+    "NoArguments",
+    "OpenAIModel",
+    "ProviderError",
+    "Text",
+    "Tool",
+    "ToolCall",
+    "ToolDefinition",
     "ToolResult",
+    "ToolResultMessage",
+    "TurnLimitError",
+    "Usage",
+    "UserMessage",
     "agent_loop",
-    "create_agent",
+    "create_model",
+    "load_model_config",
 ]

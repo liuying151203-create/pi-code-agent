@@ -1,31 +1,31 @@
 # Pi Code Agent
 
-参考 Pi 设计、使用 Python 独立实现的编码 Agent 与可复用 Harness，提供模型接入、工具、会话、上下文管理和扩展机制；非 Pi 官方项目。
+参考 Pi 设计、使用 Python 实现的异步 Agent 与可复用 Harness；当前新主线完成前三章。
 
-## 配置与运行
+## 环境与首次运行
 
-以下命令由你手动执行；首次安装可能下载依赖：
+以下环境和安装命令由你手动执行：
 
 ```powershell
-# 进入项目，创建并激活独立环境
-cd D:\dev\Agent\pi-code-agent
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
-# 安装正式包及测试工具，创建本地模型配置
 python -m pip install -e ".[dev]"
 Copy-Item .env.example .env
-# 填写启动目录 .env 的模型、密钥和实际上下文容量后启动；进程环境优先，默认只读
-python -m pi_code_agent --workspace .
-# 宿主写操作逐次确认；不等于 OS 沙箱
-python -m pi_code_agent --workspace . --mode default
-# 显式加载可信 Todo 扩展
-python -m pi_code_agent --extension pi_code_agent.extensions.todo
-# 离线测试、规范检查和构建（构建不安装新依赖）
+# 无密钥离线运行
+python -m pi_code_agent --demo --workspace example_project/mini_app --prompt "读取 README.md"
+# 在 .env 填写模型与密钥后，使用真实模型
+python -m pi_code_agent --workspace example_project/mini_app
+```
+
+## 开发命令
+
+```powershell
 python -m pytest
-python -m ruff check src tests tutorials
+python -m ruff check src tests tutorials examples
+python -m ruff format --check src tests tutorials examples
 python -m pip wheel --no-deps --no-build-isolation -w dist .
 ```
 
-`src/pi_code_agent/` 是正式实现，`tutorials/` 保存 s01–s17 的完整渐进教程，`tests/` 包含教程回归与 SDK 测试。正式包不导入教程。
+`src/` 是正式实现，`tutorials/` 是中文教学快照，`tests/` 是新主线测试，`examples/` 是 SDK 示例，`example_project/` 是独立练习项目。旧版完整保存在 `archive/v1/`，不参与新包导入、构建或默认测试。
 
-外部产品的接入和组件关系见 [SDK](docs/sdk.md)；拆分范围与手动环境步骤见 [迁移说明](docs/migration.md)。
+从 [教程](tutorials/README.md) 开始；接口见 [SDK 用法](docs/sdk.md)，旧版说明见 [归档](archive/README.md)。
