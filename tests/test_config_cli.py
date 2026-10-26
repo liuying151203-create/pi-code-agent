@@ -7,6 +7,7 @@ import pytest
 
 from pi_code_agent import ModelConfig, cli, load_model_config
 from tutorials.s03_models import code as chapter
+from tutorials.s04_events import code as event_chapter
 
 
 @pytest.mark.parametrize(
@@ -55,18 +56,46 @@ def test_help_and_demo_do_not_create_model_or_load_credentials(tmp_path, monkeyp
     forbidden.assert_not_called()
 
 
-def test_chapter_entry_runs_its_own_complete_loop(tmp_path, monkeypatch):
+@pytest.mark.parametrize("module", [chapter, event_chapter], ids=["s03", "s04"])
+def test_chapter_entry_runs_its_own_complete_loop(tmp_path, monkeypatch, module):
     (tmp_path / "README.md").write_text("project", encoding="utf-8")
-    original = chapter.agent_loop
+    original = module.agent_loop
     calls = []
 
     async def recorded(*args, **kwargs):
         calls.append(True)
         return await original(*args, **kwargs)
 
-    monkeypatch.setattr(chapter, "agent_loop", recorded)
-    assert chapter.main(["--demo", "--workspace", str(tmp_path), "--prompt", "read"]) == 0
+    monkeypatch.setattr(module, "agent_loop", recorded)
+    assert module.main(["--demo", "--workspace", str(tmp_path), "--prompt", "read"]) == 0
     assert calls == [True]
+
+
+def test_cli_displays_progress_before_tool_finishes_without_replaying_results(
+    tmp_path, monkeypatch, capsys
+):
+    from dataclasses import replace
+
+    (tmp_path / "README.md").write_text("actual file", encoding="utf-8")
+    real_factory = cli.read_tool
+    observed = []
+
+    def checked_reader(workspace):
+        reader = real_factory(workspace)
+
+        async def execute(arguments):
+            output = capsys.readouterr().out
+            observed.append("[read 开始]" in output and "actual file" not in output)
+            return await reader.execute(arguments)
+
+        return replace(reader, execute=execute)
+
+    monkeypatch.setattr(cli, "read_tool", checked_reader)
+    assert cli.main(["--demo", "--workspace", str(tmp_path), "--prompt", "read"]) == 0
+    assert observed == [True]
+    output = capsys.readouterr().out
+    assert output.count("[read 结果]") == 1
+    assert "actual file" in output
 
 
 def test_missing_config_is_reported_cleanly(tmp_path, monkeypatch, capsys):

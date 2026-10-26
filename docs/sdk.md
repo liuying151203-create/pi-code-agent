@@ -40,3 +40,9 @@ history = asyncio.run(run())
 SDK 不自动读取 `.env`。如有需要，调用 `load_model_config(明确路径, environ=映射)` 后显式使用配置。客户端由 Provider 创建时，在异步上下文退出时关闭；注入的客户端由调用方管理。
 
 消息格式、工具参数模型和两种协议的转换分别见 [s01](../tutorials/s01_agent_loop/README.md)、[s02](../tutorials/s02_tools/README.md)、[s03](../tutorials/s03_models/README.md)。
+
+## 观察运行进度
+
+使用 `EventBus.subscribe(listener)` 注册同步或异步订阅器，再通过 `agent_loop(..., prompts=[新输入], events=events)` 运行；已有历史放在第一个参数中，不会重播。订阅器按顺序等待，`agent_end.messages` 仅包含本次新增消息，函数返回值仍是全部历史。
+
+完整可运行示例见 [events_sdk.py](../examples/events_sdk.py)，设计和失败边界见 [s04](../tutorials/s04_events/README.md)。事件是观察数据，不会自动保存或加入模型上下文；回调得到独立副本。HTTP/协议异常会先追加失败消息并通知，再继续抛出原异常；订阅器异常使用 `EventListenerError` 单独报告，不保证后续事件完整。

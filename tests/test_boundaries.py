@@ -19,9 +19,10 @@ def test_production_imports_do_not_depend_on_tutorials_or_archive():
 
 
 def test_early_chapters_preserve_the_pre_event_loop():
-    paths = [ROOT / "tutorials" / chapter / "code.py" for chapter in (
-        "s01_agent_loop", "s02_tools", "s03_models"
-    )]
+    paths = [
+        ROOT / "tutorials" / chapter / "code.py"
+        for chapter in ("s01_agent_loop", "s02_tools", "s03_models")
+    ]
     loops = []
     for path in paths:
         tree = ast.parse(path.read_text(encoding="utf-8"))
@@ -40,8 +41,11 @@ def test_s04_preserves_the_complete_current_product_loop():
     loops = []
     for path in paths:
         tree = ast.parse(path.read_text(encoding="utf-8"))
-        loop = next(node for node in tree.body if isinstance(node, ast.AsyncFunctionDef)
-                    and node.name == "agent_loop")
+        loop = next(
+            node
+            for node in tree.body
+            if isinstance(node, ast.AsyncFunctionDef) and node.name == "agent_loop"
+        )
         loops.append(ast.dump(ast.Module(body=loop.body[1:], type_ignores=[])))
     assert loops[0] == loops[1]
 

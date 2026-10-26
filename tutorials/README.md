@@ -5,5 +5,6 @@
 1. [s01：异步核心循环](s01_agent_loop/README.md)：工具结果为什么要交回模型。
 2. [s02：工具契约与参数校验](s02_tools/README.md)：定义和执行怎样保持一致。
 3. [s03：统一模型接口](s03_models/README.md)：换模型协议为什么不用重写循环。
+4. [s04：运行事件与订阅](s04_events/README.md)：怎样观察运行进度，并等待订阅器完成。
 
-下一章 s04 事件与订阅，随后 s05 流式响应。旧版教程完整保存在 [archive/v1](../archive/README.md)。
+下一章 s05 流式响应。旧版教程完整保存在 [archive/v1](../archive/README.md)。

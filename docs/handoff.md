@@ -1,5 +1,32 @@
 # 新主线交接
 
+## 当前进度：s04（2026-10-27）
+
+已完成 s04 运行事件与订阅。Pi 仍对齐 `e4c75a732`（0.85.1），新增参考 `packages/agent/src/types.ts`、`agent-loop.ts`、`agent.ts` 及对应测试。工作开始时本项目 HEAD 为 `9d2f925`；期间检测到用户新增提交 `9ec6770`，保留该提交继续完成剩余工作，代理未执行提交。
+
+正式 SDK 新增 `AgentEvent`、`EventBus`、`EventListener`、`EventListenerError`；`agent_loop` 新增可选的 `prompts` 和 `events`。已有历史不重播，八种非增量事件按 Pi 顺序发送，异步订阅器按注册顺序等待，末事件的等待也属于运行完成条件。`agent_end.messages` 只含本次新增消息，函数返回仍为全部历史。观察副本隔离、订阅表变更从下个事件生效，是明确记录的 Python 调整。
+
+终端默认通过订阅显示工具开始和完整消息，s03 入口明确使用无事件模式；s01–s03 保留各自循环，s04 快照与当前正式循环做结构一致性校验。新参数均可省略，旧 SDK 示例继续可用。HTTP/契约失败先追加失败消息并通知，再抛原异常；原生取消补齐未完成工具结果并传播。订阅器失败单独抛错，不承诺余下通知完整；二次取消也可以打断通知。工具结果在观察者处理前保存，避免丢失实际执行结果。
+
+最终新主线 **106 passed**，Ruff 检查与格式检查通过；离线 SDK 示例、s04 入口、s03 入口及正式 CLI 均实际运行。测试包含冻结归档哈希核验，无须重复运行未修改的旧版测试。新增回归问题 V2-B002 已记录到 bug-log.md。没有安装依赖、初始化环境或请求真实模型。
+
+实际测试命令如下；再次运行须换成尚不存在的随机专用临时目录：
+
+```powershell
+..\zero2pi\.venv\Scripts\python.exe -B -m pytest --basetemp D:\dev\Agent\pi-code-agent\.sessions\s04-8a04fefc -p no:cacheprovider --tb=short
+..\zero2pi\.venv\Scripts\python.exe -B -m ruff check --no-cache src tests tutorials examples example_project
+..\zero2pi\.venv\Scripts\python.exe -B -m ruff format --check --no-cache src tests tutorials examples example_project
+$env:PYTHONPATH = 'src;.'
+..\zero2pi\.venv\Scripts\python.exe -B examples/events_sdk.py
+..\zero2pi\.venv\Scripts\python.exe -B -m tutorials.s04_events.code --demo --workspace example_project/mini_app --prompt '读取 README.md'
+..\zero2pi\.venv\Scripts\python.exe -B -m tutorials.s03_models.code --demo --workspace example_project/mini_app --prompt '读取 README.md'
+..\zero2pi\.venv\Scripts\python.exe -B -m pi_code_agent --demo --workspace example_project/mini_app --prompt '读取 README.md'
+```
+
+下一章 s05 仅增加供应商文本流和 `message_update`，让终端逐段展示，同时保留完整回答；不提前加入工具增量、并行调度、队列和有状态 Agent 外壳。
+
+## 前三章重写记录（2026-10-26）
+
 2026-10-26，用户确认将旧内容归档，重新编写课程，先完成前三章。原基线是 `8a99dc7`。旧版 180 个受版本管理文件保存在 `archive/v1/`，哈希记录在 `archive/v1-manifest.json`；归档不包含密钥、环境和运行数据。
 
 新主线当前是 0.2.0，位于 `src/pi_code_agent/`，公开异步 `agent_loop`、统一消息、Tool/ToolResult、参数模型、ModelConfig 及两种 Provider。当前 API 与旧同步版不同，旧 Agent、会话、Todo、沙箱等仍在归档，尚未迁入新实现；不得从新源码导入归档来假装已经接通。

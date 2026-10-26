@@ -63,6 +63,14 @@ async def agent_loop(
             response = await model.complete(
                 system=system, messages=tuple(messages), tools=definitions, max_tokens=max_tokens
             )
+            # s04 修改：原有响应校验纳入模型边界，坏返回值也要结束失败回合。
+            if not isinstance(response, AssistantMessage):
+                raise TypeError("模型必须返回 AssistantMessage")
+            calls = [block for block in response.content if isinstance(block, ToolCall)]
+            if response.stop_reason not in {"error", "aborted"} and len(
+                {call.id for call in calls}
+            ) != len(calls):
+                raise ValueError("模型返回重复的工具调用 ID，已停止执行")
         except (Exception, asyncio.CancelledError) as error:
             reason = "aborted" if isinstance(error, asyncio.CancelledError) else "error"
             failure = AssistantMessage((), reason, error_message=str(error) or "运行已取消")
@@ -72,14 +80,6 @@ async def agent_loop(
             await events.emit({"type": "turn_end", "message": failure, "tool_results": []})
             await events.emit({"type": "agent_end", "messages": messages[start:]})
             raise
-        # 来自 s01：保持；响应类型和调用 ID 在工具执行前检查。
-        if not isinstance(response, AssistantMessage):
-            raise TypeError("模型必须返回 AssistantMessage")
-        calls = [block for block in response.content if isinstance(block, ToolCall)]
-        if response.stop_reason not in {"error", "aborted"} and len(
-            {call.id for call in calls}
-        ) != len(calls):
-            raise ValueError("模型返回重复的工具调用 ID，已停止执行")
         messages.append(response)
         tool_results: list[ToolResultMessage] = []
         tool_started = False
@@ -91,8 +91,12 @@ async def agent_loop(
                 for call in calls:
                     tool_started = True
                     await events.emit(
-                        {"type": "tool_execution_start", "tool_call_id": call.id,
-                         "tool_name": call.name, "args": call.arguments}
+                        {
+                            "type": "tool_execution_start",
+                            "tool_call_id": call.id,
+                            "tool_name": call.name,
+                            "args": call.arguments,
+                        }
                     )
                     # 来自 s01：保持；截断请求整批拒绝，普通失败由 execute_tool 回传。
                     if response.stop_reason == "length":
@@ -106,16 +110,28 @@ async def agent_loop(
                     tool_results.append(result)
                     tool_started = False
                     await events.emit(
-                        {"type": "tool_execution_end", "tool_call_id": call.id,
-                         "tool_name": call.name, "result": ToolResult(result.content, result.is_error),
-                         "is_error": result.is_error}
+                        {
+                            "type": "tool_execution_end",
+                            "tool_call_id": call.id,
+                            "tool_name": call.name,
+                            "result": ToolResult(result.content, result.is_error),
+                            "is_error": result.is_error,
+                        }
                     )
                     await events.emit({"type": "message_start", "message": result})
                     await events.emit({"type": "message_end", "message": result})
         except (Exception, asyncio.CancelledError) as error:
             # s04 修改：新增的等待点也可能被取消/观察者中断；先同步补齐全部未完成调用。
-            pending = calls[len(tool_results):] if response.stop_reason not in {"error", "aborted"} else []
-            reason = "工具执行已取消" if isinstance(error, asyncio.CancelledError) else "运行已中断，工具未完成"
+            pending = (
+                calls[len(tool_results) :]
+                if response.stop_reason not in {"error", "aborted"}
+                else []
+            )
+            reason = (
+                "工具执行已取消"
+                if isinstance(error, asyncio.CancelledError)
+                else "运行已中断，工具未完成"
+            )
             unfinished = [ToolResultMessage(call.id, call.name, reason, True) for call in pending]
             messages.extend(unfinished)
             tool_results.extend(unfinished)
@@ -124,17 +140,27 @@ async def agent_loop(
                 for index, (call, result) in enumerate(zip(pending, unfinished, strict=True)):
                     if index or not tool_started:
                         await events.emit(
-                            {"type": "tool_execution_start", "tool_call_id": call.id,
-                             "tool_name": call.name, "args": call.arguments}
+                            {
+                                "type": "tool_execution_start",
+                                "tool_call_id": call.id,
+                                "tool_name": call.name,
+                                "args": call.arguments,
+                            }
                         )
                     await events.emit(
-                        {"type": "tool_execution_end", "tool_call_id": call.id,
-                         "tool_name": call.name, "result": ToolResult(result.content, True),
-                         "is_error": True}
+                        {
+                            "type": "tool_execution_end",
+                            "tool_call_id": call.id,
+                            "tool_name": call.name,
+                            "result": ToolResult(result.content, True),
+                            "is_error": True,
+                        }
                     )
                     await events.emit({"type": "message_start", "message": result})
                     await events.emit({"type": "message_end", "message": result})
-                await events.emit({"type": "turn_end", "message": response, "tool_results": tool_results})
+                await events.emit(
+                    {"type": "turn_end", "message": response, "tool_results": tool_results}
+                )
                 await events.emit({"type": "agent_end", "messages": messages[start:]})
             raise
         # s04 新增：回合包括一次回答和整批工具结果；末事件的订阅器也必须等待。

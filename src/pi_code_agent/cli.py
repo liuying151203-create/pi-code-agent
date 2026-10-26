@@ -82,14 +82,22 @@ async def run(
             if events is not None:
                 # s04 修改：把本次输入单独传入，旧历史不重新发 message 事件。
                 await loop(
-                    history, model=model, tools=tools, max_tokens=max_tokens,
-                    max_turns=options.max_turns, prompts=[UserMessage(prompt)], events=events,
+                    history,
+                    model=model,
+                    tools=tools,
+                    max_tokens=max_tokens,
+                    max_turns=options.max_turns,
+                    prompts=[UserMessage(prompt)],
+                    events=events,
                 )
             else:
                 # 来自 s03：保持；旧章节没有事件参数，运行后显示本次追加的消息。
                 history.append(UserMessage(prompt))
                 await loop(
-                    history, model=model, tools=tools, max_tokens=max_tokens,
+                    history,
+                    model=model,
+                    tools=tools,
+                    max_tokens=max_tokens,
                     max_turns=options.max_turns,
                 )
                 for message in history[start:]:

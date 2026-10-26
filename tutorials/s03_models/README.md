@@ -54,7 +54,7 @@ ModelConfig ──config──> Provider ──model──> agent_loop
 Tool ──tools───────────────────────────> agent_loop
 ```
 
-Provider 创建的客户端在上下文退出时关闭；注入的客户端由调用方负责。真实入口选择本章 [code.py](code.py) 保留的完整循环，正式 SDK 使用产品循环；两者有同一套行为和结构验证。
+Provider 创建的客户端在上下文退出时关闭；注入的客户端由调用方负责。本章入口选择 [code.py](code.py) 保留的完整无事件循环；正式 SDK 从 s04 起加入事件，已有消息、工具和 Provider 继续共用。各章按阶段验证对应循环，避免把后续机制提前塞进本章。
 
 ## 测试
 
