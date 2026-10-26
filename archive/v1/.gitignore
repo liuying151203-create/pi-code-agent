@@ -1,0 +1,43 @@
+# Virtual environment
+.venv/
+
+# Python cache and build output
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.ruff_cache/
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+
+# Runtime session data
+.sessions/
+
+# Runtime trace data
+.traces/
+
+# 评测报告不进入源码索引和版本管理；固定样本保留在章节目录
+.evals/
+
+# 目标项目内的过滤源码副本和索引（含嵌套示例，可重建）
+.indexes/
+
+# Sandbox input snapshots and review reports
+.sandboxes/
+
+# 用户手动安装的可选原生沙箱运行时
+.sandbox-runtime/
+
+# IDE and OS files
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# 正式 Agent 的本地状态
+.pi-code-agent/

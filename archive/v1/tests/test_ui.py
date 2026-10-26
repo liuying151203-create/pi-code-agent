@@ -1,0 +1,32 @@
+from pi_code_agent.ui import (
+    format_assistant_message,
+    format_error,
+    format_permission_request,
+    format_tool_call,
+    format_tool_result,
+    format_user_prompt,
+)
+
+
+def test_format_tool_call_shows_name_and_arguments() -> None:
+    result = format_tool_call("read_file", {"path": "README.md"})
+    assert "工具  🔧 read_file" in result
+    assert '"path": "README.md"' in result
+
+
+def test_format_tool_result_truncates_long_output() -> None:
+    result = format_tool_result("abcdef", limit=3)
+    assert "结果  ↳ abc" in result
+    assert "结果已截断" in result
+
+
+def test_format_labels_are_distinguishable_without_terminal_color() -> None:
+    assert format_user_prompt("s02").startswith("s02 >>")
+    assert format_assistant_message("完成").startswith("Agent  完成")
+    assert format_error("failed").startswith("错误  failed")
+
+
+def test_format_permission_request_shows_reason_and_arguments() -> None:
+    result = format_permission_request("write_file", {"path": "a.txt"}, "需要修改文件")
+    assert "权限  ⚠️ 需要修改文件" in result
+    assert '"path": "a.txt"' in result
