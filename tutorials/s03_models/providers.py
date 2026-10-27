@@ -24,7 +24,7 @@ from .model import ToolDefinition
 
 
 class ProviderError(RuntimeError):
-    """表示网络请求或供应商响应无法完成当前统一协议，不包装为工具错误。"""
+    """表示模型依赖加载、网络请求或响应转换失败，不包装为工具执行错误。"""
 
 
 # s03 新增：对应 Pi normalizeToolCallId，同时用于请求和结果，保持关联不变。
@@ -120,11 +120,12 @@ class AnthropicModel:
     """
 
     def __init__(self, config: ModelConfig, *, client: Any = None) -> None:
+        """接收配置和可选客户端，校验协议后创建或借用客户端，记录关闭责任。"""
         if config.provider != "anthropic":
             raise ValueError("AnthropicModel 需要 anthropic 配置")
         self.config = config
         self._owns_client = client is None
-        # s03 修复：仅创建自有客户端时导入对应 SDK，离线或注入客户端不触发导入。
+        # s03 修改：仅创建自有客户端时导入对应 SDK，离线或注入客户端不触发导入。
         if client is None:
             try:
                 from anthropic import AsyncAnthropic
@@ -220,11 +221,12 @@ class OpenAIModel:
     """
 
     def __init__(self, config: ModelConfig, *, client: Any = None) -> None:
+        """接收配置和可选客户端，校验协议后创建或借用客户端，记录关闭责任。"""
         if config.provider != "openai-compatible":
             raise ValueError("OpenAIModel 需要 openai-compatible 配置")
         self.config = config
         self._owns_client = client is None
-        # s03 修复：OpenAI SDK 在对应客户端真正被选中时才加载，不影响 Anthropic。
+        # s03 修改：OpenAI SDK 在对应客户端真正被选中时才加载，不影响 Anthropic。
         if client is None:
             try:
                 from openai import AsyncOpenAI

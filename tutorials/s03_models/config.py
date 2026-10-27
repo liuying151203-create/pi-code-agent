@@ -68,7 +68,7 @@ def load_model_config(env_file: Path, *, environ: Mapping[str, str] | None = Non
     输入：明确的 .env 路径和可选进程环境映射；输出：ModelConfig。
     流程：解析无插值文件 → 合并环境 → 读取协议对应密钥 → 构造并校验。
     """
-    # s03 修复：只在读取真实模型配置时加载 dotenv，离线与帮助入口不需要它。
+    # s03 修改：只在读取真实模型配置时加载 dotenv，离线与帮助入口不需要它。
     from dotenv import dotenv_values
 
     values = {
