@@ -46,7 +46,7 @@ def _read_window(path: Path, offset: int, limit: int) -> str:
     return output
 
 
-def read_tool(workspace: Path) -> Tool:
+def read_tool(workspace: Path, *, resource_roots=()) -> Tool:
     """创建绑定工作区的只读工具，不放宽文件系统写入或 shell 权限。
 
     输入：已有项目目录；输出：可供循环与 SDK 使用的 read 工具。
@@ -57,12 +57,16 @@ def read_tool(workspace: Path) -> Tool:
     if not root.is_dir():
         raise ValueError("workspace 必须是已有目录")
 
+    # s11 新增：只放行明确加载 Skill 的资源目录，正文和引用可读，其他边界保留。
+    allowed = tuple(Path(path).resolve(strict=True) for path in resource_roots)
+
     # s02 新增：处理函数有独立读文件职责，闭包只捕获本工具的工作区实例。
     async def execute(arguments: dict[str, Any]) -> ToolResult:
         target = (root / arguments["path"]).resolve()
-        if not target.is_relative_to(root):
+        boundary = next((path for path in allowed if target.is_relative_to(path)), root)
+        if not target.is_relative_to(boundary):
             raise ValueError("文件路径超出工作区")
-        for part in target.relative_to(root).parts:
+        for part in target.relative_to(boundary).parts:
             name = part.lower()
             if (
                 name

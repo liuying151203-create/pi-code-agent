@@ -27,6 +27,7 @@ from pi_code_agent.messages import (
     UserMessage,
 )
 from pi_code_agent.model import Model, StreamingModel
+from pi_code_agent.resources import ResourceLoader
 from pi_code_agent.tools import Tool
 
 
@@ -330,6 +331,8 @@ class AgentSession:
         # s10 新增：队列各自选择一次一条或一次全部。
         steering_mode: str = "one-at-a-time",
         follow_up_mode: str = "one-at-a-time",
+        # s11 新增：调用者明确注入已加载资源，SDK 不暗自扫描当前目录。
+        resources: ResourceLoader | None = None,
         stream: bool = False,
         system: str = "你是编程助手，完成任务后停止。",
         max_tokens: int = 8000,
@@ -337,6 +340,7 @@ class AgentSession:
         loop: Callable = agent_loop,
     ) -> None:
         self.model, self.store = model, store
+        self.resources = resources
         self.extensions = extensions
         self.cwd = Path(cwd or (store.header["cwd"] if store else Path.cwd())).resolve()
         self.tools = tuple(
@@ -617,6 +621,8 @@ class AgentSession:
                 if event.get("action") == "handled":
                     return self.messages
                 text = event["text"]
+            if self.resources is not None and text is not None:
+                text = self.resources.expand(text)
             if self.extensions is not None:
                 policies.update(
                     {
@@ -630,7 +636,7 @@ class AgentSession:
                 self._history,
                 model=self.model,
                 tools=self.tools,
-                system=self.system,
+                system=self.resources.system_prompt(self.system) if self.resources else self.system,
                 max_tokens=self.max_tokens,
                 max_turns=self.max_turns,
                 prompts=[

@@ -19,6 +19,7 @@ from pi_code_agent.file_tools import read_tool
 from pi_code_agent.loop import TurnLimitError, agent_loop
 from pi_code_agent.messages import AssistantMessage, CustomMessage, Message, Text, ToolResultMessage
 from pi_code_agent.providers import ProviderError, create_model
+from pi_code_agent.resources import ResourceLoader
 from pi_code_agent.session import AgentSession, SessionStore
 
 
@@ -80,7 +81,21 @@ async def run(
     边界：demo 不加载密钥；模型/工具正文仅在本入口打印，循环本身不打印。
     """
     workspace = options.workspace.resolve(strict=True)
-    reader = read_tool(workspace)
+    # s11 修改：先验证真实模型配置，配置缺失时不扫描任何全局资源。
+    if not options.demo:
+        config = load_model_config(options.env_file)
+    # s11 新增：资源先加载，明确的 Skill 路径交给只读工具，而不是放开整个主目录。
+    home = Path(os.environ.get("PI_CODE_AGENT_HOME", str(Path.home() / ".pi-code-agent")))
+    resources = ResourceLoader(
+        workspace,
+        global_dir=home,
+        skill_paths=[p.resolve() for p in options.skill],
+        prompt_paths=[p.resolve() for p in options.prompt_template],
+        defaults=not options.no_resources,
+    ).load()
+    for diagnostic in resources.diagnostics:
+        print(f"资源诊断 {diagnostic['path']}: {diagnostic['error']}", file=sys.stderr)
+    reader = read_tool(workspace, resource_roots=[skill.path.parent for skill in resources.skills])
     tools = [reader]
     if options.demo:
         model = DemoModel(
@@ -88,7 +103,6 @@ async def run(
         )
         max_tokens = 8000
     else:
-        config = load_model_config(options.env_file)
         model = create_model(config)
         max_tokens = config.max_tokens
     runtime = ExtensionRuntime()
@@ -116,7 +130,7 @@ async def run(
             )
         else:
             target_id = sha256(str(workspace).encode("utf-8")).hexdigest()[:12]
-            path = Path.cwd() / ".sessions" / "s10" / target_id / (uuid4().hex + ".jsonl")
+            path = Path.cwd() / ".sessions" / "s11" / target_id / (uuid4().hex + ".jsonl")
             store = SessionStore.create(path, workspace)
         session = AgentSession(
             model=model,
@@ -124,6 +138,7 @@ async def run(
             extensions=runtime,
             cwd=workspace,
             notify=print,
+            resources=resources,
             store=store,
             stream=not options.no_stream,
             max_tokens=max_tokens,
@@ -147,7 +162,7 @@ async def run(
                 if options.prompt is not None:
                     return 0
                 continue
-            if prompt.startswith("/"):
+            if prompt.startswith("/") and not resources.matches(prompt):
                 print("未知命令；使用 /help 查看命令", file=sys.stderr)
                 if options.prompt is not None:
                     return 1
@@ -203,6 +218,19 @@ def main(
         help="允许加载工作区 .pi-code-agent/extensions",
     )
     parser.add_argument("--demo-tool", default="read", help="离线脚本模型请求的工具名称")
+    parser.add_argument(
+        "--skill", type=Path, action="append", default=[], help="显式加载 Skill 文件或目录"
+    )
+    parser.add_argument(
+        "--prompt-template",
+        type=Path,
+        action="append",
+        default=[],
+        help="显式加载提示模板文件或目录",
+    )
+    parser.add_argument(
+        "--no-resources", action="store_true", help="关闭默认资源发现，保留显式路径"
+    )
     options, options.extension_args = parser.parse_known_args(arguments)
     if options.max_turns is not None and options.max_turns < 1:
         parser.error("--max-turns 必须是正整数")

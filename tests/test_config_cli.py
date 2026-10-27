@@ -83,8 +83,8 @@ def test_cli_displays_progress_before_tool_finishes_without_replaying_results(
     real_factory = cli.read_tool
     observed = []
 
-    def checked_reader(workspace):
-        reader = real_factory(workspace)
+    def checked_reader(workspace, *, resource_roots=()):
+        reader = real_factory(workspace, resource_roots=resource_roots)
 
         async def execute(arguments):
             output = capsys.readouterr().out

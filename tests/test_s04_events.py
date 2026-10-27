@@ -391,6 +391,7 @@ def test_turn_limit_has_final_event_without_claiming_success(api):
         "tutorials.s08_hooks",
         "tutorials.s09_commands",
         "tutorials.s10_queues",
+        "tutorials.s11_resources",
     ]
 )
 def api(request):

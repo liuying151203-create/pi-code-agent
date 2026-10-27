@@ -22,4 +22,6 @@
 
 10. [s10：取消与消息队列](s10_queues/README.md)：活跃任务取消、等待空闲和完整回合边界投递
 
+11. [s11：资源加载](s11_resources/README.md)：业务上下文、Skill 元数据和提示模板进入实际输入
+
 后续基座安排见 [章节规划](../docs/extension-foundation-plan.md)。旧版教程完整保存在 [archive/v1](../archive/README.md)。

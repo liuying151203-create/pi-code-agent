@@ -169,6 +169,7 @@ def model_for(api, kind, streams, **config):
         "tutorials.s08_hooks",
         "tutorials.s09_commands",
         "tutorials.s10_queues",
+        "tutorials.s11_resources",
     ]
 )
 def api(request):

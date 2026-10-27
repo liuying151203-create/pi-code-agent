@@ -171,6 +171,7 @@ def test_repeated_call_ids_are_rejected_before_tool_execution(api):
         "tutorials.s08_hooks",
         "tutorials.s09_commands",
         "tutorials.s10_queues",
+        "tutorials.s11_resources",
     ]
 )
 def api(request):

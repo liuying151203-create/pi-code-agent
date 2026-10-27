@@ -8,6 +8,7 @@ from pi_code_agent.extensions import ExtensionAPI, ExtensionRuntime, discover_ex
 from pi_code_agent.loop import TurnLimitError, agent_loop
 from pi_code_agent.messages import (
     AssistantMessage,
+    CustomMessage,
     Message,
     Text,
     ToolCall,
@@ -19,6 +20,7 @@ from pi_code_agent.messages import (
 # s05 新增：流式协议随本章向外部程序开放，旧 Model 接口保留。
 from pi_code_agent.model import AssistantStreamEvent, Model, StreamingModel, ToolDefinition
 from pi_code_agent.providers import AnthropicModel, OpenAIModel, ProviderError, create_model
+from pi_code_agent.resources import PromptTemplate, ResourceLoader, Skill
 from pi_code_agent.session import AgentSession, SessionStore
 from pi_code_agent.tools import NoArguments, Tool, ToolResult
 
@@ -29,6 +31,7 @@ __all__ = [
     "AnthropicModel",
     "AssistantMessage",
     "AssistantStreamEvent",
+    "CustomMessage",
     "EventBus",
     "EventListener",
     "EventListenerError",
@@ -39,8 +42,11 @@ __all__ = [
     "ModelConfig",
     "NoArguments",
     "OpenAIModel",
+    "PromptTemplate",
     "ProviderError",
+    "ResourceLoader",
     "SessionStore",
+    "Skill",
     "StreamingModel",
     "Text",
     "Tool",
