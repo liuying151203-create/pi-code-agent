@@ -128,8 +128,9 @@ class ResourceLoader:
         self.context_files: tuple[tuple[Path, str], ...] = ()
         self.diagnostics = []
 
-    def _skill_candidates(self, root: Path, seen: set[Path]):
+    def _skill_candidates(self, root: Path, seen: set[Path], *, include_root_files=True):
         """只遍历资源根；技能目录存在 SKILL.md 时停止下探，防止链接循环。"""
+        # s11 修复：仅资源根接受松散 Markdown，子目录只认 SKILL.md，防止引用误注册。
         root = root.resolve()
         if root in seen:
             return
@@ -144,8 +145,8 @@ class ResourceLoader:
                 if child.name.startswith(".") or child.name in {"node_modules", "__pycache__"}:
                     continue
                 if child.is_dir():
-                    yield from self._skill_candidates(child, seen)
-                elif child.suffix == ".md":
+                    yield from self._skill_candidates(child, seen, include_root_files=False)
+                elif include_root_files and child.suffix == ".md":
                     yield child
 
     def load(self):

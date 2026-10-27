@@ -134,3 +134,12 @@ def test_read_tool_allows_only_selected_skill_root(api, tmp_path):
         assert (await read(resource / ".env")).is_error
 
     asyncio.run(scenario())
+
+
+def test_nested_reference_markdown_is_not_discovered_as_another_skill(api, tmp_path):
+    root = tmp_path / "skills"
+    write(root / "loose.md", "---\nname: loose\ndescription: root skill\n---\nbody")
+    write(root / "group/reference.md", "---\nname: ref\ndescription: reference document\n---\nbody")
+    write(root / "group/actual/SKILL.md", "---\nname: actual\ndescription: actual skill\n---\nbody")
+    resources = api.ResourceLoader(tmp_path, skill_paths=[root], defaults=False).load()
+    assert {s.name for s in resources.skills} == {"loose", "actual"}
