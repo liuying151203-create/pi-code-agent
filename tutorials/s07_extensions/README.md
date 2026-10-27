@@ -60,7 +60,7 @@ async def run():
 assert asyncio.run(run())[-2].content == "来自扩展的问候"
 ```
 
-文件加载使用 `await runtime.load(paths)`，普通错误在 diagnostics 中，取消继续传播。会话和模型客户端仍由宿主管理，关闭扩展不关闭共享模型。正式调用从 `pi_code_agent` 导入同名组件。
+文件加载使用 `await runtime.load(paths)`，普通错误在 diagnostics 中，取消继续传播。会话和模型客户端仍由宿主管理，关闭扩展不关闭共享模型。
 
 ## 测试与差异
 
@@ -69,7 +69,7 @@ python -m pytest tests/test_s07_extensions.py tests/test_s06_sessions.py tests/t
 ```
 
 - 已对齐：工厂提交/失败丢弃、路径去重、注册优先级、普通错误隔离、显式路径仍可在禁用发现时加载。工具确实进入会话和模型请求，不只是保存名称。
-- 扩展与调整：Python 替代 TypeScript/jiti；入口显式编译，当前宿主通过 API 提供 Tool/ToolResult，单章复制不依赖正式包。项目执行信任用明确旗标表达，不冒充已实现 Pi 的信任保存。忽略下划线 Python 辅助入口文件。
+- 扩展与调整：Python 替代 TypeScript/jiti；入口显式编译，宿主通过 API 提供 Tool/ToolResult。项目执行信任用明确旗标表达，不冒充已实现 Pi 的信任保存。忽略下划线 Python 辅助入口文件。
 - 暂缓：Hook 在 s08，命令和参数在 s09，取消/队列在 s10，资源在 s11，动态注册与重载在 s12。本章工厂结束后不再注册，不声称已经支持热更新。
 
 来源与 MIT 声明见 [NOTICE](NOTICE.md)。

@@ -15,7 +15,7 @@ python -m tutorials.s05_streaming.example
 python -m tutorials.s05_streaming.code --demo --no-stream --workspace example_project/mini_app --prompt "读取 README.md"
 ```
 
-填好已有 `.env` 后，去掉 `--demo` 即为真实模型流。正式入口 `python -m pi_code_agent` 使用当前产品实现，也默认流式。本章组件全部保存在本目录，不引用 src/ 或其他章节；前四章的冻结源码没有改变。
+填好已有 `.env` 后，去掉 `--demo` 即为真实模型流。
 
 离线 DemoModel 按脚本模拟分段，不表示真实网络延迟。真实 Provider 直接消费服务端增量，没有先获取完整回答再拆段。
 

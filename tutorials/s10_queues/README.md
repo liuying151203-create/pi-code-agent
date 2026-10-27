@@ -53,4 +53,4 @@ python -m tutorials.s10_queues.code --demo --no-session --no-extensions --worksp
 - 调整：Python 直接取消活跃 asyncio 任务；同步阻塞插件必须自行改为异步，无法强制中止 Python 同步函数。队列为运行期内存，不声称重启恢复。
 - 暂缓：资源加载在 s11，重载生命周期在 s12。Pi 的并行工具调度和完整 TUI 交互编号待定。
 
-修订 V2-B014：轮数保护前已出队的输入保存为历史，等待 continue_ 处理；input Hook 接管时显式投递的消息也会保存，不触发模型。仅回补边界 Bug，未加入后章机制。
+达到轮数上限时，已出队的输入保存为历史，等待 continue_ 处理；input Hook 接管时显式投递的消息也会保存，不触发模型。

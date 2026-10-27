@@ -13,8 +13,6 @@ python -m tutorials.s06_sessions.code --demo --session .sessions/lesson.jsonl --
 python -m tutorials.s06_sessions.code --demo --no-session --workspace example_project/mini_app --prompt "读取 README.md"
 ```
 
-本章目录保存所有依赖组件，不引用 src/ 或其他章节。正式 CLI 使用同样参数，正式 SDK 从 `pi_code_agent` 导入。
-
 ## Pi 的执行过程
 
 参考 Pi `e4c75a732`（0.85.1）的 `packages/agent/src/agent.ts`、`packages/coding-agent/src/core/agent-session.ts` 和 `session-manager.ts`：运行层持有当前消息；会话层在消息完成事件中追加记录；重开文件后构建下一次请求的上下文。

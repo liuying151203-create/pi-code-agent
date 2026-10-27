@@ -8,7 +8,7 @@ Anthropic 和 OpenAI 兼容接口描述工具调用的方式不同。如果循�
 python -m tutorials.s03_models.code --demo --workspace example_project/mini_app --prompt "读取 README.md"
 ```
 
-工具会实际读取练习项目文件，脚本模型根据结果回答。`--demo` 和 `--help` 都不需要模型配置。配置、Provider、文件工具和 CLI 均使用本目录快照；本章没有 s04 的事件组件，后续产品变化不会自动影响这里。
+工具会实际读取练习项目文件，脚本模型根据结果回答。`--demo` 和 `--help` 都不需要模型配置。
 
 ## 接入真实模型
 
@@ -56,7 +56,7 @@ ModelConfig ──config──> Provider ──model──> agent_loop
 Tool ──tools───────────────────────────> agent_loop
 ```
 
-Provider 创建的客户端在上下文退出时关闭；注入的客户端由调用方负责。本章入口选择 [code.py](code.py) 保留的完整无事件循环；正式 SDK 使用持续演进的 src/，本章的消息、工具、Provider 和终端组装独立保存。各章按阶段验证行为，不要求旧实现始终等于最新产品。
+Provider 创建的客户端在上下文退出时关闭；注入的客户端由调用方负责。
 
 ## 测试
 

@@ -45,5 +45,5 @@ python -m tutorials.s08_hooks.code --demo --no-session --no-extensions --workspa
 ## 参考与差异
 
 - 已对齐：串联顺序、校验后拦截、Hook 异常分流、上下文临时修改、工具结果覆盖、整批终止选择。
-- 调整：Python 使用字典和当前快照的消息类；结果正文暂限文本。为了防止不完整数据污染上下文，context 用同一消息编解码器校验。扩展不是权限沙箱。
+- 调整：Python 使用字典事件和内部消息类型；结果正文暂限文本。为了防止不完整数据污染上下文，context 用同一消息编解码器校验。扩展不是权限沙箱。
 - 暂缓：命令与状态在 s09，运行期间投递在 s10，重载和 session_start/shutdown 在 s12。多模态、before_provider_request 等供应商专属 Hook 编号待定，不声称完整 Pi Hook 集已实现。

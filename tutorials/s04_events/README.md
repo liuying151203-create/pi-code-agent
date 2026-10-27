@@ -12,7 +12,7 @@
 python -m tutorials.s04_events.code --demo --workspace example_project/mini_app --prompt "读取 README.md"
 ```
 
-终端先显示 `[read 开始]`，读完显示实际文件内容，再显示模型回答。正式入口 `python -m pi_code_agent` 使用相同订阅方式。本章完整循环在 [code.py](code.py)，正式实现在 [loop.py](../../src/pi_code_agent/loop.py)。
+终端先显示 `[read 开始]`，读完显示实际文件内容，再显示模型回答。循环实现见 [code.py](code.py)。
 
 想直接看到事件名称和顺序，可以运行：
 
@@ -20,7 +20,7 @@ python -m tutorials.s04_events.code --demo --workspace example_project/mini_app 
 python -m tutorials.s04_events.example
 ```
 
-这个本章冻结的离线调用示例实际计算 `2 + 3`，同时打印事件名称与工具结果 `5`。
+示例实际计算 `2 + 3`，同时打印事件名称与工具结果 `5`。
 
 ## Pi 怎样通知外部程序
 
@@ -104,7 +104,7 @@ finally:
 python -m pytest tests/test_s04_events.py tests/test_config_cli.py tests/test_boundaries.py
 ```
 
-测试同时运行 SDK 与本章循环，验证实际事件顺序、消息范围、异步等待、取消订阅、观察副本隔离，以及失败和取消路径。前三章保留原有无事件循环，s04 使用本章的消息、工具、事件、模型适配和 CLI 快照；不导入产品或其他章节，也不要求未来仍与最新产品结构相同。
+测试验证实际事件顺序、消息范围、异步等待、取消订阅、观察副本隔离，以及失败和取消路径。
 
 ## 参考与差异
 

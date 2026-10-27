@@ -12,8 +12,6 @@ python -m tutorials.s01_agent_loop.code
 
 脚本模型先请求 `project_name`，工具返回当前目录名，然后模型用实际结果回答。这里故意使用可重复的脚本模型，便于先看清闭环；第三章再接入真实模型。
 
-本章的 `messages.py`、`model.py`、`tools.py`、`demo.py` 和 `errors.py` 都保存在本目录，后续修改 `src/` 不会改变它们。本章只有无参数工具，不包含 s02 的 Pydantic 参数模型或 s03 的用量字段。
-
 ## 循环怎样工作
 
 [code.py](code.py) 保留完整的 `async agent_loop()`：
