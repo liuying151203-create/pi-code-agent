@@ -801,6 +801,8 @@ class AgentSession:
                     {"type": "input", "text": text, "source": "sdk"}, self
                 )
                 if event.get("action") == "handled":
+                    # s10 修复：接管输入不一定进入循环，先投递处理函数显式发送的消息。
+                    await self._deliver_deferred()
                     return self.messages
                 text = event["text"]
             if self.resources is not None and text is not None:
@@ -833,22 +835,27 @@ class AgentSession:
                 stream=self.stream,
                 **policies,
             )
+            await self._deliver_deferred()
             return self.messages
         finally:
             try:
-                if self.store is not None and not self.store.failed and not self._storage_error:
-                    # s06 新增：观察者中断可能没有后续 message_end，仍保存已执行结果和补齐结果。
-                    completed = [
-                        message
-                        for message in self._history
-                        if not (
-                            isinstance(message, AssistantMessage)
-                            and message.stop_reason == "pending"
-                        )
-                    ]
-                    for completed_message in completed[self._saved :]:
-                        self.store.append_message(completed_message)
-                        self._saved += 1
+                # s10 修复：取消/失败也在工具结果补齐后投递，随后持久化，最后释放会话。
+                try:
+                    await self._deliver_deferred()
+                finally:
+                    if self.store is not None and not self.store.failed and not self._storage_error:
+                        # s06 新增：观察者中断可能没有后续 message_end，仍保存已执行结果和补齐结果。
+                        completed = [
+                            message
+                            for message in self._history
+                            if not (
+                                isinstance(message, AssistantMessage)
+                                and message.stop_reason == "pending"
+                            )
+                        ]
+                        for completed_message in completed[self._saved :]:
+                            self.store.append_message(completed_message)
+                            self._saved += 1
             finally:
                 self._busy = False
                 self._active_task = None

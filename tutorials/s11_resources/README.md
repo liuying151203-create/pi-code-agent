@@ -59,3 +59,5 @@ CLI 支持 --skill 路径、--prompt-template 路径、--no-resources。后者�
 - 已对齐：上下文候选优先级和层次、元数据渐进加载、禁用模型隐式调用、Skill 显式展开、模板占位符与非递归替换、输入 Hook 在展开前执行。
 - 调整：默认 context_root 等于业务 workspace，避免把 Harness 根目录约定混入示例项目；需要祖先继承时显式给 context_root。上下文不递归扫描子目录。Python 资源目录额外受 read 的敏感路径规则约束。坏 Skill 文件记录诊断，显式使用已失效文件则报错，不隐藏读取失败。
 - 暂缓：s12 重载资源；完整 gitignore/fdignore、Pi 包管理资源、worktree 主仓库上下文遮蔽编号待定。只遍历资源根，不索引业务源码；名称不合规范但描述有效的 Skill 按 Pi 警告后保留。
+
+修订 V2-B014：轮数保护前已出队的输入保存为历史，等待 continue_ 处理；input Hook 接管时显式投递的消息也会保存，不触发模型。仅回补边界 Bug，未加入后章机制。

@@ -8,7 +8,8 @@
     "pydantic": "2.13.5",
     "anthropic": "1.6.0",
     "openai": "3.19.0",
-    "python-dotenv": "1.2.3"
+    "python-dotenv": "1.2.3",
+    "PyYAML": "6.0.3"
   },
   "chapters": {
     "s01_agent_loop": {
@@ -172,7 +173,7 @@
       "files": {
         "__init__.py": "458647bac64e7c4decc8fc950c75a2ad4fe30cd3036f362b43ba6b816d5b14b1",
         "cli.py": "13d5a03e1ddb34e0dccd1303c2fd103f868ab37b48858bc8ca375939bd077666",
-        "code.py": "e89b1360bee990f29fb3d8e236b321e650b3414c038bfe17fa3a619d3c4c944a",
+        "code.py": "46dbadef475ad785215c154b8bcee1896191816b188ed789d3ab928bde1468ee",
         "config.py": "ba45214c9c53ec415ebde35a6cda5338ca07dd125736a951e57d2296b3e7b4af",
         "demo.py": "bd2e5db521b29bb0e72a63d63d4861df9c789228169e33325b78ab0d5624294a",
         "errors.py": "c94c6bca6e2d0c3a0e9e7136777915b099175a568b46de0c3eba3b74f4c74f67",
@@ -182,7 +183,7 @@
         "messages.py": "d6e02c047f630831fc5b6ffa337ff38271c2ac231539fbe030ab351cbe2551fd",
         "model.py": "8c0eb30aa19f991cce69a7d588ac49b1880370d5b818f42bd5149dc50ce82188",
         "providers.py": "8066ea8b8aed26b4a75d06c245b4be1b09fd85ec5cf0e537010496ed4351fdb9",
-        "session.py": "087483abef05440991a4a9e31b10f4b2a23eeefc30d57565086c42fd6cb3daba",
+        "session.py": "153dc36cd7d4796381389d0754699d11682b6586141e49019aa0f18614e5b9f3",
         "tools.py": "001de9f42bdc184d162f7c89a0ebd1eb8e843584ac390e7cb4249f83cef22c2a"
       }
     },
@@ -192,7 +193,7 @@
       "files": {
         "__init__.py": "b1d3c51ffd7dccb612f078a125c8d6dc765c95fc37a983cc624ded54cf60453f",
         "cli.py": "ce70bc38ecf2230824a14f1a8e40a3b2216e679352cfba533411a44d641ef5f2",
-        "code.py": "0bd111dc73c794afff403748fc509b4000fbb02f76ac5e68169cc68ec918178a",
+        "code.py": "c0b1632404886dc4482a1179e455c56b0bf51498b99d0727bd0a901ace9e069b",
         "config.py": "dd1a75d9386bd9ad946b39c20099d0878dc05fbd5820ae36231ccccd5e3c1d05",
         "demo.py": "665aa994784d7c2553a63cf5174058c0d529cfb2465f8f3e22545d13ce4faf4e",
         "errors.py": "c94c6bca6e2d0c3a0e9e7136777915b099175a568b46de0c3eba3b74f4c74f67",
@@ -203,7 +204,7 @@
         "model.py": "a0bd81bc4e29021f4969aed224b2aefe2611606949e8a47b7ad0b13563cea353",
         "providers.py": "d3e2a11c4c5eba8a73dde8a2b4003fba133d235dcb184d54413e885515fcd255",
         "resources.py": "8e99c48ad538882e4dc5b0e3b90953b38270540017c2f096801271dd3a7dbc74",
-        "session.py": "3455ba0d67b1708f85cae16ca3d1cf570bc8041b0242f6cd655e0fb1929faba6",
+        "session.py": "6cb696a39b3a87704e4595787a355ba32a638687582f5042409b6482d1edfbfd",
         "tools.py": "c8d2f6db429a1ab5da082b03b960df0c2afba70d5562ef6c6471917b9c8d9d5d"
       }
     },
@@ -213,7 +214,7 @@
       "files": {
         "__init__.py": "2eb23d779a3e4eaf5b1c0f116025b2ce61e10b1c89badef27e8c100c7246337c",
         "cli.py": "9fa8353499379756fe8ebab12fb251cc9bd7b1a93fc6ccddad8f3466834c3bfa",
-        "code.py": "c2a07cf3bf745db5820a8e5ef11e92c8c81b4d1f359e17af06ad753ee8951c22",
+        "code.py": "c8a3768c9504f1487d8f2d66dcc0ae9d78db13ae2763c6a4fa55bf36440d3399",
         "config.py": "766278e1ec137d43788257c09f92d543a268fbc35df11097a5bd5b25218bb8b0",
         "demo.py": "c8bf427e56922d800d2d4e2308dcd41b2f6cb32df629ca5504b9ee9b4c525192",
         "errors.py": "c94c6bca6e2d0c3a0e9e7136777915b099175a568b46de0c3eba3b74f4c74f67",
@@ -224,7 +225,7 @@
         "model.py": "cc6921e941bfb120b43ddb612be862a03dd9b0389595b299d55836aab53f3ada",
         "providers.py": "8b62b4549ff55997755144c50b4d84eb5a2b462df086c06a887713d9a2e58d76",
         "resources.py": "5fbd01ef0e406f3ad1164a0fc4bfb38ada04d8311977a12f19655a58736cd6d0",
-        "session.py": "3d0a4db2bf7f395fe650f3315b9aa827a36670c0bd70794b76400631efae8b8f",
+        "session.py": "e8d5e3233b950012632d7f1f1b1533841da07da7dfa083095ac248914044212f",
         "tools.py": "b7cc1f9acd282ece2fcac787de3361ed5771cf583f79438e362292930846ce3b"
       }
     }

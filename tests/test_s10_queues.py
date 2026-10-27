@@ -167,3 +167,62 @@ def test_message_queued_by_final_turn_observer_is_not_stranded(api):
         assert session.messages[-1].content == "late context"
 
     asyncio.run(scenario())
+
+
+def test_turn_limit_does_not_lose_already_dequeued_steering(api):
+    async def scenario():
+        model = ScriptedModel(api.AssistantMessage((), "stop"), api.AssistantMessage((), "stop"))
+        session = api.AgentSession(model=model, max_turns=1)
+        session.steer("one")
+        session.steer("two")
+        with pytest.raises(api.TurnLimitError):
+            await session.prompt("start")
+        await session.continue_()
+        assert any(m.role == "user" and m.content == "two" for m in model.calls[-1]["messages"])
+
+    asyncio.run(scenario())
+
+
+def test_handled_input_can_deliver_message_without_model_turn(api):
+    async def scenario():
+        runtime = api.ExtensionRuntime()
+
+        async def handled(event, ctx):
+            await ctx.session.send_message("handled answer", trigger_turn=False)
+            return {"action": "handled"}
+
+        await runtime.register(lambda ext: ext.on("input", handled))
+        model = ScriptedModel()
+        session = api.AgentSession(model=model, extensions=runtime)
+        history = await session.prompt("handle")
+        assert (
+            history[-1].content == "handled answer"
+            and session.messages == history
+            and model.calls == []
+        )
+        runtime.close()
+
+    asyncio.run(scenario())
+
+
+def test_cancelled_run_flushes_nontriggering_messages_after_tool_pairs(api):
+    async def scenario():
+        entered = asyncio.Event()
+
+        async def tool(args):
+            entered.set()
+            await asyncio.Event().wait()
+
+        model = ScriptedModel(api.AssistantMessage((api.ToolCall("1", "run", {}),), "tool_use"))
+        session = api.AgentSession(model=model, tools=[api.Tool("run", "run", tool)])
+        task = asyncio.create_task(session.prompt("run"))
+        await entered.wait()
+        await session.send_message("retained context", trigger_turn=False)
+        session.abort()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        assert session.messages[-1].content == "retained context"
+        assert session.messages[-2].role == "tool_result"
+        assert not session.busy
+
+    asyncio.run(scenario())

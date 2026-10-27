@@ -303,6 +303,11 @@ async def agent_loop(
             if not pending:
                 await events.emit({"type": "agent_end", "messages": messages[start:]})
                 return messages
+    # s10 修复：达到轮数保护时，已经出队的输入仍保存到历史，后续 continue_ 不丢消息。
+    for queued in pending:
+        messages.append(queued)
+        await events.emit({"type": "message_start", "message": queued})
+        await events.emit({"type": "message_end", "message": queued})
     await events.emit({"type": "agent_end", "messages": messages[start:]})
     # 来自 s01：保持；显式轮数保护结束后，结果保留但通过异常报告未完成。
     raise TurnLimitError(f"已达到 {max_turns} 轮上限；任务尚未完成")
