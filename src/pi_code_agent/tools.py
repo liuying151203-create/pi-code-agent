@@ -26,10 +26,16 @@ class ToolResult:
 
     content: str
     is_error: bool = False
+    # s08 新增：整批工具都要求终止时停止自动模型续轮，不写入消息协议。
+    terminate: bool = False
 
     def __post_init__(self) -> None:
         """拒绝无法可靠投影到模型协议的结果。"""
-        if not isinstance(self.content, str) or type(self.is_error) is not bool:
+        if (
+            not isinstance(self.content, str)
+            or type(self.is_error) is not bool
+            or type(self.terminate) is not bool
+        ):
             raise TypeError("工具结果必须包含文本 content 和布尔 is_error")
 
 
@@ -65,6 +71,15 @@ class Tool:
 
 # s02 新增：参考 Pi validateToolArguments，校验副本并保留类型转换，不修改原始调用。
 async def execute_tool(call: ToolCall, tools: Mapping[str, Tool]) -> ToolResultMessage:
+    """兼容已有 SDK：执行工具并只返回模型消息。"""
+    result = await execute_tool_outcome(call, tools)
+    return ToolResultMessage(call.id, call.name, result.content, result.is_error)
+
+
+# s08 新增：结果策略与模型消息分开，保留 Pi 的 terminate 批处理语义。
+async def execute_tool_outcome(
+    call: ToolCall, tools: Mapping[str, Tool], *, before=None, after=None
+) -> ToolResult:
     """校验并执行一次工具，普通失败以对应 ID 的错误结果返回。
 
     输入：模型工具调用和本次工具表；输出：独立工具结果消息。
@@ -86,9 +101,24 @@ async def execute_tool(call: ToolCall, tools: Mapping[str, Tool]) -> ToolResultM
                 except ValidationError:
                     arguments.pop(name)
         validated = tool.parameters.model_validate(arguments).model_dump()
-        result = await tool.execute(validated)
+        # s08 新增：Hook 只能在完整参数校验之后介入；异常不会执行工具。
+        decision = await before(call, deepcopy(validated)) if before is not None else None
+        if decision and decision.get("block"):
+            result = ToolResult(
+                decision.get("reason", "工具被拦截"), True, decision.get("terminate", False)
+            )
+        else:
+            result = await tool.execute(validated)
         if not isinstance(result, ToolResult):
             raise TypeError("工具处理函数必须返回 ToolResult")
     except Exception as error:  # noqa: BLE001 - Pi 的普通工具异常回传模型；不吞取消异常
         result = ToolResult(str(error), is_error=True)
-    return ToolResultMessage(call.id, call.name, result.content, result.is_error)
+    # s08 新增：成功、执行失败和校验失败均可观察/覆盖结果，取消不会伪装成结果。
+    if after is not None:
+        try:
+            result = await after(call, result)
+            if not isinstance(result, ToolResult):
+                raise TypeError("after 必须返回 ToolResult")
+        except Exception as error:  # noqa: BLE001 - 策略失败回传错误结果，不吞取消
+            result = ToolResult(str(error), True)
+    return result

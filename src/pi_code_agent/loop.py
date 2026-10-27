@@ -9,7 +9,7 @@ from contextlib import aclosing
 from pi_code_agent.events import EventBus, EventListenerError
 from pi_code_agent.messages import AssistantMessage, Message, ToolCall, ToolResultMessage
 from pi_code_agent.model import Model, StreamingModel
-from pi_code_agent.tools import Tool, ToolResult, execute_tool
+from pi_code_agent.tools import Tool, ToolResult, execute_tool_outcome
 
 
 class TurnLimitError(RuntimeError):
@@ -30,6 +30,10 @@ async def agent_loop(
     events: EventBus | None = None,
     # s05 新增：保留完整响应路径，调用方明确选择流式，不猜测模型能力。
     stream: bool = False,
+    # s08 新增：核心只接收可调用策略，不依赖扩展加载器。
+    transform_context=None,
+    before_tool_call=None,
+    after_tool_call=None,
 ) -> list[Message]:
     """请求模型、执行工具并回传结果，直到模型不再请求工具。
 
@@ -70,12 +74,13 @@ async def agent_loop(
         partial = AssistantMessage((), "pending")
         response = None
         try:
+            request_messages = await transform_context(messages) if transform_context else messages
             if stream:
                 # s05 新增：即使订阅器失败或任务取消，也先关闭模型生成器及底层 HTTP 流。
                 async with aclosing(
                     model.stream(
                         system=system,
-                        messages=tuple(messages),
+                        messages=tuple(request_messages),
                         tools=definitions,
                         max_tokens=max_tokens,
                     )
@@ -126,7 +131,7 @@ async def agent_loop(
                 # 来自 s04：保持；旧 Model 和完整响应调用仍然可用。
                 response = await model.complete(
                     system=system,
-                    messages=tuple(messages),
+                    messages=tuple(request_messages),
                     tools=definitions,
                     max_tokens=max_tokens,
                 )
@@ -171,6 +176,7 @@ async def agent_loop(
             messages[message_index] = response
         tool_results: list[ToolResultMessage] = []
         tool_started = False
+        terminated = []
         try:
             # s04 新增：等待回答的 message_end 订阅器，再进入工具校验和执行。
             # s05 修改：流式 start 已经通知过，只为完整响应补发一次开始事件。
@@ -194,7 +200,13 @@ async def agent_loop(
                             call.id, call.name, "工具调用被截断，请重新完整调用", True
                         )
                     else:
-                        result = await execute_tool(call, catalog)
+                        outcome = await execute_tool_outcome(
+                            call, catalog, before=before_tool_call, after=after_tool_call
+                        )
+                        result = ToolResultMessage(
+                            call.id, call.name, outcome.content, outcome.is_error
+                        )
+                        terminated.append(outcome.terminate)
                     # s04 新增：先保存真实结果，再通知订阅器，避免显示失败丢失已执行结果。
                     messages.append(result)
                     tool_results.append(result)
@@ -255,7 +267,11 @@ async def agent_loop(
             raise
         # s04 新增：回合包括一次回答和整批工具结果；末事件的订阅器也必须等待。
         await events.emit({"type": "turn_end", "message": response, "tool_results": tool_results})
-        if response.stop_reason in {"error", "aborted"} or not calls:
+        if (
+            response.stop_reason in {"error", "aborted"}
+            or not calls
+            or (len(terminated) == len(calls) and all(terminated))
+        ):
             await events.emit({"type": "agent_end", "messages": messages[start:]})
             return messages
     await events.emit({"type": "agent_end", "messages": messages[start:]})

@@ -5,9 +5,11 @@ from __future__ import annotations
 import inspect
 import sys
 from collections.abc import Callable, Sequence
+from copy import deepcopy
 from dataclasses import replace
 from importlib.util import module_from_spec, spec_from_file_location
 from pathlib import Path
+from types import SimpleNamespace
 from uuid import uuid4
 
 from pi_code_agent.tools import Tool, ToolResult
@@ -72,6 +74,32 @@ class ExtensionAPI:
         self.source = source
         self._state = "loading"
         self._tools: dict[str, Tool] = {}
+        self._handlers: dict[str, list[Callable]] = {}
+
+    # s08 新增：声明拦截点；工厂失败时与工具一起丢弃，不提前执行。
+    def on(self, event: str, handler: Callable) -> None:
+        """注册同步或异步 Hook，输入事件与实时会话上下文，返回对应修改。"""
+        if self._state != "loading":
+            raise RuntimeError("请在 setup 中注册 Hook")
+        if event not in {
+            "input",
+            "context",
+            "tool_call",
+            "tool_result",
+            "agent_start",
+            "agent_end",
+            "turn_start",
+            "turn_end",
+            "message_start",
+            "message_update",
+            "message_end",
+            "tool_execution_start",
+            "tool_execution_end",
+        }:
+            raise ValueError("不支持的 Hook：" + event)
+        if not callable(handler):
+            raise TypeError("Hook 必须可调用")
+        self._handlers.setdefault(event, []).append(handler)
 
     def register_tool(self, tool: Tool) -> None:
         """绑定声明与处理函数；同一工厂内同名工具替换前一项，保留 Pi 语义。"""
@@ -193,6 +221,64 @@ class ExtensionRuntime:
             for name in extension._tools:
                 sources.setdefault(name, extension.source)
         return sources
+
+    # s08 新增：按扩展/注册顺序执行；工具调用异常向外传播以阻止副作用。
+    async def dispatch(self, event: dict, session) -> dict:
+        """输入事件副本，输出链式修改；普通观察失败记录诊断，原生取消传播。"""
+        current = deepcopy(event)
+        kind = event["type"]
+        context = SimpleNamespace(session=session, cwd=session.cwd)
+        for extension in self.extensions:
+            for handler in tuple(extension._handlers.get(kind, ())):
+                try:
+                    result = handler(deepcopy(current), context)
+                    if inspect.isawaitable(result):
+                        result = await result
+                    if result is None:
+                        continue
+                    if not isinstance(result, dict):
+                        raise TypeError("Hook 返回值必须是字典或 None")
+                    candidate = deepcopy(current)
+                    if kind == "input":
+                        action = result.get("action", "continue")
+                        if action not in {"continue", "transform", "handled"}:
+                            raise ValueError("无效 input action")
+                        if action == "transform":
+                            if not isinstance(result.get("text"), str):
+                                raise TypeError("transform 需要文本")
+                            candidate["text"] = result["text"]
+                        if action == "handled":
+                            candidate["action"] = "handled"
+                            return candidate
+                    elif kind == "context" and "messages" in result:
+                        # s08 新增：使用同一消息编解码器检查修改，临时上下文不落盘。
+                        from pi_code_agent.session import encode_message
+
+                        values = list(result["messages"])
+                        for message in values:
+                            encode_message(message)
+                        candidate["messages"] = values
+                    elif kind == "tool_call" and result.get("block"):
+                        return {**candidate, **result}
+                    elif kind == "tool_result":
+                        value = ToolResult(
+                            result.get("content", current["content"]),
+                            result.get("is_error", current["is_error"]),
+                            result.get("terminate", current["terminate"]),
+                        )
+                        candidate.update(
+                            content=value.content,
+                            is_error=value.is_error,
+                            terminate=value.terminate,
+                        )
+                    current = deepcopy(candidate)
+                except Exception as error:
+                    if kind == "tool_call":
+                        raise
+                    self.diagnostics.append(
+                        {"source": extension.source, "event": kind, "error": str(error)}
+                    )
+        return current
 
     def close(self) -> None:
         """宿主空闲后释放所属模块并使旧 API 失效，可重复调用。"""

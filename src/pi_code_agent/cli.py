@@ -113,12 +113,13 @@ async def run(
             )
         else:
             target_id = sha256(str(workspace).encode("utf-8")).hexdigest()[:12]
-            path = Path.cwd() / ".sessions" / "s07" / target_id / (uuid4().hex + ".jsonl")
+            path = Path.cwd() / ".sessions" / "s08" / target_id / (uuid4().hex + ".jsonl")
             store = SessionStore.create(path, workspace)
         session = AgentSession(
             model=model,
             builtin_tools=tools,
             extensions=runtime,
+            cwd=workspace,
             store=store,
             stream=not options.no_stream,
             max_tokens=max_tokens,
@@ -139,7 +140,7 @@ async def run(
                     return 0
             # s06 修改：状态和持久化归会话所有，CLI 不再持有独立可变历史。
             history = await session.prompt(prompt)
-            last = history[-1]
+            last = history[-1] if history else None
             if isinstance(last, AssistantMessage) and last.usage is not None:
                 print(f"[用量] 输入 {last.usage.input_tokens}，输出 {last.usage.output_tokens}")
             if isinstance(last, AssistantMessage) and last.stop_reason in {"error", "aborted"}:

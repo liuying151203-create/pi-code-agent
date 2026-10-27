@@ -288,6 +288,8 @@ class AgentSession:
         builtin_tools: Sequence[Tool] = (),
         extensions: ExtensionRuntime | None = None,
         store: SessionStore | None = None,
+        # s08 新增：上下文使用明确业务工作区，不从插件文件推断。
+        cwd: Path | None = None,
         stream: bool = False,
         system: str = "你是编程助手，完成任务后停止。",
         max_tokens: int = 8000,
@@ -296,6 +298,7 @@ class AgentSession:
     ) -> None:
         self.model, self.store = model, store
         self.extensions = extensions
+        self.cwd = Path(cwd or (store.header["cwd"] if store else Path.cwd())).resolve()
         self.tools = tuple(
             extensions.resolve_tools(builtin_tools, sdk_tools=tools)
             if extensions is not None
@@ -314,6 +317,8 @@ class AgentSession:
         self._storage_error = False
         self._events = EventBus()
         self._events.subscribe(self._record)
+        if extensions is not None:
+            self._events.subscribe(self._observe_extensions)
 
     @property
     def messages(self) -> list[Message]:
@@ -339,6 +344,45 @@ class AgentSession:
                 raise
             self._saved += 1
 
+    # s08 新增：普通事件 Hook 在持久化之后观察，不更改已保存消息。
+    async def _observe_extensions(self, event):
+        """向扩展发送生命周期事件，订阅器的返回值不修改运行历史。"""
+        await self.extensions.dispatch(event, self)
+
+    async def _transform_context(self, messages):
+        """生成每次模型请求的临时上下文，保留会话真实历史。"""
+        result = await self.extensions.dispatch({"type": "context", "messages": messages}, self)
+        return result["messages"]
+
+    async def _before_tool(self, call, arguments):
+        """把校验后的参数交给拦截器；异常交由工具执行层转为失败。"""
+        return await self.extensions.dispatch(
+            {
+                "type": "tool_call",
+                "tool_name": call.name,
+                "tool_call_id": call.id,
+                "input": arguments,
+            },
+            self,
+        )
+
+    async def _after_tool(self, call, result):
+        """串联工具结果覆盖，保留明确的错误状态与终止选择。"""
+        from pi_code_agent.tools import ToolResult
+
+        event = await self.extensions.dispatch(
+            {
+                "type": "tool_result",
+                "tool_name": call.name,
+                "tool_call_id": call.id,
+                "content": result.content,
+                "is_error": result.is_error,
+                "terminate": result.terminate,
+            },
+            self,
+        )
+        return ToolResult(event["content"], event["is_error"], event["terminate"])
+
     async def prompt(self, text: str) -> list[Message]:
         """加入一次用户输入并运行；结束或失败时补存尚未通知的已完成消息。"""
         if self._busy:
@@ -349,6 +393,19 @@ class AgentSession:
             raise RuntimeError("会话存储已失败，请检查并重新打开")
         self._busy = True
         try:
+            policies = {}
+            if self.extensions is not None:
+                event = await self.extensions.dispatch(
+                    {"type": "input", "text": text, "source": "sdk"}, self
+                )
+                if event.get("action") == "handled":
+                    return self.messages
+                text = event["text"]
+                policies = {
+                    "transform_context": self._transform_context,
+                    "before_tool_call": self._before_tool,
+                    "after_tool_call": self._after_tool,
+                }
             await self._loop(
                 self._history,
                 model=self.model,
@@ -359,6 +416,7 @@ class AgentSession:
                 prompts=[UserMessage(text)],
                 events=self._events,
                 stream=self.stream,
+                **policies,
             )
             return self.messages
         finally:

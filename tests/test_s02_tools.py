@@ -135,6 +135,7 @@ def test_read_tool_counts_utf8_bytes_without_skipping_lines(api, tmp_path):
         "tutorials.s05_streaming",
         "tutorials.s06_sessions",
         "tutorials.s07_extensions",
+        "tutorials.s08_hooks",
     ]
 )
 def api(request):

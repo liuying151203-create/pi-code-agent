@@ -18,6 +18,7 @@ CHAPTERS = [
     "s05_streaming",
     "s06_sessions",
     "s07_extensions",
+    "s08_hooks",
 ]
 
 

@@ -16,4 +16,6 @@
 
 7. [s07：扩展加载与工具注册](s07_extensions/README.md)：可信工厂事务、注册优先级和来源进入实际会话
 
+8. [s08：Hook 拦截](s08_hooks/README.md)：输入、上下文和工具策略进入真实执行路径
+
 后续基座安排见 [章节规划](../docs/extension-foundation-plan.md)。旧版教程完整保存在 [archive/v1](../archive/README.md)。
