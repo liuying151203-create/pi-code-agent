@@ -1,6 +1,6 @@
 # ===== s02 新增 =====
 # s02 新增；保存本章阶段的组件实现；相对导入只引用本章，不读取正式包或其他章节。
-"""s01：无需密钥的脚本模型；s02 用它验证参数转换与工具结果回传。"""
+"""s02：通过预设加法请求演示参数校验、转换与结果回传。"""
 
 from __future__ import annotations
 
@@ -15,11 +15,11 @@ from .tools import Tool, ToolResult
 
 
 class DemoModel:
-    """先请求指定工具，再根据实际工具结果回答；用于离线教学和冒烟验证。"""
+    """模拟带字符串参数的加法请求，实际校验和计算交给工具执行层。
 
-    def __init__(self, tool_name: str = "project_name", arguments: dict[str, Any] | None = None):
-        self.tool_name = tool_name
-        self.arguments = arguments if arguments is not None else {}
+    输入：统一模型请求；输出：预设 add 请求或包含实际结果的文字。
+    流程：请求 add("2", "3") → 接收工具结果 → 回答；不访问网络或自行计算。
+    """
 
     async def complete(
         self,
@@ -34,8 +34,9 @@ class DemoModel:
             result = messages[-1]
             label = "工具失败" if result.is_error else "工具返回"
             return AssistantMessage((Text(f"{label}：{result.content}"),))
+        # s02 修改：请求明确写在脚本回答中，字符串交给参数模型转换，不在初始化时指定。
         return AssistantMessage(
-            (ToolCall(f"demo-{len(messages)}", self.tool_name, self.arguments),), "tool_use"
+            (ToolCall(f"demo-{len(messages)}", "add", {"a": "2", "b": "3"}),), "tool_use"
         )
 
 

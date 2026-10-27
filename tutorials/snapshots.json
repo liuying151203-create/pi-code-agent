@@ -26,8 +26,8 @@
     "s02_tools": {
       "files": {
         "__init__.py": "4a9fff5d2aa69f8a86c81a48c901e6f2f5213763ab0da9b1d9b9767ce7941db7",
-        "code.py": "ab66948cb7ccc69fd1f663abc303d0015b9a3fbb64f2ba325b14dff4cbc57df0",
-        "demo.py": "657dd5cb64ef0539032a2a843ae2a5ac194a5f5c91a9e105560f41ff482f3b15",
+        "code.py": "2bce89b94cbd50c7ebe1cd08a828f3f4cb1bb2cee63b56691c28146e79530523",
+        "demo.py": "2762ca2dfb4eefed54290fa3c47604d124161ccaef649d43ac08fb65691a8e33",
         "errors.py": "c94c6bca6e2d0c3a0e9e7136777915b099175a568b46de0c3eba3b74f4c74f67",
         "file_tools.py": "e1b672cfad27c3fc93b6b93b33184a52fcf65825fd3064de0dc0dde89d85c45d",
         "messages.py": "ee098947cb0269e0af555bf88f064bd7c1b48c984f1709b0fc70fadf02e9ba8c",

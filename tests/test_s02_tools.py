@@ -26,6 +26,37 @@ class Arguments(BaseModel):
     limit: int = 2
 
 
+def test_second_demo_requests_add_and_handler_receives_validated_integers():
+    from dataclasses import replace
+
+    from tutorials.s02_tools.code import agent_loop
+    from tutorials.s02_tools.demo import DemoModel, add_tool
+    from tutorials.s02_tools.messages import UserMessage
+
+    model = DemoModel()
+    tool = add_tool()
+    execute = AsyncMock(wraps=tool.execute)
+    tool = replace(tool, execute=execute)
+
+    async def run():
+        history = [UserMessage("2 加 3 等于多少？")]
+        response = await model.complete(
+            system="", messages=tuple(history), tools=[tool.definition()], max_tokens=100
+        )
+        assert response.content[0].name == tool.name
+        assert response.content[0].arguments == {"a": "2", "b": "3"}
+        execute.assert_not_awaited()
+
+        await agent_loop(history, model=model, tools=[tool])
+        execute.assert_awaited_once_with({"a": 2, "b": 3})
+        assert history[1].content[0].arguments == {"a": "2", "b": "3"}
+        assert history[2].content == "5" and not history[2].is_error
+        assert history[2].tool_call_id == history[1].content[0].id
+        assert history[-1].content[0].text == "工具返回：5"
+
+    asyncio.run(run())
+
+
 @pytest.mark.parametrize(
     "arguments",
     [

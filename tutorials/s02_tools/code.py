@@ -80,7 +80,8 @@ async def main() -> None:
     from .messages import Text, UserMessage
 
     tool = add_tool()
-    model = DemoModel("add", {"a": "2", "b": "3"})
+    # s02 修改：模型按固定脚本回答，入口只负责组装，不替模型指定工具请求。
+    model = DemoModel()
     history = [UserMessage("2 加 3 等于多少？")]
     await agent_loop(history, model=model, tools=[tool])
     for message in history:
