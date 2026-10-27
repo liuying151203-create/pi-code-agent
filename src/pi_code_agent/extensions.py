@@ -6,8 +6,8 @@ import inspect
 import sys
 from collections.abc import Callable, Sequence
 from dataclasses import replace
+from importlib.util import module_from_spec, spec_from_file_location
 from pathlib import Path
-from types import ModuleType
 from uuid import uuid4
 
 from pi_code_agent.tools import Tool, ToolResult
@@ -149,14 +149,14 @@ class ExtensionRuntime:
             try:
                 if not path.is_file() or path.suffix != ".py":
                     raise ValueError("扩展入口必须是已有 Python 文件")
-                package = ModuleType(namespace)
-                package.__path__ = [str(path.parent)]
-                sys.modules[namespace] = package
-                name = namespace + ".entry"
-                module = ModuleType(name)
-                module.__file__ = str(path)
-                module.__package__ = namespace
-                sys.modules[name] = module
+                # s07 修复：原生 ModuleSpec 提供完整包语义，支持资源读取与模块内省。
+                spec = spec_from_file_location(
+                    namespace, path, submodule_search_locations=[str(path.parent)]
+                )
+                if spec is None or spec.loader is None:
+                    raise ImportError("无法构建扩展模块定义")
+                module = module_from_spec(spec)
+                sys.modules[namespace] = module
                 # s07 调整：Pi 使用 jiti；Python 显式编译源码，入口不受旧 pyc 缓存影响。
                 exec(compile(path.read_text(encoding="utf-8"), str(path), "exec"), module.__dict__)  # noqa: S102 - 显式可信扩展加载，不提供沙箱
                 await self.register(getattr(module, "setup", None), source=str(path))

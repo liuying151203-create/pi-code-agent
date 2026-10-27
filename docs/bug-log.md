@@ -1,5 +1,9 @@
 # 新主线问题记录
 
+## V2-B007：扩展缺少原生 ModuleSpec
+
+s07 提交 d423a36 后复查，手工 ModuleType 缺少 __spec__/loader 等元数据；普通相对导入可以运行，但插件调用 find_spec 或 importlib.resources 时失败。`test_extension_has_native_module_spec_and_can_read_its_package_resources` 在产品/s07 均复现 __spec__ is None。修复用 spec_from_file_location(..., submodule_search_locations=...) 和 module_from_spec 构建完整包，再显式编译入口，保留新鲜源码与命名空间清理。回归核对 origin、包内资源和工具实际输出；不把此修复等同于 s12 的热重载。
+
 ## V2-B006：合法无末尾换行的 JSONL 续写后损坏
 
 s06 提交 d78cae8 后复查，加载可以接受完整但无终止换行的末条 JSON，追加却未补行分隔符，导致后续读取 JSONDecodeError: Extra data。`test_valid_final_record_without_newline_can_be_appended_without_corruption` 在产品和 s06 两种运行时均复现。修复按 UTF-8 字节续写，必要时补一字节换行，再写新记录并同步；不修复无效 JSON，不改变单写入者边界。回归保留无换行中文消息并校验恢复后两条消息内容，见本轮交接记录。

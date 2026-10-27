@@ -205,3 +205,27 @@ def test_project_discovery_requires_explicit_trust_flag(api, tmp_path, monkeypat
     assert "trusted result" not in capsys.readouterr().out
     assert api.cli.main([*args, "--trust-project-extensions"], loop=api.agent_loop) == 0
     assert "trusted result" in capsys.readouterr().out
+
+
+def test_extension_has_native_module_spec_and_can_read_its_package_resources(
+    api, runtime, tmp_path
+):
+    (tmp_path / "message.txt").write_text("package data", encoding="utf-8")
+    entry = tmp_path / "index.py"
+    entry.write_text(
+        "from importlib.util import find_spec\nfrom importlib.resources import files\n"
+        "def setup(api):\n"
+        "    assert find_spec(__name__).origin == __file__\n"
+        '    value = files(__package__).joinpath("message.txt").read_text(encoding="utf-8")\n'
+        "    async def execute(args): return api.ToolResult(value)\n"
+        '    api.register_tool(api.Tool("data","data",execute))\n',
+        encoding="utf-8",
+    )
+    asyncio.run(runtime.load([entry]))
+    assert runtime.diagnostics == []
+    result = asyncio.run(
+        api.execute_tool(
+            api.ToolCall("id", "data", {}), {tool.name: tool for tool in runtime.resolve_tools()}
+        )
+    )
+    assert result.content == "package data"
