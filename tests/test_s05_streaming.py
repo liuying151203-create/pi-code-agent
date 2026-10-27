@@ -160,7 +160,14 @@ def model_for(api, kind, streams, **config):
     return model, constructor, client
 
 
-@pytest.fixture(params=["pi_code_agent", "tutorials.s05_streaming", "tutorials.s06_sessions"])
+@pytest.fixture(
+    params=[
+        "pi_code_agent",
+        "tutorials.s05_streaming",
+        "tutorials.s06_sessions",
+        "tutorials.s07_extensions",
+    ]
+)
 def api(request):
     return load_runtime(request.param)
 

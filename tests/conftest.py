@@ -23,7 +23,7 @@ def load_runtime(package: str) -> SimpleNamespace:
     输入：正式包或单个章节包名；输出：该版本实际拥有的类、方法和适配器。
     流程：加载本包消息/工具/循环 → 按章节阶段加载真实存在的组件；不做类型桥接。
     """
-    stage = int(package.split(".")[-1][1:3]) if package.startswith("tutorials.") else 6
+    stage = int(package.split(".")[-1][1:3]) if package.startswith("tutorials.") else 7
     loop_module = "code" if package.startswith("tutorials.") else "loop"
     exports = {}
     components = {
@@ -42,8 +42,19 @@ def load_runtime(package: str) -> SimpleNamespace:
         components["events"] = ("EventBus", "EventListenerError")
     if stage >= 6:
         components["session"] = ("AgentSession", "SessionStore", "encode_message", "decode_message")
+    if stage >= 7:
+        components["extensions"] = ("ExtensionAPI", "ExtensionRuntime", "discover_extensions")
     for module_name, names in components.items():
         module = import_module(f"{package}.{module_name}")
         exports[module_name] = module
         exports.update({name: getattr(module, name) for name in names})
     return SimpleNamespace(**exports)
+
+
+# 扩展与资源测试使用独立全局目录，不执行用户真实安装的插件。
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def isolated_agent_home(tmp_path, monkeypatch):
+    monkeypatch.setenv("PI_CODE_AGENT_HOME", str(tmp_path / "agent-home"))

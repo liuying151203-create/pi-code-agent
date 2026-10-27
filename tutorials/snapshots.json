@@ -103,6 +103,27 @@
         "session.py": "1cd81e3f40a983242fd7e843c347d74a616287e313839a250f19df98a3178164",
         "tools.py": "285f101c35986b6c2b7c36af07a4ba8a87a0d6451e9f6ceb44022feee263073e"
       }
+    },
+    "s07_extensions": {
+      "source_baseline": "3859d21",
+      "pi_reference": "e4c75a732",
+      "files": {
+        "__init__.py": "429b941c349cb02de8656be7f4d18239ac012d00deb8da2412fdf5c7dc3128a0",
+        "cli.py": "58f43986e1e3ddb42868a7228ab11f479fa5407abc4cc2e7c1500f0ec8ea9d76",
+        "code.py": "ece818cdac27e0940c22149a77b878448d02062b5a90b23d71de8b55567bb445",
+        "config.py": "5e0679477fbdb0ec928e7fe5917be5835486a4d2490133f42d373d992390c2d6",
+        "demo.py": "4c81d8617b3b5878d41aa0e016afa87aa5917b81f0ea01a8ae3687092e8913fa",
+        "errors.py": "c94c6bca6e2d0c3a0e9e7136777915b099175a568b46de0c3eba3b74f4c74f67",
+        "events.py": "f6303283bfc7a2f0d39f577b5394b39b37a4e56b7faf8208bd70d26aa8979b34",
+        "example_extension.py": "1f2ceebcd417d605d791730806a38182ea57e98495112f0f6250f291f41d16d0",
+        "extensions.py": "53d0885a46d58e031e0945ef708ca57c8b1b5a08d33b9539ee0c43375f24be80",
+        "file_tools.py": "09fb7b405471fc494638551c32248c510feab115c298b70ec9ab22ea7c2aa6e3",
+        "messages.py": "307791e4e9c290874a558c627a51f8afeeb652e4dba1a0023a447aff021b688d",
+        "model.py": "ec346326a1a159994ef4c7c6054077533e9c533b798f938df62aeaab6cad15b8",
+        "providers.py": "3202575060f19c6dc282996e750e6499bfa27f1e4d905b6d904821df0b178aa2",
+        "session.py": "397db2d1d31e176c85203f6556922f9416d5616cac84442aa4718f0871ea8f96",
+        "tools.py": "ad8ec1ebbb978f01f0c7d14bd138e52e80cdd4fd02ad8eb88bc36d29a11fb6b4"
+      }
     }
   }
 }

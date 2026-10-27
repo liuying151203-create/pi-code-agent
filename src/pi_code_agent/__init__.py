@@ -4,6 +4,7 @@ from pi_code_agent.config import ModelConfig, load_model_config
 
 # s04 新增：事件与订阅随本章直接成为正式 SDK 接口。
 from pi_code_agent.events import AgentEvent, EventBus, EventListener, EventListenerError
+from pi_code_agent.extensions import ExtensionAPI, ExtensionRuntime, discover_extensions
 from pi_code_agent.loop import TurnLimitError, agent_loop
 from pi_code_agent.messages import (
     AssistantMessage,
@@ -31,6 +32,8 @@ __all__ = [
     "EventBus",
     "EventListener",
     "EventListenerError",
+    "ExtensionAPI",
+    "ExtensionRuntime",
     "Message",
     "Model",
     "ModelConfig",
@@ -50,5 +53,6 @@ __all__ = [
     "UserMessage",
     "agent_loop",
     "create_model",
+    "discover_extensions",
     "load_model_config",
 ]

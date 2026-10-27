@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import os
 import sys
 from collections.abc import Awaitable, Callable, Sequence
 from hashlib import sha256
@@ -13,6 +14,7 @@ from uuid import uuid4
 from pi_code_agent.config import load_model_config
 from pi_code_agent.demo import DemoModel
 from pi_code_agent.events import AgentEvent, EventListenerError
+from pi_code_agent.extensions import ExtensionRuntime, discover_extensions
 from pi_code_agent.file_tools import read_tool
 from pi_code_agent.loop import TurnLimitError, agent_loop
 from pi_code_agent.messages import AssistantMessage, Message, Text, ToolResultMessage
@@ -79,14 +81,27 @@ async def run(
     reader = read_tool(workspace)
     tools = [reader]
     if options.demo:
-        model = DemoModel("read", {"path": "README.md"})
+        model = DemoModel(
+            options.demo_tool, {"path": "README.md"} if options.demo_tool == "read" else {}
+        )
         max_tokens = 8000
     else:
         config = load_model_config(options.env_file)
         model = create_model(config)
         max_tokens = config.max_tokens
+    runtime = ExtensionRuntime()
     # s06 新增：客户端先组装，存储和入口失败也由外层 finally 关闭拥有的客户端。
     try:
+        home = Path(os.environ.get("PI_CODE_AGENT_HOME", str(Path.home() / ".pi-code-agent")))
+        discovered = discover_extensions(
+            workspace,
+            global_dir=None if options.no_extensions else home / "extensions",
+            paths=[path.resolve() for path in options.extension],
+            project=options.trust_project_extensions and not options.no_extensions,
+        )
+        await runtime.load(discovered)
+        for diagnostic in runtime.diagnostics:
+            print(f"扩展加载失败 {diagnostic['source']}: {diagnostic['error']}", file=sys.stderr)
         if options.no_session:
             store = None
         elif options.session is not None:
@@ -98,11 +113,12 @@ async def run(
             )
         else:
             target_id = sha256(str(workspace).encode("utf-8")).hexdigest()[:12]
-            path = Path.cwd() / ".sessions" / "s06" / target_id / (uuid4().hex + ".jsonl")
+            path = Path.cwd() / ".sessions" / "s07" / target_id / (uuid4().hex + ".jsonl")
             store = SessionStore.create(path, workspace)
         session = AgentSession(
             model=model,
-            tools=tools,
+            builtin_tools=tools,
+            extensions=runtime,
             store=store,
             stream=not options.no_stream,
             max_tokens=max_tokens,
@@ -135,6 +151,7 @@ async def run(
             if options.prompt is not None:
                 return 0
     finally:
+        runtime.close()
         if not options.demo:
             await model.aclose()
 
@@ -155,6 +172,23 @@ def main(
     storage = parser.add_mutually_exclusive_group()
     storage.add_argument("--session", type=Path, help="打开已有会话或创建指定文件")
     storage.add_argument("--no-session", action="store_true", help="纯内存运行，不保存会话")
+    parser.add_argument(
+        "--extension",
+        "-e",
+        type=Path,
+        action="append",
+        default=[],
+        help="加载明确选择的可信 Python 文件或目录",
+    )
+    parser.add_argument(
+        "--no-extensions", action="store_true", help="关闭自动扩展发现，仍允许显式 --extension"
+    )
+    parser.add_argument(
+        "--trust-project-extensions",
+        action="store_true",
+        help="允许加载工作区 .pi-code-agent/extensions",
+    )
+    parser.add_argument("--demo-tool", default="read", help="离线脚本模型请求的工具名称")
     options = parser.parse_args(arguments)
     if options.max_turns is not None and options.max_turns < 1:
         parser.error("--max-turns 必须是正整数")

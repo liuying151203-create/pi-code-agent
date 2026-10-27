@@ -1,6 +1,6 @@
 # Pi Code Agent
 
-参考 Pi 设计、使用 Python 实现的异步 Agent 与可复用 Harness；当前新主线完成 s01–s06。
+参考 Pi 设计、使用 Python 实现的异步 Agent 与可复用 Harness；当前新主线完成 s01–s07。
 
 ## 环境与首次运行
 

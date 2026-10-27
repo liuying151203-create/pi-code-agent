@@ -12,6 +12,8 @@ s05 继续参考上述提交的 `agent-loop.ts::streamAssistantResponse`、`pack
 
 s06 参考同一版本的 `packages/agent/src/agent.ts`、`packages/coding-agent/src/core/agent-session.ts`、`session-manager.ts` 及会话相关测试。采用状态/存储分工、完成消息落盘、条目关联及默认持久化选择。Python SessionStore 使用自己的 version=1 线性文件，不直接导入 Pi 文件；树与分支尚未迁入。
 
+s07 参考 `packages/coding-agent/src/core/extensions/loader.ts` 的工厂事务与发现顺序、`runner.ts::getAllRegisteredTools` 的跨扩展首个优先，以及 `agent-session.ts::_refreshToolRegistry` 的内置/扩展/SDK 分层。Python 用独立模块命名空间加载可信工厂，不声称支持 npm 包或操作系统沙箱；动态注册留在 s12。
+
 以下 Pi MIT 声明适用于相关复用与移植部分，不代表归档之外的全部原创内容另行更换许可。
 
 ```text

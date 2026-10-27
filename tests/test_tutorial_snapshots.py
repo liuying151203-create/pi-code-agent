@@ -17,6 +17,7 @@ CHAPTERS = [
     "s04_events",
     "s05_streaming",
     "s06_sessions",
+    "s07_extensions",
 ]
 
 
@@ -43,7 +44,7 @@ sys.path.insert(0, sys.argv.pop(1))
 runpy.run_module('lesson.code', run_name='__main__')
 """
     arguments = [sys.executable, "-I", "-X", "utf8", "-B", "-c", script, str(tmp_path)]
-    if chapter.startswith(("s03", "s04", "s05", "s06")):
+    if int(chapter[1:3]) >= 3:
         arguments += ["--demo", "--workspace", str(workspace), "--prompt", "read README"]
     environment = dict(os.environ, PYTHONIOENCODING="utf-8", PYTHONDONTWRITEBYTECODE="1")
     completed = subprocess.run(
@@ -59,11 +60,11 @@ runpy.run_module('lesson.code', run_name='__main__')
     assert "RuntimeWarning" not in completed.stderr
     expected = (
         "independent snapshot"
-        if chapter.startswith(("s03", "s04", "s05", "s06"))
+        if int(chapter[1:3]) >= 3
         else ("5" if chapter.startswith("s02") else tmp_path.name)
     )
     assert expected in completed.stdout
-    assert ("[read 开始]" in completed.stdout) == chapter.startswith(("s04", "s05", "s06"))
+    assert ("[read 开始]" in completed.stdout) == (int(chapter[1:3]) >= 4)
 
 
 def test_s01_and_s02_do_not_contain_future_model_or_event_components():

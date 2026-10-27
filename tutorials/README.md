@@ -14,4 +14,6 @@
 
 6. [s06：会话与状态](s06_sessions/README.md)：谁持有历史，何时落盘，怎样恢复。
 
+7. [s07：扩展加载与工具注册](s07_extensions/README.md)：可信工厂事务、注册优先级和来源进入实际会话
+
 后续基座安排见 [章节规划](../docs/extension-foundation-plan.md)。旧版教程完整保存在 [archive/v1](../archive/README.md)。

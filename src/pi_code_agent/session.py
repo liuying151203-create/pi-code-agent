@@ -13,6 +13,7 @@ from typing import Any
 from uuid import uuid4
 
 from pi_code_agent.events import AgentEvent, EventBus, EventListener
+from pi_code_agent.extensions import ExtensionRuntime
 from pi_code_agent.loop import agent_loop
 from pi_code_agent.messages import (
     AssistantMessage,
@@ -283,6 +284,9 @@ class AgentSession:
         *,
         model: Model | StreamingModel,
         tools: Sequence[Tool] = (),
+        # s07 新增：内置工具与 SDK 显式工具分开，保留 Pi 的覆盖优先级。
+        builtin_tools: Sequence[Tool] = (),
+        extensions: ExtensionRuntime | None = None,
         store: SessionStore | None = None,
         stream: bool = False,
         system: str = "你是编程助手，完成任务后停止。",
@@ -290,7 +294,13 @@ class AgentSession:
         max_turns: int | None = None,
         loop: Callable = agent_loop,
     ) -> None:
-        self.model, self.tools, self.store = model, tuple(tools), store
+        self.model, self.store = model, store
+        self.extensions = extensions
+        self.tools = tuple(
+            extensions.resolve_tools(builtin_tools, sdk_tools=tools)
+            if extensions is not None
+            else list({tool.name: tool for tool in [*builtin_tools, *tools]}.values())
+        )
         self.stream, self.system, self.max_tokens, self.max_turns = (
             stream,
             system,

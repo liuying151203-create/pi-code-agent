@@ -1,5 +1,9 @@
 # 新主线交接
 
+s07 首轮全量 592 passed、Ruff 通过，实际 pytest 临时目录 `.sessions/s07-9e68316a`。加载顺序与覆盖优先级按 Pi e4c75a732 核对；项目自动发现要求明确信任，显式 -e 在 --no-extensions 下仍有效。随后提交并继续复查。
+
+s07 已实现：可信工厂事务、注册优先级和来源进入实际会话。按本轮授权先提交实现，再复查并在有问题时修复提交；旧章快照不变。
+
 s06 实现提交 d78cae8；提交后复查发现 V2-B006，无末尾换行续写粘连问题已修复。修复后全量 467 passed，测试命令同前、临时目录改为 `.sessions/s06-63356db9`。随后提交独立修复并进入 s07。
 
 当前批量任务：用户已明确授权 s06–s12 按章提交、提交后复查并在有问题时追加修复提交。范围与验收见 extension-foundation-plan.md。s06 首轮完整验证 465 passed、Ruff 通过；实际命令为 `..\zero2pi\.venv\Scripts\python.exe -B -m pytest --basetemp D:\dev\Agent\pi-code-agent\.sessions\s06-d701d4ad -p no:cacheprovider --tb=short`。随后提交实现并继续提交后复查；会话 JSONL 仅线性，默认保存与 --no-session 可选，客户端由创建者管理。旧章快照不改。
