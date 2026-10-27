@@ -214,18 +214,18 @@
       "files": {
         "__init__.py": "2eb23d779a3e4eaf5b1c0f116025b2ce61e10b1c89badef27e8c100c7246337c",
         "cli.py": "9fa8353499379756fe8ebab12fb251cc9bd7b1a93fc6ccddad8f3466834c3bfa",
-        "code.py": "c8a3768c9504f1487d8f2d66dcc0ae9d78db13ae2763c6a4fa55bf36440d3399",
+        "code.py": "ac0de5750d1233d6c33708597c638d31f6158f8a74c9d84f9424da6e20a96a7a",
         "config.py": "766278e1ec137d43788257c09f92d543a268fbc35df11097a5bd5b25218bb8b0",
         "demo.py": "c8bf427e56922d800d2d4e2308dcd41b2f6cb32df629ca5504b9ee9b4c525192",
         "errors.py": "c94c6bca6e2d0c3a0e9e7136777915b099175a568b46de0c3eba3b74f4c74f67",
         "events.py": "e049b742c71d5bbcdde783224ea1c1e3786d361428ca9b4471264a45be13d74e",
-        "extensions.py": "b4b5f242dc984ca45ee3238ea441ae766a2c60a83e4744e4973f4c0d5c257550",
+        "extensions.py": "45d1cd3b943b1485701c1de9e823621d90042c22a14e7735c8a5bb3f71fafda2",
         "file_tools.py": "a981c436bf2bb57a78f5eb40f658643a567fe0cf5644a80141544f6a8ab4f9ea",
         "messages.py": "ca716a248b0696a5fd0599ef89478827b027eaa8142e0554ed2ba9212cd1f886",
         "model.py": "cc6921e941bfb120b43ddb612be862a03dd9b0389595b299d55836aab53f3ada",
         "providers.py": "8b62b4549ff55997755144c50b4d84eb5a2b462df086c06a887713d9a2e58d76",
         "resources.py": "5fbd01ef0e406f3ad1164a0fc4bfb38ada04d8311977a12f19655a58736cd6d0",
-        "session.py": "e8d5e3233b950012632d7f1f1b1533841da07da7dfa083095ac248914044212f",
+        "session.py": "435c4afda5281037a95897cccfeafcad1f5b1fd40f5601e003c2aa2567248978",
         "tools.py": "b7cc1f9acd282ece2fcac787de3361ed5771cf583f79438e362292930846ce3b"
       }
     }

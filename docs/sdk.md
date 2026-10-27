@@ -64,3 +64,17 @@ SDK 不自动读取 `.env`。如有需要，调用 `load_model_config(明确路�
 ## 扩展
 
 `ExtensionRuntime` 可 `await register(factory)` 或 `await load(paths)`；工厂接收 `ExtensionAPI`，调用 `register_tool`。传入 `AgentSession(extensions=runtime, builtin_tools=..., tools=...)` 后按 Pi 优先级组装工具，使用结束调用 `runtime.close()`。插件是可信代码，不是沙箱；项目自动加载需 --trust-project-extensions，--no-extensions 仍保留显式 -e。见 [s07](../tutorials/s07_extensions/README.md)。
+
+
+## 扩展基座（s08–s12）
+
+可运行的完整离线例子：`python examples/extension_foundation_sdk.py`。先阅读 [s06–s12 教程入口](../tutorials/README.md)，各章使用自己的冻结类型。
+
+- `api.on` 注册 input/context/tool_call/tool_result 与生命周期观察；工具参数校验后才允许拦截。context 的临时修改不改历史，ToolResult.terminate 控制整批工具后的自动续轮。
+- `api.register_command` 与 `register_flag/get_flag` 提供命令和严格参数。CLI 命令先于 input Hook，SDK 显式 `await session.run_command(text)`。
+- `ctx.ui.notify` 只显示；`ctx.append_entry` 保存扩展状态；`await ctx.send_message(..., display=..., trigger_turn=..., deliver_as=...)` 明确选择模型消息、显示和触发回合。命令返回不自动交给模型。
+- `session.steer`、`follow_up` 排队，默认一轮一条；`abort` 取消活跃任务，`await wait_for_idle` 等待末事件和保存完成。不要从活跃处理函数等待自己。
+- `ResourceLoader(...).load()` 明确加载业务上下文、Skill 元数据和模板，再作为 resources 注入。SDK 不隐式扫描；Skill 资源读取范围可用 `read_tool(..., resource_roots=...)` 指定。
+- `session.set_active_tools(names)` 在下一请求刷新定义和分发快照；`await session.reload()` 在空闲时验证候选再切换，保留历史。旧工具、API 和上下文随代次失效；`await session.aclose()` 只关闭扩展，模型客户端由创建者管理。
+
+同一个 ExtensionRuntime 绑定一个会话。需要独立会话时建立独立运行时。状态文件为 Python 自有的线性 JSONL，不能直接导入 Pi 会话。资源/插件路径是可信配置；Python 扩展没有权限沙箱。重载回滚注册和资源集合，不能撤销插件自行产生的外部副作用。

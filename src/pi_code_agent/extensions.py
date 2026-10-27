@@ -290,6 +290,7 @@ class ExtensionRuntime:
         self._namespaces: list[str] = []
         self._paths: set[Path] = set()
         self._closed = False
+        # s12 新增：绑定、来源重放和自有模块加载器共同管理可失效的代次。
         self._session = None
         self._factories = []
         self._replay = []

@@ -347,6 +347,7 @@ class AgentSession:
         self.resources = resources
         self.extensions = extensions
         self.cwd = Path(cwd or (store.header["cwd"] if store else Path.cwd())).resolve()
+        # s12 修改：分别保留依赖来源，动态选择与重载不丢 SDK 的显式覆盖。
         self._builtin_tools, self._sdk_tools = tuple(builtin_tools), tuple(tools)
         self._active_tool_names = None
         self._resource_tools = resource_tools
@@ -404,6 +405,7 @@ class AgentSession:
         )
 
     def get_active_tools(self):
+        """读取启用名称，输出独立列表；动态切换在下一请求固定为工具快照。"""
         return [tool.name for tool in self.tools]
 
     def set_active_tools(self, names):
@@ -416,6 +418,7 @@ class AgentSession:
         self._active_tool_names = list(dict.fromkeys(name for name in names if name in known))
 
     async def _get_tools(self):
+        """向核心提供当前工具，执行目录由该次请求固定。"""
         return self.tools
 
     async def start(self):

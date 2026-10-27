@@ -93,6 +93,7 @@ async def agent_loop(
         partial = AssistantMessage((), "pending")
         response = None
         try:
+            # s12 新增：同一请求的定义与执行目录来自同一快照，批次中保持不变。
             if get_tools is not None:
                 current_tools = tuple(await get_tools())
                 catalog = {tool.name: tool for tool in current_tools}
