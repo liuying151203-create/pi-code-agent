@@ -10,9 +10,6 @@ from collections.abc import Sequence
 from copy import deepcopy
 from typing import Any, Self
 
-from anthropic import AsyncAnthropic
-from openai import AsyncOpenAI
-
 from .config import ModelConfig
 from .messages import (
     AssistantMessage,
@@ -127,16 +124,22 @@ class AnthropicModel:
             raise ValueError("AnthropicModel 需要 anthropic 配置")
         self.config = config
         self._owns_client = client is None
-        self.client = (
-            client
-            if client is not None
-            else AsyncAnthropic(
+        # s03 修复：仅创建自有客户端时导入对应 SDK，离线或注入客户端不触发导入。
+        if client is None:
+            try:
+                from anthropic import AsyncAnthropic
+            except ModuleNotFoundError as error:
+                raise ProviderError(
+                    f"当前 Python 环境缺少模型依赖 {error.name}，请按项目 README 配置依赖"
+                ) from error
+            self.client = AsyncAnthropic(
                 api_key=config.api_key,
                 base_url=config.base_url,
                 timeout=config.timeout_seconds,
                 max_retries=config.max_retries,
             )
-        )
+        else:
+            self.client = client
 
     async def complete(
         self,
@@ -221,16 +224,22 @@ class OpenAIModel:
             raise ValueError("OpenAIModel 需要 openai-compatible 配置")
         self.config = config
         self._owns_client = client is None
-        self.client = (
-            client
-            if client is not None
-            else AsyncOpenAI(
+        # s03 修复：OpenAI SDK 在对应客户端真正被选中时才加载，不影响 Anthropic。
+        if client is None:
+            try:
+                from openai import AsyncOpenAI
+            except ModuleNotFoundError as error:
+                raise ProviderError(
+                    f"当前 Python 环境缺少模型依赖 {error.name}，请按项目 README 配置依赖"
+                ) from error
+            self.client = AsyncOpenAI(
                 api_key=config.api_key,
                 base_url=config.base_url,
                 timeout=config.timeout_seconds,
                 max_retries=config.max_retries,
             )
-        )
+        else:
+            self.client = client
 
     async def complete(
         self,

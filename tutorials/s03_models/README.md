@@ -8,7 +8,7 @@
 python -m tutorials.s03_models.code --demo --workspace example_project/mini_app --prompt "读取 README.md"
 ```
 
-`DemoModel()` 按预设脚本请求读取 README，工具实际读取文件，再把内容交回脚本模型。`--demo` 和 `--help` 都不需要模型配置；这一模式不验证真实模型是否会选择工具。
+`DemoModel()` 按预设脚本请求读取 README，工具实际读取文件，再把内容交回脚本模型。沿用第二章的 Pydantic 环境即可，`--demo` 和 `--help` 不加载模型 SDK 或 dotenv，也不需要密钥；这一模式不验证真实模型是否会选择工具。
 
 ## 接入真实模型
 
@@ -82,7 +82,7 @@ ModelConfig ──config──> Provider ──model──> agent_loop
 Tool ──tools───────────────────────────> agent_loop
 ```
 
-Provider 创建的客户端在上下文退出时关闭；注入的客户端由调用方负责。
+Provider 创建的客户端在上下文退出时关闭；注入的客户端由调用方负责。对应 SDK 只在创建自有客户端时导入，使用 Anthropic 不要求先加载 OpenAI SDK，反之亦然。
 
 ## 测试
 

@@ -103,3 +103,11 @@ V2-B014 补充：取消工具时同样没有正常 after_turn，四项回归证�
 - 复现：历史包含带未完成工具调用的失败回答，再追加用户输入，两种协议发送的消息仍为 user/assistant/user。error、aborted 与两种协议的四项回归先失败；失败调用没有工具结果，可能破坏服务端的请求/结果对应关系。
 - 原因与修复：请求投影没有区分完整回答和失败状态。按 Pi e4c75a732 的 packages/ai/src/api/transform-messages.ts 跳过失败回答，仅修改 s03 的两种消息转换器，本地历史保留，更新 providers.py 的冻结哈希。
 - 边界与验证：不增加自动重试、流式或任意孤立消息修复，不删除失败记录。回归验证请求只含两次用户输入，原失败对象与内容仍留在历史；既有协议转换、调用 ID、异常传播与客户端所有权一并回归。
+
+## V2-B019：第三章离线入口提前加载真实模型依赖
+
+- 用户复现：运行 `python -m tutorials.s03_models.code --demo --workspace example_project/mini_app --prompt "读取 README.md"`，进入 cli 后导入 providers，因模块级 `from openai import AsyncOpenAI` 抛 ModuleNotFoundError。当前默认 Python 确认没有 openai，但已有 anthropic、pydantic 和 dotenv；此前代理使用另一个依赖齐全的虚拟环境，未覆盖此条件。
+- 回归先失败：隔离子进程拦截 openai、anthropic、dotenv，--demo 和 --help 两项均在进入模式分支前失败；首先暴露 config 的模块级 dotenv 导入，随后同样会触发两个 SDK 的导入。
+- 原因与修复：把运行分支依赖提前放到模块导入阶段。仅修订 s03：dotenv 移到 load_model_config；模型 SDK 移到各自 Provider 创建自有客户端的分支，注入客户端不导入 SDK；缺少真实 SDK 时以 ProviderError 说明缺少的依赖。保持完整响应接口、客户端所有权与请求转换不变，更新 config.py/providers.py 的冻结哈希。
+- 差异依据：这是 Python 模块加载的调整，不新增 Agent 机制；离线只保留第二章已用的 Pydantic 依赖，不将项目声明的完整安装依赖说成不存在。
+- 验证：离线与帮助入口在三个模型依赖均被禁止导入时仍能运行，真实 Provider 构造与关闭行为回归；用用户当前缺少 openai 的默认 Python 重跑原始命令，全程不安装依赖、不请求模型网络。

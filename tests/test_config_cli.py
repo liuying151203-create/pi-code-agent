@@ -1,6 +1,9 @@
 """配置和真实 CLI 入口验证，不触发任何网络请求。"""
 
 import os
+import subprocess
+import sys
+from pathlib import Path
 from unittest.mock import Mock
 
 import pytest
@@ -9,6 +12,76 @@ from pi_code_agent import ModelConfig, cli, load_model_config
 from tutorials.s03_models import code as chapter
 from tutorials.s04_events import code as event_chapter
 from tutorials.s05_streaming import code as streaming_chapter
+
+
+@pytest.mark.parametrize("mode", ["help", "demo"])
+def test_s03_offline_entry_does_not_import_model_sdks_or_dotenv(tmp_path, mode):
+    root = Path(__file__).resolve().parents[1]
+    workspace = tmp_path / "project"
+    workspace.mkdir()
+    (workspace / "README.md").write_text("offline without model SDKs", encoding="utf-8")
+    script = """
+import importlib.abc, runpy, sys
+class MissingModelDependencies(importlib.abc.MetaPathFinder):
+    def find_spec(self, fullname, path=None, target=None):
+        name = fullname.split('.')[0]
+        if name in {'openai', 'anthropic', 'dotenv'}:
+            raise ModuleNotFoundError('blocked dependency: ' + name, name=name)
+sys.meta_path.insert(0, MissingModelDependencies())
+sys.path.insert(0, sys.argv.pop(1))
+runpy.run_module('tutorials.s03_models.code', run_name='__main__')
+"""
+    arguments = (
+        ["--help"]
+        if mode == "help"
+        else ["--demo", "--workspace", str(workspace), "--prompt", "读取 README.md"]
+    )
+    result = subprocess.run(
+        [sys.executable, "-I", "-X", "utf8", "-B", "-c", script, str(root), *arguments],
+        cwd=tmp_path,
+        text=True,
+        encoding="utf-8",
+        capture_output=True,
+        timeout=20,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert ("--demo" if mode == "help" else "offline without model SDKs") in result.stdout
+
+
+@pytest.mark.parametrize("kind", ["anthropic", "openai-compatible"])
+def test_s03_model_construction_does_not_import_the_other_sdk(tmp_path, kind):
+    root = Path(__file__).resolve().parents[1]
+    script = """
+import asyncio, importlib.abc, sys
+sys.path.insert(0, sys.argv[1])
+kind = sys.argv[2]
+blocked = 'openai' if kind == 'anthropic' else 'anthropic'
+class MissingOtherSdk(importlib.abc.MetaPathFinder):
+    def find_spec(self, fullname, path=None, target=None):
+        if fullname.split('.')[0] == blocked:
+            raise ModuleNotFoundError('blocked dependency: ' + blocked, name=blocked)
+sys.meta_path.insert(0, MissingOtherSdk())
+from tutorials.s03_models.config import ModelConfig
+from tutorials.s03_models.providers import create_model
+async def main():
+    model = create_model(ModelConfig(kind, 'test-model', 'fake-key'))
+    await model.aclose()
+asyncio.run(main())
+assert blocked not in sys.modules
+print('constructed and closed without the other SDK')
+"""
+    result = subprocess.run(
+        [sys.executable, "-I", "-X", "utf8", "-B", "-c", script, str(root), kind],
+        cwd=tmp_path,
+        text=True,
+        encoding="utf-8",
+        capture_output=True,
+        timeout=20,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "constructed and closed" in result.stdout
 
 
 @pytest.mark.parametrize(

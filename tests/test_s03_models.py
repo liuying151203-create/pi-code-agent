@@ -160,7 +160,11 @@ def test_request_failure_and_cancellation_remain_model_failures(api, kind):
 def test_client_options_budget_parameter_and_ownership(api, monkeypatch):
     stub = client(openai())
     constructor = Mock(return_value=stub)
-    monkeypatch.setattr(api.providers, "AsyncOpenAI", constructor)
+    if hasattr(api.providers, "AsyncOpenAI"):
+        monkeypatch.setattr(api.providers, "AsyncOpenAI", constructor)
+    else:
+        # s03 修复后的快照延迟导入 SDK；旧章仍使用原有模块级绑定。
+        monkeypatch.setattr("openai.AsyncOpenAI", constructor)
     config = api.ModelConfig(
         "openai-compatible",
         "explicit-model",
@@ -229,7 +233,11 @@ def test_unknown_openai_finish_reason_cannot_execute_calls(api):
 def test_owned_client_closes_when_request_is_cancelled(api, monkeypatch):
     stub = client()
     stub.messages.create.side_effect = asyncio.CancelledError()
-    monkeypatch.setattr(api.providers, "AsyncAnthropic", Mock(return_value=stub))
+    constructor = Mock(return_value=stub)
+    if hasattr(api.providers, "AsyncAnthropic"):
+        monkeypatch.setattr(api.providers, "AsyncAnthropic", constructor)
+    else:
+        monkeypatch.setattr("anthropic.AsyncAnthropic", constructor)
 
     async def run():
         async with api.create_model(api.ModelConfig("anthropic", "m", "fake")) as model:
