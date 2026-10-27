@@ -36,7 +36,7 @@ ConsoleDisplay ── subscribe(listener) ──> AgentSession
 
 [session.py](session.py) 的 `AgentSession` 管理历史与 busy 状态，拒绝并发 prompt，直到末事件订阅器完成才空闲；`messages` 返回副本。模型由调用方创建并关闭，会话不接管客户端所有权。[code.py](code.py) 保留 s05 的完整循环。
 
-`SessionStore` 写头记录和带 id/parent_id 的消息条目。写入失败时停止后续追加；加载遇到损坏、版本不符、工作区不匹配或非线性链时直接报错，不覆盖、不静默跳过。当前格式是本项目 version=1，不直接导入 Pi 的 JSONL。
+`SessionStore` 写头记录和带 id/parent_id 的消息条目。写入失败时停止后续追加；加载遇到损坏、版本不符、工作区不匹配或非线性链时直接报错，不覆盖、不静默跳过。完整的末条记录即使没有终止换行，也会在续写时补上分隔符；损坏 JSON 仍拒绝。当前格式是本项目 version=1，不直接导入 Pi 的 JSONL。
 
 ## SDK
 

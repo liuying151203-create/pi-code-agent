@@ -248,11 +248,16 @@ class SessionStore:
         encoded = json.dumps(entry, ensure_ascii=False, allow_nan=False) + "\n"
         try:
             # s06 调整：Pi 为追加写；本实现拒绝文件消失或已发生的外部追加，不声称多进程事务。
-            with self.path.open("r+", encoding="utf-8", newline="\n") as output:
+            with self.path.open("r+b") as output:
                 output.seek(0, os.SEEK_END)
                 if output.tell() != self._size:
                     raise OSError("会话文件已被其他写入者改变")
-                if output.write(encoded) != len(encoded):
+                # s06 修复：合法的最后一行可以没有换行，先补分隔符再按 UTF-8 字节追加。
+                output.seek(-1, os.SEEK_END)
+                separator = b"" if output.read(1) == b"\n" else b"\n"
+                output.seek(0, os.SEEK_END)
+                data = separator + encoded.encode("utf-8")
+                if output.write(data) != len(data):
                     raise OSError("会话记录未完整写入")
                 output.flush()
                 os.fsync(output.fileno())

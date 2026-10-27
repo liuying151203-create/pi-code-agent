@@ -135,7 +135,7 @@ def test_store_write_failure_blocks_tool_and_does_not_retry_uncertain_write(
 
     def opened(path, *args, **kwargs):
         nonlocal count
-        if path == file.resolve() and args and args[0] == "r+":
+        if path == file.resolve() and args and args[0] == "r+b":
             count += 1
             if count == 2:
                 raise OSError("disk unavailable")
@@ -233,3 +233,16 @@ def test_memory_session_keeps_client_ownership_and_cli_can_resume(api, tmp_path,
             == 0
         )
     assert len(api.SessionStore.open(file, tmp_path).messages) == 8
+
+
+def test_valid_final_record_without_newline_can_be_appended_without_corruption(api, tmp_path):
+    file = tmp_path / "session.jsonl"
+    store = api.SessionStore.create(file, tmp_path)
+    store.append_message(api.UserMessage("完整但没有终止换行"))
+    file.write_bytes(file.read_bytes().rstrip(b"\n"))
+    resumed = api.SessionStore.open(file, tmp_path)
+    resumed.append_message(api.AssistantMessage((api.Text("继续"),)))
+    assert api.SessionStore.open(file, tmp_path).messages == [
+        api.UserMessage("完整但没有终止换行"),
+        api.AssistantMessage((api.Text("继续"),)),
+    ]

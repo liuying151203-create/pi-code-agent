@@ -1,5 +1,7 @@
 # 新主线交接
 
+s06 实现提交 d78cae8；提交后复查发现 V2-B006，无末尾换行续写粘连问题已修复。修复后全量 467 passed，测试命令同前、临时目录改为 `.sessions/s06-63356db9`。随后提交独立修复并进入 s07。
+
 当前批量任务：用户已明确授权 s06–s12 按章提交、提交后复查并在有问题时追加修复提交。范围与验收见 extension-foundation-plan.md。s06 首轮完整验证 465 passed、Ruff 通过；实际命令为 `..\zero2pi\.venv\Scripts\python.exe -B -m pytest --basetemp D:\dev\Agent\pi-code-agent\.sessions\s06-d701d4ad -p no:cacheprovider --tb=short`。随后提交实现并继续提交后复查；会话 JSONL 仅线性，默认保存与 --no-session 可选，客户端由创建者管理。旧章快照不改。
 
 ## 当前进度：s05 文本流式响应（2026-10-27）

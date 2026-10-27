@@ -1,5 +1,9 @@
 # 新主线问题记录
 
+## V2-B006：合法无末尾换行的 JSONL 续写后损坏
+
+s06 提交 d78cae8 后复查，加载可以接受完整但无终止换行的末条 JSON，追加却未补行分隔符，导致后续读取 JSONDecodeError: Extra data。`test_valid_final_record_without_newline_can_be_appended_without_corruption` 在产品和 s06 两种运行时均复现。修复按 UTF-8 字节续写，必要时补一字节换行，再写新记录并同步；不修复无效 JSON，不改变单写入者边界。回归保留无换行中文消息并校验恢复后两条消息内容，见本轮交接记录。
+
 ## V2-B004：流式失败快照被再次发给供应商
 
 2026-10-27，s05 首轮实现保留了网络中断前的真实文字，但旧协议投影仍把 error/aborted 回答当普通 assistant 消息重放。`test_retry_keeps_failed_snapshot_locally_without_replaying_it_to_provider` 在两种协议及 SDK/教程四种组合中复现失败：第二次请求角色实际为 user/assistant/user，预期仅 user/user。Pi `e4c75a732` 的 `packages/ai/src/api/transform-messages.ts` 明确跳过失败回答。
