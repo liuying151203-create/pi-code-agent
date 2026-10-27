@@ -6,15 +6,18 @@ import argparse
 import asyncio
 import sys
 from collections.abc import Awaitable, Callable, Sequence
+from hashlib import sha256
 from pathlib import Path
+from uuid import uuid4
 
 from pi_code_agent.config import load_model_config
 from pi_code_agent.demo import DemoModel
-from pi_code_agent.events import AgentEvent, EventBus, EventListenerError
+from pi_code_agent.events import AgentEvent, EventListenerError
 from pi_code_agent.file_tools import read_tool
 from pi_code_agent.loop import TurnLimitError, agent_loop
-from pi_code_agent.messages import AssistantMessage, Message, Text, ToolResultMessage, UserMessage
+from pi_code_agent.messages import AssistantMessage, Message, Text, ToolResultMessage
 from pi_code_agent.providers import ProviderError, create_model
+from pi_code_agent.session import AgentSession, SessionStore
 
 
 # ===== s05 修改 =====
@@ -82,12 +85,32 @@ async def run(
         config = load_model_config(options.env_file)
         model = create_model(config)
         max_tokens = config.max_tokens
-    history: list[Message] = []
-    # s04 新增：每个终端实例只有一份订阅表；不会在多轮输入时反复注册。
-    events = EventBus()
-    display = ConsoleDisplay()
-    events.subscribe(display)
+    # s06 新增：客户端先组装，存储和入口失败也由外层 finally 关闭拥有的客户端。
     try:
+        if options.no_session:
+            store = None
+        elif options.session is not None:
+            path = options.session
+            store = (
+                SessionStore.open(path, workspace)
+                if path.exists()
+                else SessionStore.create(path, workspace)
+            )
+        else:
+            target_id = sha256(str(workspace).encode("utf-8")).hexdigest()[:12]
+            path = Path.cwd() / ".sessions" / "s06" / target_id / (uuid4().hex + ".jsonl")
+            store = SessionStore.create(path, workspace)
+        session = AgentSession(
+            model=model,
+            tools=tools,
+            store=store,
+            stream=not options.no_stream,
+            max_tokens=max_tokens,
+            max_turns=options.max_turns,
+            loop=loop,
+        )
+        display = ConsoleDisplay()
+        session.subscribe(display)
         while True:
             if options.prompt is not None:
                 prompt = options.prompt
@@ -98,18 +121,8 @@ async def run(
                     return 0
                 if prompt.lower() in {"", "q", "exit"}:
                     return 0
-            # s04 修改：本次输入独立传入，旧历史不重播，消息只通过订阅显示。
-            await loop(
-                history,
-                model=model,
-                tools=tools,
-                max_tokens=max_tokens,
-                max_turns=options.max_turns,
-                prompts=[UserMessage(prompt)],
-                events=events,
-                # s05 新增：命令行默认流式，兼容服务可显式退回完整响应。
-                stream=not options.no_stream,
-            )
+            # s06 修改：状态和持久化归会话所有，CLI 不再持有独立可变历史。
+            history = await session.prompt(prompt)
             last = history[-1]
             if isinstance(last, AssistantMessage) and last.usage is not None:
                 print(f"[用量] 输入 {last.usage.input_tokens}，输出 {last.usage.output_tokens}")
@@ -139,6 +152,9 @@ def main(
     parser.add_argument("--demo", action="store_true", help="用离线脚本模型读取 README，无需密钥")
     parser.add_argument("--max-turns", type=int, help="可选模型轮数保护；省略时不限制")
     parser.add_argument("--no-stream", action="store_true", help="使用完整响应，关闭流式输出")
+    storage = parser.add_mutually_exclusive_group()
+    storage.add_argument("--session", type=Path, help="打开已有会话或创建指定文件")
+    storage.add_argument("--no-session", action="store_true", help="纯内存运行，不保存会话")
     options = parser.parse_args(arguments)
     if options.max_turns is not None and options.max_turns < 1:
         parser.error("--max-turns 必须是正整数")

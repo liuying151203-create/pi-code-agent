@@ -126,3 +126,8 @@ def test_invalid_turn_limit_fails_before_loading_config(monkeypatch):
         cli.main(["--max-turns", "0", "--prompt", "hi"])
     assert stopped.value.code == 2
     forbidden.assert_not_called()
+
+
+@pytest.fixture(autouse=True)
+def isolated_cli_directory(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)

@@ -12,4 +12,6 @@
 4. [s04：运行事件与订阅](s04_events/README.md)：怎样观察运行进度，并等待订阅器完成。
 5. [s05：文本流式响应](s05_streaming/README.md)：收到增量就显示，最终回答到齐后才执行工具。
 
-下一章 s06 会话与状态。旧版教程完整保存在 [archive/v1](../archive/README.md)。
+6. [s06：会话与状态](s06_sessions/README.md)：谁持有历史，何时落盘，怎样恢复。
+
+后续基座安排见 [章节规划](../docs/extension-foundation-plan.md)。旧版教程完整保存在 [archive/v1](../archive/README.md)。

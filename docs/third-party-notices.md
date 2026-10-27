@@ -10,6 +10,8 @@ s01–s04 的教学组件已按阶段独立保存，不再直接导入 src/。�
 
 s05 继续参考上述提交的 `agent-loop.ts::streamAssistantResponse`、`packages/ai/src/types.ts` 的文本事件，以及 `api/anthropic-messages.ts`、`openai-completions.ts`、`transform-messages.ts`。Python 使用异步生成器与 aclosing，保留完整响应接口，普通异常与原生取消携带最新快照继续传播；未实现工具参数增量展示、推理或多模态。原始工具 JSON 完整解析后才交给校验器，失败快照保留在本地但不重放。s01–s04 的快照保持原文，s05 单独保存源码和许可。
 
+s06 参考同一版本的 `packages/agent/src/agent.ts`、`packages/coding-agent/src/core/agent-session.ts`、`session-manager.ts` 及会话相关测试。采用状态/存储分工、完成消息落盘、条目关联及默认持久化选择。Python SessionStore 使用自己的 version=1 线性文件，不直接导入 Pi 文件；树与分支尚未迁入。
+
 以下 Pi MIT 声明适用于相关复用与移植部分，不代表归档之外的全部原创内容另行更换许可。
 
 ```text

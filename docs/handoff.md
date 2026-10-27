@@ -1,5 +1,7 @@
 # 新主线交接
 
+当前批量任务：用户已明确授权 s06–s12 按章提交、提交后复查并在有问题时追加修复提交。范围与验收见 extension-foundation-plan.md。s06 首轮完整验证 465 passed、Ruff 通过；实际命令为 `..\zero2pi\.venv\Scripts\python.exe -B -m pytest --basetemp D:\dev\Agent\pi-code-agent\.sessions\s06-d701d4ad -p no:cacheprovider --tb=short`。随后提交实现并继续提交后复查；会话 JSONL 仅线性，默认保存与 --no-session 可选，客户端由创建者管理。旧章快照不改。
+
 ## 当前进度：s05 文本流式响应（2026-10-27）
 
 本轮基线 `69d4a75`，Pi 仍锁定 `e4c75a732`（0.85.1）。新增参考 `agent-loop.ts::streamAssistantResponse`、`packages/ai/src/types.ts`、`api/anthropic-messages.ts`、`openai-completions.ts` 和 `transform-messages.ts`。Chat 字段同时核对官方流式文档，链接见 s05 README。

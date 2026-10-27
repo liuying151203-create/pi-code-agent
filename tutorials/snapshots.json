@@ -84,6 +84,25 @@
         "providers.py": "3c6847f872700c345c6ed4bc9fcfd5372b778db1219da0fd18282e7a416a3b6d",
         "tools.py": "58cf86b6654665608c2d891b8898e0ff07a47629e083fe672c7d220e99772b5e"
       }
+    },
+    "s06_sessions": {
+      "source_baseline": "be53c3b",
+      "pi_reference": "e4c75a732",
+      "files": {
+        "__init__.py": "c65fb35b63fe081d1f95c9a58e8e27529ab7a1efd05d8bc688dd1dafa7a9d57a",
+        "cli.py": "6f86a5ace93ef0909cbfe5607f10f3e9aff266460fd24793e59b79559a0826f7",
+        "code.py": "8a65ef6f6eb4f3e9581b55cce9d2f958d9c00e007b9740a460c8814ff6bea0e2",
+        "config.py": "f5289333d9c914a8b41efca72a37f16a3aacc5a99af45a131c3bb1e55afd58a1",
+        "demo.py": "29098dc56cc4d108839a128ad1f12e3b5dcd9ad8705fa0eedced2a8b9f63c9fb",
+        "errors.py": "c94c6bca6e2d0c3a0e9e7136777915b099175a568b46de0c3eba3b74f4c74f67",
+        "events.py": "1ea58e098df2c29e17891430299b2c404cc2e8cc4175ba1017b0245ac6c89248",
+        "file_tools.py": "21925b7ee6f524036e9bf50d2cb8087dcc3f5f85b68cc5390ab0fdd3d6a913e3",
+        "messages.py": "8f9fdadb57faf2ebad0ad7eb2deb466833dbb14b0602fcfe76ba7291261cf225",
+        "model.py": "f991166f96ad1b740fb146fa449645be75e212f44da1ce69380b585f5525c047",
+        "providers.py": "091c184713201c3836d22ae8839ce4177175e9a8f0dea576cc15acd3008523c0",
+        "session.py": "7b512c024074d642c890cdf4b69a52d98a148c9f323169804e4d673a37510add",
+        "tools.py": "285f101c35986b6c2b7c36af07a4ba8a87a0d6451e9f6ceb44022feee263073e"
+      }
     }
   }
 }

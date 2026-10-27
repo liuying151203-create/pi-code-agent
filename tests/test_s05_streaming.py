@@ -160,7 +160,7 @@ def model_for(api, kind, streams, **config):
     return model, constructor, client
 
 
-@pytest.fixture(params=["pi_code_agent", "tutorials.s05_streaming"])
+@pytest.fixture(params=["pi_code_agent", "tutorials.s05_streaming", "tutorials.s06_sessions"])
 def api(request):
     return load_runtime(request.param)
 
@@ -494,6 +494,7 @@ def test_console_displays_delta_before_final_without_duplicate_body(api, capsys)
 def test_cli_can_choose_complete_mode_and_usage_config_is_explicit(
     api, tmp_path, monkeypatch, capsys
 ):
+    monkeypatch.chdir(tmp_path)
     (tmp_path / "README.md").write_text("whole mode", encoding="utf-8")
     model = NS(complete=AsyncMock(return_value=api.AssistantMessage((api.Text("whole answer"),))))
     monkeypatch.setattr(api.cli, "DemoModel", lambda *args, **kwargs: model)

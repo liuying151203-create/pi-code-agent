@@ -56,3 +56,7 @@ SDK 不自动读取 `.env`。如有需要，调用 `load_model_config(明确路�
 `ModelConfig.stream_include_usage` 控制 Chat 的用量参数，兼容服务可显式设为 False，对应环境变量 `MODEL_STREAM_INCLUDE_USAGE=false`。网络错误和取消保留已收到的内容与用量；失败快照不会重放给供应商，pending 历史拒绝请求。本章不自动重试，也不保证未实现的推理、多模态和工具增量展示。
 
 依赖声明以本轮实际验证的 Anthropic 1.6.0、OpenAI 3.19.0 为 SDK 下界；本轮复用已有环境，未执行安装，也不声称更旧 SDK 支持这些流式字段。
+
+## 会话
+
+`AgentSession(model=..., tools=..., store=..., stream=True)` 持有当前消息，`await session.prompt(text)` 运行一次输入并返回历史副本；`session.subscribe` 订阅事件。`SessionStore.create(path, workspace)` 创建，`SessionStore.open(path, workspace)` 恢复。客户端仍由创建者关闭。CLI 默认保存到 `.sessions/s06/<目标ID>/`，`--session PATH` 续接文件，`--no-session` 使用内存。见 [s06](../tutorials/s06_sessions/README.md)。
