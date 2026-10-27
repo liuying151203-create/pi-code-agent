@@ -15,6 +15,7 @@ from conftest import ScriptedModel, load_runtime
         "tutorials.s07_extensions",
         "tutorials.s08_hooks",
         "tutorials.s09_commands",
+        "tutorials.s10_queues",
     ]
 )
 def api(request):

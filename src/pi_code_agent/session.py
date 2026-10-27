@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 from collections.abc import Callable, Sequence
@@ -326,6 +327,9 @@ class AgentSession:
         cwd: Path | None = None,
         # s09 新增：UI 由宿主注入，默认没有界面，不通过消息伪造提示。
         notify: Callable | None = None,
+        # s10 新增：队列各自选择一次一条或一次全部。
+        steering_mode: str = "one-at-a-time",
+        follow_up_mode: str = "one-at-a-time",
         stream: bool = False,
         system: str = "你是编程助手，完成任务后停止。",
         max_tokens: int = 8000,
@@ -351,10 +355,21 @@ class AgentSession:
         self._saved = len(self._history)
         self._notify = notify or (lambda text: None)
         self._custom_entries = []
+        if steering_mode not in {"one-at-a-time", "all"} or follow_up_mode not in {
+            "one-at-a-time",
+            "all",
+        }:
+            raise ValueError("队列模式必须是 one-at-a-time 或 all")
+        self.steering_mode, self.follow_up_mode = steering_mode, follow_up_mode
+        self._steering, self._follow_up, self._deferred, self._next_turn = [], [], [], []
+        self._idle = asyncio.Event()
+        self._idle.set()
+        self._active_task = None
         self._busy = False
         self._storage_error = False
         self._events = EventBus()
         self._events.subscribe(self._record)
+        self._events.subscribe(self._deliver_deferred)
         if extensions is not None:
             self._events.subscribe(self._observe_extensions)
 
@@ -421,6 +436,59 @@ class AgentSession:
         )
         return ToolResult(event["content"], event["is_error"], event["terminate"])
 
+    # s10 新增：队列只保存消息，不创建第二个模型任务。
+    def steer(self, text):
+        """排入下一完整回合边界，不能打断已开始的工具批次。"""
+        message = UserMessage(text) if isinstance(text, str) else text
+        encode_message(message)
+        self._steering.append(deepcopy(message))
+
+    def follow_up(self, text):
+        """排入模型本来会停止后的后续回合。"""
+        message = UserMessage(text) if isinstance(text, str) else text
+        encode_message(message)
+        self._follow_up.append(deepcopy(message))
+
+    def clear_queues(self):
+        """清除尚未投递的 steering/follow-up，不改已保存历史。"""
+        self._steering.clear()
+        self._follow_up.clear()
+
+    async def _get_steering(self):
+        count = len(self._steering) if self.steering_mode == "all" else 1
+        result, self._steering = self._steering[:count], self._steering[count:]
+        return result
+
+    async def _get_follow_up(self):
+        count = len(self._follow_up) if self.follow_up_mode == "all" else 1
+        result, self._follow_up = self._follow_up[:count], self._follow_up[count:]
+        return result
+
+    def abort(self):
+        """取消活跃任务；保留真实消息及未投递队列，不伪造成功。"""
+        if self._active_task is not None:
+            self._active_task.cancel()
+
+    async def wait_for_idle(self):
+        """等待回合、末事件与保存收口；禁止处理函数等待自己造成死锁。"""
+        if self.busy and asyncio.current_task() is self._active_task:
+            raise RuntimeError("活跃处理函数不能等待自己空闲")
+        await self._idle.wait()
+
+    async def continue_(self):
+        """不追加用户文本，从已有历史和排队消息继续。"""
+        return await self._run(None)
+
+    async def _deliver_deferred(self, event):
+        """工具结果完整后投递不触发模型的消息，不插入工具调用与结果之间。"""
+        if event["type"] != "turn_end":
+            return
+        pending, self._deferred = self._deferred, []
+        for message in pending:
+            self._history.append(message)
+            await self._events.emit({"type": "message_start", "message": message})
+            await self._events.emit({"type": "message_end", "message": message})
+
     # s09 新增：命令先于 input Hook，不把命令文本默认交给模型。
     async def run_command(self, text: str) -> bool:
         """返回是否匹配命令；处理函数显式选择 UI、状态、消息和触发回合。"""
@@ -446,6 +514,8 @@ class AgentSession:
             append_entry=self.append_entry,
             entries=self.entries,
             send_message=self.send_message,
+            wait_for_idle=self.wait_for_idle,
+            abort=self.abort,
         )
         result = command[0](arguments, context)
         if inspect.isawaitable(result):
@@ -467,18 +537,38 @@ class AgentSession:
         self._custom_entries.append({"type": "custom", "custom_type": custom_type, "data": value})
 
     async def send_message(
-        self, content: str, *, custom_type="extension", display=True, trigger_turn=False
+        self,
+        content: str,
+        *,
+        custom_type="extension",
+        display=True,
+        trigger_turn=False,
+        deliver_as="steer",
     ):
         """显式投递模型可见消息，display 与 trigger_turn 独立；忙时投递在 s10。"""
         message = CustomMessage(custom_type, content, display)
+        # s10 修改：显示、触发回合和投递边界分别决定。
+        if deliver_as not in {"steer", "follow_up", "next_turn"} or type(trigger_turn) is not bool:
+            raise ValueError("无效投递模式或 trigger_turn")
+        if deliver_as == "next_turn":
+            self._next_turn.append(message)
+            return self.messages
         if self.busy:
-            raise RuntimeError("会话运行中；运行期间投递由 s10 队列提供")
+            if not trigger_turn:
+                self._deferred.append(message)
+            elif deliver_as == "follow_up":
+                self.follow_up(message)
+            else:
+                self.steer(message)
+            return self.messages
         if trigger_turn:
             return await self._run(None, message=message)
         # s09 修复：只投递也要占有会话，避免订阅器等待期间与 prompt 交错。
         if self._storage_error or (self.store and self.store.failed):
             raise RuntimeError("会话存储已失败")
         self._busy = True
+        self._idle.clear()
+        self._active_task = asyncio.current_task()
         try:
             self._history.append(message)
             await self._events.emit({"type": "message_start", "message": message})
@@ -497,6 +587,8 @@ class AgentSession:
                     self._saved += 1
             finally:
                 self._busy = False
+                self._active_task = None
+                self._idle.set()
 
     async def prompt(self, text: str) -> list[Message]:
         """新增用户输入并执行模型回合；CLI 命令先通过 run_command 分发。"""
@@ -513,8 +605,13 @@ class AgentSession:
         if self._storage_error or (self.store is not None and self.store.failed):
             raise RuntimeError("会话存储已失败，请检查并重新打开")
         self._busy = True
+        self._idle.clear()
+        self._active_task = asyncio.current_task()
         try:
-            policies = {}
+            policies = {
+                "get_steering_messages": self._get_steering,
+                "get_follow_up_messages": self._get_follow_up,
+            }
             if self.extensions is not None and text is not None:
                 event = await self.extensions.dispatch(
                     {"type": "input", "text": text, "source": "sdk"}, self
@@ -523,11 +620,14 @@ class AgentSession:
                     return self.messages
                 text = event["text"]
             if self.extensions is not None:
-                policies = {
-                    "transform_context": self._transform_context,
-                    "before_tool_call": self._before_tool,
-                    "after_tool_call": self._after_tool,
-                }
+                policies.update(
+                    {
+                        "transform_context": self._transform_context,
+                        "before_tool_call": self._before_tool,
+                        "after_tool_call": self._after_tool,
+                    }
+                )
+            pending, self._next_turn = self._next_turn, []
             await self._loop(
                 self._history,
                 model=self.model,
@@ -535,9 +635,14 @@ class AgentSession:
                 system=self.system,
                 max_tokens=self.max_tokens,
                 max_turns=self.max_turns,
-                prompts=[message]
-                if message is not None
-                else ([UserMessage(text)] if text is not None else []),
+                prompts=[
+                    *pending,
+                    *(
+                        [message]
+                        if message is not None
+                        else ([UserMessage(text)] if text is not None else [])
+                    ),
+                ],
                 events=self._events,
                 stream=self.stream,
                 **policies,
@@ -560,3 +665,5 @@ class AgentSession:
                         self._saved += 1
             finally:
                 self._busy = False
+                self._active_task = None
+                self._idle.set()

@@ -116,7 +116,7 @@ async def run(
             )
         else:
             target_id = sha256(str(workspace).encode("utf-8")).hexdigest()[:12]
-            path = Path.cwd() / ".sessions" / "s09" / target_id / (uuid4().hex + ".jsonl")
+            path = Path.cwd() / ".sessions" / "s10" / target_id / (uuid4().hex + ".jsonl")
             store = SessionStore.create(path, workspace)
         session = AgentSession(
             model=model,
