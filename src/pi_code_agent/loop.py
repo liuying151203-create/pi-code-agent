@@ -44,6 +44,8 @@ async def agent_loop(
     get_steering_messages=None,
     get_follow_up_messages=None,
     after_turn=None,
+    # s12 新增：请求前固定当前工具快照，批次中不替换分发目录。
+    get_tools=None,
 ) -> list[Message]:
     """请求模型、执行工具并回传结果，直到模型不再请求工具。
 
@@ -91,6 +93,12 @@ async def agent_loop(
         partial = AssistantMessage((), "pending")
         response = None
         try:
+            if get_tools is not None:
+                current_tools = tuple(await get_tools())
+                catalog = {tool.name: tool for tool in current_tools}
+                if len(catalog) != len(current_tools):
+                    raise ValueError("动态工具目录存在重名")
+                definitions = [tool.definition() for tool in current_tools]
             request_messages = await transform_context(messages) if transform_context else messages
             request_messages = convert_to_llm(request_messages)
             if stream:

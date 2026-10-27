@@ -22,6 +22,7 @@ CHAPTERS = [
     "s09_commands",
     "s10_queues",
     "s11_resources",
+    "s12_reload",
 ]
 
 

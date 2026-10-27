@@ -105,17 +105,30 @@ async def run(
     else:
         model = create_model(config)
         max_tokens = config.max_tokens
-    runtime = ExtensionRuntime()
-    # s06 新增：客户端先组装，存储和入口失败也由外层 finally 关闭拥有的客户端。
-    try:
-        home = Path(os.environ.get("PI_CODE_AGENT_HOME", str(Path.home() / ".pi-code-agent")))
-        discovered = discover_extensions(
+
+    # s12 新增：同一发现入口供初始加载和重载使用，可以发现新增插件文件。
+    def extension_paths():
+        return discover_extensions(
             workspace,
             global_dir=None if options.no_extensions else home / "extensions",
             paths=[path.resolve() for path in options.extension],
             project=options.trust_project_extensions and not options.no_extensions,
         )
-        await runtime.load(discovered)
+
+    def resource_tools(current_resources):
+        return [
+            read_tool(
+                workspace, resource_roots=[skill.path.parent for skill in current_resources.skills]
+            )
+        ]
+
+    runtime = ExtensionRuntime()
+    runtime.discover = extension_paths
+    session = None
+    # s06 新增：客户端先组装，存储和入口失败也由外层 finally 关闭拥有的客户端。
+    try:
+        home = Path(os.environ.get("PI_CODE_AGENT_HOME", str(Path.home() / ".pi-code-agent")))
+        await runtime.load(extension_paths())
         runtime.parse_flags(options.extension_args)
         for diagnostic in runtime.diagnostics:
             print(f"扩展加载失败 {diagnostic['source']}: {diagnostic['error']}", file=sys.stderr)
@@ -130,7 +143,7 @@ async def run(
             )
         else:
             target_id = sha256(str(workspace).encode("utf-8")).hexdigest()[:12]
-            path = Path.cwd() / ".sessions" / "s11" / target_id / (uuid4().hex + ".jsonl")
+            path = Path.cwd() / ".sessions" / "s12" / target_id / (uuid4().hex + ".jsonl")
             store = SessionStore.create(path, workspace)
         session = AgentSession(
             model=model,
@@ -139,6 +152,7 @@ async def run(
             cwd=workspace,
             notify=print,
             resources=resources,
+            resource_tools=resource_tools,
             store=store,
             stream=not options.no_stream,
             max_tokens=max_tokens,
@@ -180,6 +194,8 @@ async def run(
             if options.prompt is not None:
                 return 0
     finally:
+        if session is not None:
+            await session.aclose()
         runtime.close()
         if not options.demo:
             await model.aclose()

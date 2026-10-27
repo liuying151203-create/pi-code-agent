@@ -207,11 +207,16 @@ class ResourceLoader:
                                 {
                                     "path": str(path),
                                     "error": "Skill 名称或说明不符合规范；按 Pi 保留可用条目",
+                                    "level": "warning",
                                 }
                             )
                         if name in skills:
                             diagnostics.append(
-                                {"path": str(path), "error": "同名 Skill 保留首次来源"}
+                                {
+                                    "path": str(path),
+                                    "error": "同名 Skill 保留首次来源",
+                                    "level": "warning",
+                                }
                             )
                         else:
                             skills[name] = Skill(

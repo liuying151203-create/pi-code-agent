@@ -6,7 +6,7 @@ import pytest
 from conftest import ScriptedModel, load_runtime
 
 
-@pytest.fixture(params=["pi_code_agent", "tutorials.s11_resources"])
+@pytest.fixture(params=["pi_code_agent", "tutorials.s11_resources", "tutorials.s12_reload"])
 def api(request):
     return load_runtime(request.param)
 

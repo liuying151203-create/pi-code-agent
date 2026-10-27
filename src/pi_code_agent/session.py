@@ -14,7 +14,7 @@ from typing import Any
 from uuid import uuid4
 
 from pi_code_agent.events import AgentEvent, EventBus, EventListener
-from pi_code_agent.extensions import ExtensionRuntime
+from pi_code_agent.extensions import ExtensionContext, ExtensionRuntime
 from pi_code_agent.loop import agent_loop
 from pi_code_agent.messages import (
     AssistantMessage,
@@ -333,6 +333,8 @@ class AgentSession:
         follow_up_mode: str = "one-at-a-time",
         # s11 新增：调用者明确注入已加载资源，SDK 不暗自扫描当前目录。
         resources: ResourceLoader | None = None,
+        # s12 新增：资源重载后重建实际依赖它的内置工具，SDK 显式覆盖仍最高。
+        resource_tools: Callable | None = None,
         stream: bool = False,
         system: str = "你是编程助手，完成任务后停止。",
         max_tokens: int = 8000,
@@ -343,11 +345,14 @@ class AgentSession:
         self.resources = resources
         self.extensions = extensions
         self.cwd = Path(cwd or (store.header["cwd"] if store else Path.cwd())).resolve()
-        self.tools = tuple(
-            extensions.resolve_tools(builtin_tools, sdk_tools=tools)
-            if extensions is not None
-            else list({tool.name: tool for tool in [*builtin_tools, *tools]}.values())
-        )
+        self._builtin_tools, self._sdk_tools = tuple(builtin_tools), tuple(tools)
+        self._active_tool_names = None
+        self._resource_tools = resource_tools
+        self._started, self._closed = False, False
+        if extensions is not None:
+            if extensions._session is not None:
+                raise ValueError("扩展运行时已经绑定会话")
+            extensions._session = self
         self.stream, self.system, self.max_tokens, self.max_turns = (
             stream,
             system,
@@ -373,8 +378,140 @@ class AgentSession:
         self._storage_error = False
         self._events = EventBus()
         self._events.subscribe(self._record)
-        if extensions is not None:
-            self._events.subscribe(self._observe_extensions)
+        self._events.subscribe(self._observe_extensions)
+
+    # s12 新增：目录每次读取都来自当前运行时，但核心按请求固定执行快照。
+    def get_all_tools(self):
+        """返回当前可注册目录，不受 active 集合筛选。"""
+        return (
+            self.extensions.resolve_tools(self._builtin_tools, sdk_tools=self._sdk_tools)
+            if self.extensions is not None
+            else list(
+                {tool.name: tool for tool in [*self._builtin_tools, *self._sdk_tools]}.values()
+            )
+        )
+
+    @property
+    def tools(self):
+        """返回启用工具，默认包含当前所有注册；显式选择后保持调用者的顺序。"""
+        catalog = {tool.name: tool for tool in self.get_all_tools()}
+        return (
+            tuple(catalog.values())
+            if self._active_tool_names is None
+            else tuple(catalog[name] for name in self._active_tool_names if name in catalog)
+        )
+
+    def get_active_tools(self):
+        return [tool.name for tool in self.tools]
+
+    def set_active_tools(self, names):
+        """记录下一请求的工具集合，未知名称忽略，同批已请求工具仍可执行。"""
+        if self._closed:
+            raise RuntimeError("会话已关闭")
+        if not isinstance(names, (list, tuple)) or any(not isinstance(name, str) for name in names):
+            raise TypeError("工具名称必须是字符串列表")
+        known = {tool.name for tool in self.get_all_tools()}
+        self._active_tool_names = list(dict.fromkeys(name for name in names if name in known))
+
+    async def _get_tools(self):
+        return self.tools
+
+    async def start(self):
+        """显式或首次使用时发 session_start；状态恢复先于扩展启动。"""
+        if self._closed:
+            raise RuntimeError("会话已关闭")
+        if not self._started:
+            self._started = True
+            if self.extensions is not None:
+                await self.extensions.dispatch({"type": "session_start", "reason": "startup"}, self)
+
+    async def reload(self):
+        """空闲时先验证候选扩展与资源，再关闭旧代次并切换；失败保留旧代次。
+
+        输入：当前加载路径、工厂与资源设置；输出：新的可用代次，历史保持。
+        边界：回滚注册和资源集合，不可能撤销可信工厂自行产生的外部副作用。
+        """
+        if self.busy or self._closed:
+            raise RuntimeError("只允许在空闲且未关闭的会话中重载")
+        await self.start()
+        old = self.extensions
+        candidate = ExtensionRuntime()
+        self._busy = True
+        self._idle.clear()
+        self._active_task = asyncio.current_task()
+        committed = False
+        try:
+            if old is not None:
+                candidate.discover = old.discover
+                paths = old.discover() if old.discover else list(old._requested_paths)
+                await candidate.load(paths)
+                for factory, source in old._factories:
+                    await candidate.register(factory, source=source)
+                if candidate.diagnostics:
+                    raise ValueError("扩展重载失败：" + str(candidate.diagnostics))
+                candidate.flag_values = deepcopy(old.flag_values)
+                # s12 新增：保留旗标值前检查新声明类型，防止新代码得到旧类型。
+                for extension in candidate.extensions:
+                    for name, flag in extension._flags.items():
+                        if (
+                            name in candidate.flag_values
+                            and type(candidate.flag_values[name]) is not flag["type"]
+                        ):
+                            raise ValueError("重载后的参数类型不兼容：" + name)
+            resources = self.resources
+            if resources is not None:
+                resources = ResourceLoader(
+                    resources.workspace,
+                    global_dir=resources.global_dir,
+                    context_root=resources.context_root,
+                    skill_paths=resources.skill_paths,
+                    prompt_paths=resources.prompt_paths,
+                    defaults=resources.defaults,
+                ).load()
+                errors = [
+                    item for item in resources.diagnostics if item.get("level", "error") == "error"
+                ]
+                if errors:
+                    raise ValueError("资源重载失败：" + str(errors))
+            builtin_tools = (
+                tuple(self._resource_tools(resources))
+                if self._resource_tools
+                else self._builtin_tools
+            )
+            candidate.resolve_tools(builtin_tools, sdk_tools=self._sdk_tools)
+            if old is not None:
+                await old.dispatch({"type": "session_shutdown", "reason": "reload"}, self)
+                old.close()
+            # s12 新增：切换无 await；旧工具/API/上下文立即失效，新生命周期之后运行。
+            self.extensions, self.resources, self._builtin_tools = (
+                candidate,
+                resources,
+                builtin_tools,
+            )
+            candidate._session = self
+            committed = True
+            await candidate.dispatch({"type": "session_start", "reason": "reload"}, self)
+        finally:
+            if not committed:
+                candidate.close()
+            self._busy = False
+            self._active_task = None
+            self._idle.set()
+
+    async def aclose(self):
+        """等待空闲，通知扩展关闭并失效；借用的模型客户端仍由宿主关闭。"""
+        await self.wait_for_idle()
+        if self._closed:
+            return
+        try:
+            if self.extensions is not None and not self.extensions._closed:
+                await self.extensions.dispatch(
+                    {"type": "session_shutdown", "reason": "shutdown"}, self
+                )
+        finally:
+            if self.extensions is not None:
+                self.extensions.close()
+            self._closed = True
 
     @property
     def messages(self) -> list[Message]:
@@ -403,7 +540,8 @@ class AgentSession:
     # s08 新增：普通事件 Hook 在持久化之后观察，不更改已保存消息。
     async def _observe_extensions(self, event):
         """向扩展发送生命周期事件，订阅器的返回值不修改运行历史。"""
-        await self.extensions.dispatch(event, self)
+        if self.extensions is not None:
+            await self.extensions.dispatch(event, self)
 
     async def _transform_context(self, messages):
         """生成每次模型请求的临时上下文，保留会话真实历史。"""
@@ -493,31 +631,27 @@ class AgentSession:
     # s09 新增：命令先于 input Hook，不把命令文本默认交给模型。
     async def run_command(self, text: str) -> bool:
         """返回是否匹配命令；处理函数显式选择 UI、状态、消息和触发回合。"""
+        await self.start()
+        if text == "/reload":
+            await self.reload()
+            self._notify("扩展与资源已重载")
+            return True
         if not text.startswith("/"):
             return False
         name, _, arguments = text[1:].partition(" ")
         if name == "help":
             commands = self.extensions.commands() if self.extensions else {}
             self._notify(
-                "/help\n" + "\n".join("/" + key + " " + value[1] for key, value in commands.items())
+                "/help\n/reload\n"
+                + "\n".join("/" + key + " " + value[1] for key, value in commands.items())
             )
             return True
         command = self.extensions.commands().get(name) if self.extensions else None
         if command is None:
             return False
         import inspect
-        from types import SimpleNamespace
 
-        context = SimpleNamespace(
-            session=self,
-            cwd=self.cwd,
-            ui=SimpleNamespace(notify=self._notify),
-            append_entry=self.append_entry,
-            entries=self.entries,
-            send_message=self.send_message,
-            wait_for_idle=self.wait_for_idle,
-            abort=self.abort,
-        )
+        context = ExtensionContext(self.extensions, self)
         result = command[0](arguments, context)
         if inspect.isawaitable(result):
             await result
@@ -599,8 +733,10 @@ class AgentSession:
 
     async def _run(self, text: str | None, *, message=None) -> list[Message]:
         """加入一次用户输入并运行；结束或失败时补存尚未通知的已完成消息。"""
+        if self._closed:
+            raise RuntimeError("会话已关闭")
         if self._busy:
-            raise RuntimeError("会话正在运行，请等待当前回合完成")
+            raise RuntimeError("会话正在运行，请使用队列或等待当前回合完成")
         if text is not None and not isinstance(text, str):
             raise TypeError("用户输入必须是文本")
         if self._storage_error or (self.store is not None and self.store.failed):
@@ -609,7 +745,9 @@ class AgentSession:
         self._idle.clear()
         self._active_task = asyncio.current_task()
         try:
+            await self.start()
             policies = {
+                "get_tools": self._get_tools,
                 "get_steering_messages": self._get_steering,
                 "get_follow_up_messages": self._get_follow_up,
                 "after_turn": self._deliver_deferred,

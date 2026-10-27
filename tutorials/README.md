@@ -24,4 +24,6 @@
 
 11. [s11：资源加载](s11_resources/README.md)：业务上下文、Skill 元数据和提示模板进入实际输入
 
+12. [s12：动态工具与重载](s12_reload/README.md)：工具按请求刷新，扩展和资源验证后切换代次
+
 后续基座安排见 [章节规划](../docs/extension-foundation-plan.md)。旧版教程完整保存在 [archive/v1](../archive/README.md)。
