@@ -1,6 +1,35 @@
 # 新主线交接
 
-## 当前进度：s01–s04 教学快照隔离（2026-10-27）
+## 当前进度：s05 文本流式响应（2026-10-27）
+
+本轮基线 `69d4a75`，Pi 仍锁定 `e4c75a732`（0.85.1）。新增参考 `agent-loop.ts::streamAssistantResponse`、`packages/ai/src/types.ts`、`api/anthropic-messages.ts`、`openai-completions.ts` 和 `transform-messages.ts`。Chat 字段同时核对官方流式文档，链接见 s05 README。
+
+正式 SDK 保留 Model.complete，新增 StreamingModel.stream 和 AssistantStreamEvent；`agent_loop(..., stream=True)` 通过 aclosing 消费 start、文本事件及 done。历史中的 pending 回答始终只占一个位置，最终替换后才校验/执行工具。网络或协议失败、取消时保留真实内容和最新用量，流先关闭，原异常继续传播。失败回答不发回供应商，pending 历史在请求前拒绝。订阅器失败单独报告，不保证后续通知完整。
+
+CLI 默认流式，ConsoleDisplay 及时输出 delta，并在最终消息到达时只补后缀；`--no-stream` 保留完整响应模式。兼容 Chat 服务可用 MODEL_STREAM_INCLUDE_USAGE=false 关闭 stream_options；额度字段沿用显式 token_parameter。不自动重试，不显示工具参数增量，不实现推理、多模态或并行调度。
+
+s05 教学组件独立保存为 13 个 Python 文件，含本章完整循环、Provider、配置、CLI 和 example.py。清单只新增 s05 条目；原 s01–s04 的 39 个源码文件哈希全部一致，旧归档也未改。全部 52 个教学源码文件均接受独立快照校验。第三方许可随章保留，产品源码不导入教程。
+
+最终 **344 passed**，Ruff 检查和格式检查通过；教学 SDK 示例、s05 流式/完整入口、正式 SDK 示例、正式 CLI 和帮助均实际运行。测试只替代网络边界，Anthropic 使用真实 SDK 流累积器；没有联网请求真实模型、安装依赖或执行提交。SDK 依赖下界按实际验证版本声明为 Anthropic 1.6.0、OpenAI 3.19.0，不声称早期 SDK 支持新流式字段。V2-B004、V2-B005 分别记录失败历史重放和首字前取消用量丢失的复现与修复。
+
+本轮实际验证命令如下；再次运行 pytest 必须换成新的随机专用临时目录：
+
+```powershell
+..\zero2pi\.venv\Scripts\python.exe -B -m pytest --basetemp D:\dev\Agent\pi-code-agent\.sessions\s05-fefba462 -p no:cacheprovider --tb=short
+..\zero2pi\.venv\Scripts\python.exe -B -m ruff check --no-cache src tests tutorials examples example_project
+..\zero2pi\.venv\Scripts\python.exe -B -m ruff format --check --no-cache src tests tutorials examples example_project
+$env:PYTHONPATH = 'src;.'
+..\zero2pi\.venv\Scripts\python.exe -B -m tutorials.s05_streaming.example
+..\zero2pi\.venv\Scripts\python.exe -B -m tutorials.s05_streaming.code --demo --workspace example_project/mini_app --prompt '读取 README.md'
+..\zero2pi\.venv\Scripts\python.exe -B -m tutorials.s05_streaming.code --demo --no-stream --workspace example_project/mini_app --prompt '读取 README.md'
+..\zero2pi\.venv\Scripts\python.exe -B examples/streaming_sdk.py
+..\zero2pi\.venv\Scripts\python.exe -B -m pi_code_agent --demo --workspace example_project/mini_app --prompt '读取 README.md'
+..\zero2pi\.venv\Scripts\python.exe -B -m pi_code_agent --help
+```
+
+下一步 s06 会话与状态，先阅读 Pi Agent 与 Session 的对应职责，再确定消息所有者和保存/加载的最小闭环；不要直接导入归档或提前加入完整会话树、压缩和恢复策略。
+
+## s01–s04 教学快照隔离记录（2026-10-27）
 
 用户确认旧章不能随公共产品组件升级而变化。本轮基线 `40e9100`，未新增章节。每章保存本阶段实际需要的组件，仅在本章内相对导入；不导入 pi_code_agent、归档或其他教程。正式包仍只使用 src/，也不依赖教程。
 

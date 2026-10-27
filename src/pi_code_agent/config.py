@@ -31,9 +31,13 @@ class ModelConfig:
     max_retries: int = 0
     max_tokens: int = 8000
     token_parameter: Literal["max_tokens", "max_completion_tokens"] = "max_tokens"
+    # s05 新增：兼容服务可显式关闭不支持的 stream_options，不按模型名猜测。
+    stream_include_usage: bool = True
 
     def __post_init__(self) -> None:
         """在创建客户端和发请求前拒绝无效配置。"""
+        if type(self.stream_include_usage) is not bool:
+            raise ValueError("stream_include_usage 必须是布尔值")
         if self.provider not in {"anthropic", "openai-compatible"}:
             raise ValueError("MODEL_PROVIDER 只支持 anthropic 或 openai-compatible")
         if not isinstance(self.model, str) or not self.model.strip():
@@ -77,6 +81,10 @@ def load_model_config(env_file: Path, *, environ: Mapping[str, str] | None = Non
     provider = values.get("MODEL_PROVIDER", "anthropic")
     key_name = "ANTHROPIC_API_KEY" if provider == "anthropic" else "MODEL_API_KEY"
     url_name = "ANTHROPIC_BASE_URL" if provider == "anthropic" else "MODEL_BASE_URL"
+    # s05 新增：只接受明确的布尔配置，避免字符串 false 被当作真值。
+    stream_usage = values.get("MODEL_STREAM_INCLUDE_USAGE", "true").lower()
+    if stream_usage not in {"true", "false"}:
+        raise ValueError("MODEL_STREAM_INCLUDE_USAGE 必须是 true 或 false")
     return ModelConfig(
         provider=provider,
         model=values.get("MODEL_ID", ""),
@@ -86,4 +94,5 @@ def load_model_config(env_file: Path, *, environ: Mapping[str, str] | None = Non
         max_retries=int(values.get("MODEL_MAX_RETRIES", "0")),
         max_tokens=int(values.get("MODEL_MAX_TOKENS", "8000")),
         token_parameter=values.get("MODEL_TOKEN_PARAMETER", "max_tokens"),
+        stream_include_usage=stream_usage == "true",
     )

@@ -1,4 +1,4 @@
-"""s04：终端通过订阅展示当前进度，使用本章的模型和工具组件。"""
+"""s05：终端通过订阅逐段显示文本，支持完整响应模式。"""
 
 from __future__ import annotations
 
@@ -17,25 +17,46 @@ from pi_code_agent.messages import AssistantMessage, Message, Text, ToolResultMe
 from pi_code_agent.providers import ProviderError, create_model
 
 
-# ===== s04 新增 =====
-# s04 新增：终端只观察事件，不往模型历史写显示文本。
-def display_event(event: AgentEvent) -> None:
-    """将工具开始和已完成消息显示到终端，不触发模型请求或持久化。
+# ===== s05 修改 =====
+# s05 修改：显示组件记录已输出的文本前缀，最终消息只补未显示部分，避免重复正文。
+class ConsoleDisplay:
+    """订阅运行事件，把文本增量及时输出，保留最终消息的完整展示。
 
-    输入：运行事件；输出：终端文本。流程：按事件类型取出实际结果并显示。
-    边界：当前收到完整消息才显示文本，逐字输出留到 s05。
+    输入：事件；输出：终端文字。流程：开始时重置 → 打印 delta → 结束时补后缀和换行。
+    边界：只管理显示状态，不修改历史、不触发模型、不保存会话。
     """
-    if event["type"] == "tool_execution_start":
-        print(f"[{event['tool_name']} 开始]", flush=True)
-    elif event["type"] == "message_end":
-        message = event["message"]
-        if isinstance(message, ToolResultMessage):
-            status = "失败" if message.is_error else "结果"
-            print(f"[{message.tool_name} {status}] {message.content}", flush=True)
-        elif isinstance(message, AssistantMessage):
-            for block in message.content:
-                if isinstance(block, Text):
-                    print(block.text, flush=True)
+
+    def __init__(self) -> None:
+        self._text: dict[int, str] = {}
+
+    def __call__(self, event: AgentEvent) -> None:
+        """显示工具进度或模型文字，同一段流式正文只打印一次。"""
+        if event["type"] == "tool_execution_start":
+            print(f"[{event['tool_name']} 开始]", flush=True)
+        elif event["type"] == "message_start" and isinstance(event["message"], AssistantMessage):
+            self._text.clear()
+        elif event["type"] == "message_update":
+            change = event["assistant_message_event"]
+            if change["type"] == "text_delta":
+                index, delta = change["content_index"], change["delta"]
+                print(delta, end="", flush=True)
+                self._text[index] = self._text.get(index, "") + delta
+        elif event["type"] == "message_end":
+            message = event["message"]
+            if isinstance(message, ToolResultMessage):
+                status = "失败" if message.is_error else "结果"
+                print(f"[{message.tool_name} {status}] {message.content}", flush=True)
+            elif isinstance(message, AssistantMessage):
+                has_text = False
+                for index, block in enumerate(message.content):
+                    if isinstance(block, Text):
+                        has_text = True
+                        shown = self._text.get(index, "")
+                        remainder = block.text.removeprefix(shown)
+                        print(remainder, end="", flush=True)
+                if has_text or self._text:
+                    print(flush=True)
+                self._text.clear()
 
 
 # ===== s04 修改 =====
@@ -64,7 +85,8 @@ async def run(
     history: list[Message] = []
     # s04 新增：每个终端实例只有一份订阅表；不会在多轮输入时反复注册。
     events = EventBus()
-    events.subscribe(display_event)
+    display = ConsoleDisplay()
+    events.subscribe(display)
     try:
         while True:
             if options.prompt is not None:
@@ -85,6 +107,8 @@ async def run(
                 max_turns=options.max_turns,
                 prompts=[UserMessage(prompt)],
                 events=events,
+                # s05 新增：命令行默认流式，兼容服务可显式退回完整响应。
+                stream=not options.no_stream,
             )
             last = history[-1]
             if isinstance(last, AssistantMessage) and last.usage is not None:
@@ -114,6 +138,7 @@ def main(
     parser.add_argument("--prompt", help="执行一条任务后退出")
     parser.add_argument("--demo", action="store_true", help="用离线脚本模型读取 README，无需密钥")
     parser.add_argument("--max-turns", type=int, help="可选模型轮数保护；省略时不限制")
+    parser.add_argument("--no-stream", action="store_true", help="使用完整响应，关闭流式输出")
     options = parser.parse_args(arguments)
     if options.max_turns is not None and options.max_turns < 1:
         parser.error("--max-turns 必须是正整数")

@@ -381,6 +381,6 @@ def test_turn_limit_has_final_event_without_claiming_success(api):
     assert seen[-2]["type"] == "turn_end"
 
 
-@pytest.fixture(params=["pi_code_agent", "tutorials.s04_events"])
+@pytest.fixture(params=["pi_code_agent", "tutorials.s04_events", "tutorials.s05_streaming"])
 def api(request):
     return load_runtime(request.param)

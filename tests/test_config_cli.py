@@ -8,6 +8,7 @@ import pytest
 from pi_code_agent import ModelConfig, cli, load_model_config
 from tutorials.s03_models import code as chapter
 from tutorials.s04_events import code as event_chapter
+from tutorials.s05_streaming import code as streaming_chapter
 
 
 @pytest.mark.parametrize(
@@ -56,7 +57,9 @@ def test_help_and_demo_do_not_create_model_or_load_credentials(tmp_path, monkeyp
     forbidden.assert_not_called()
 
 
-@pytest.mark.parametrize("module", [chapter, event_chapter], ids=["s03", "s04"])
+@pytest.mark.parametrize(
+    "module", [chapter, event_chapter, streaming_chapter], ids=["s03", "s04", "s05"]
+)
 def test_chapter_entry_runs_its_own_complete_loop(tmp_path, monkeypatch, module):
     (tmp_path / "README.md").write_text("project", encoding="utf-8")
     original = module.agent_loop

@@ -198,6 +198,13 @@ def test_owned_client_closes_when_request_is_cancelled(api, monkeypatch):
     stub.close.assert_awaited_once()
 
 
-@pytest.fixture(params=["pi_code_agent", "tutorials.s03_models", "tutorials.s04_events"])
+@pytest.fixture(
+    params=[
+        "pi_code_agent",
+        "tutorials.s03_models",
+        "tutorials.s04_events",
+        "tutorials.s05_streaming",
+    ]
+)
 def api(request):
     return load_runtime(request.param)

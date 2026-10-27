@@ -14,7 +14,9 @@ from pi_code_agent.messages import (
     Usage,
     UserMessage,
 )
-from pi_code_agent.model import Model, ToolDefinition
+
+# s05 新增：流式协议随本章向外部程序开放，旧 Model 接口保留。
+from pi_code_agent.model import AssistantStreamEvent, Model, StreamingModel, ToolDefinition
 from pi_code_agent.providers import AnthropicModel, OpenAIModel, ProviderError, create_model
 from pi_code_agent.tools import NoArguments, Tool, ToolResult
 
@@ -23,6 +25,7 @@ __all__ = [
     "AgentEvent",
     "AnthropicModel",
     "AssistantMessage",
+    "AssistantStreamEvent",
     "EventBus",
     "EventListener",
     "EventListenerError",
@@ -32,6 +35,7 @@ __all__ = [
     "NoArguments",
     "OpenAIModel",
     "ProviderError",
+    "StreamingModel",
     "Text",
     "Tool",
     "ToolCall",

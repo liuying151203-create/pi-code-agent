@@ -23,7 +23,7 @@ def load_runtime(package: str) -> SimpleNamespace:
     输入：正式包或单个章节包名；输出：该版本实际拥有的类、方法和适配器。
     流程：加载本包消息/工具/循环 → 按章节阶段加载真实存在的组件；不做类型桥接。
     """
-    stage = int(package.split(".")[-1][1:3]) if package.startswith("tutorials.") else 4
+    stage = int(package.split(".")[-1][1:3]) if package.startswith("tutorials.") else 5
     loop_module = "code" if package.startswith("tutorials.") else "loop"
     exports = {}
     components = {
@@ -35,6 +35,7 @@ def load_runtime(package: str) -> SimpleNamespace:
         components["file_tools"] = ("read_tool",)
         components["demo"] = ("AddArguments", "add_tool")
     if stage >= 3:
+        components["cli"] = ()
         components["config"] = ("ModelConfig", "load_model_config")
         components["providers"] = ("AnthropicModel", "OpenAIModel", "ProviderError", "create_model")
     if stage >= 4:

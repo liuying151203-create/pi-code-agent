@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import re
-from collections.abc import Sequence
+from collections.abc import AsyncGenerator, Sequence
 from copy import deepcopy
 from typing import Any, Self
 
@@ -21,11 +22,16 @@ from pi_code_agent.messages import (
     Usage,
     UserMessage,
 )
-from pi_code_agent.model import ToolDefinition
+from pi_code_agent.model import AssistantStreamEvent, ToolDefinition
 
 
 class ProviderError(RuntimeError):
     """表示网络请求或供应商响应无法完成当前统一协议，不包装为工具错误。"""
+
+    # s05 新增：异常可携带最新快照，包含尚未触发文本事件的已收到用量。
+    def __init__(self, message: str, *, partial: AssistantMessage | None = None) -> None:
+        super().__init__(message)
+        self.partial = partial
 
 
 # s03 新增：对应 Pi normalizeToolCallId，同时用于请求和结果，保持关联不变。
@@ -38,6 +44,12 @@ def _anthropic_messages(messages: Sequence[Message]) -> list[dict[str, Any]]:
     """在适配边界把独立工具结果转换为连续的 user/tool_result 块。"""
     result = []
     for message in messages:
+        # s05 修改：对齐 Pi transformMessages，失败快照保留在本地，不重放给供应商。
+        if isinstance(message, AssistantMessage):
+            if message.stop_reason == "pending":
+                raise ProviderError("不能把 pending 快照作为新请求的历史")
+            if message.stop_reason in {"error", "aborted"}:
+                continue
         if isinstance(message, UserMessage):
             result.append({"role": "user", "content": message.content})
         elif isinstance(message, AssistantMessage):
@@ -75,6 +87,12 @@ def _openai_messages(system: str, messages: Sequence[Message]) -> list[dict[str,
     """把内部消息转换为 system/user/assistant/tool，保留调用 ID 和错误反馈。"""
     result = [{"role": "system", "content": system}] if system else []
     for message in messages:
+        # s05 修改：对齐 Pi transformMessages，失败快照保留在本地，不重放给供应商。
+        if isinstance(message, AssistantMessage):
+            if message.stop_reason == "pending":
+                raise ProviderError("不能把 pending 快照作为新请求的历史")
+            if message.stop_reason in {"error", "aborted"}:
+                continue
         if isinstance(message, UserMessage):
             result.append({"role": "user", "content": message.content})
         elif isinstance(message, ToolResultMessage):
@@ -103,6 +121,36 @@ def _openai_messages(system: str, messages: Sequence[Message]) -> list[dict[str,
                 ]
             result.append(converted)
     return result
+
+
+# s05 修改：同一投影处理完整响应和 SDK 当前快照，不在核心循环解释供应商块。
+def _anthropic_response(raw: Any, *, partial: bool = False) -> AssistantMessage:
+    """转换供应商回答/快照；partial 保留 pending 状态，最终状态仍须验证。"""
+    content = []
+    for block in raw.content:
+        if block.type == "text":
+            content.append(Text(block.text))
+        elif block.type == "tool_use":
+            content.append(ToolCall(block.id, block.name, block.input))
+        else:
+            raise ProviderError(f"当前不支持 Anthropic 内容块：{block.type}")
+    reasons = {
+        "end_turn": "stop",
+        "stop_sequence": "stop",
+        "tool_use": "tool_use",
+        "max_tokens": "length",
+        "pause_turn": "stop",
+        "refusal": "error",
+        "sensitive": "error",
+    }
+    if not partial and raw.stop_reason not in reasons:
+        raise ProviderError(f"当前不支持 Anthropic 停止状态：{raw.stop_reason}")
+    usage = (
+        Usage(raw.usage.input_tokens, raw.usage.output_tokens) if raw.usage is not None else None
+    )
+    reason = "pending" if partial else reasons[raw.stop_reason]
+    explanation = f"Provider stop_reason: {raw.stop_reason}" if reason == "error" else None
+    return AssistantMessage(tuple(content), reason, usage, explanation)
 
 
 # s03 新增：客户端拥有者负责关闭；注入的客户端由外部调用方管理。
@@ -157,35 +205,125 @@ class AnthropicModel:
             ]
         try:
             raw = await self.client.messages.create(**request)
-            content = []
-            for block in raw.content:
-                if block.type == "text":
-                    content.append(Text(block.text))
-                elif block.type == "tool_use":
-                    content.append(ToolCall(block.id, block.name, block.input))
-                else:
-                    raise ProviderError(f"当前不支持 Anthropic 内容块：{block.type}")
-            reasons = {
-                "end_turn": "stop",
-                "stop_sequence": "stop",
-                "tool_use": "tool_use",
-                "max_tokens": "length",
-                "pause_turn": "stop",
-                "refusal": "error",
-                "sensitive": "error",
-            }
-            if raw.stop_reason not in reasons:
-                raise ProviderError(f"当前不支持 Anthropic 停止状态：{raw.stop_reason}")
-            usage = (
-                Usage(raw.usage.input_tokens, raw.usage.output_tokens)
-                if raw.usage is not None
-                else None
-            )
-            reason = reasons[raw.stop_reason]
-            explanation = f"Provider stop_reason: {raw.stop_reason}" if reason == "error" else None
-            return AssistantMessage(tuple(content), reason, usage, explanation)
+            return _anthropic_response(raw)
         except Exception as error:
             raise ProviderError(f"Anthropic 请求或响应失败：{error}") from error
+
+    # s05 新增：直接消费 SDK 的网络流，上下文负责提前退出时关闭连接。
+    async def stream(
+        self,
+        *,
+        system: str,
+        messages: Sequence[Message],
+        tools: Sequence[ToolDefinition],
+        max_tokens: int,
+    ) -> AsyncGenerator[AssistantStreamEvent, None]:
+        """逐段返回文本快照，工具 JSON 组装完成后才交给最终回答，异常继续传播。"""
+        request = {
+            "model": self.config.model,
+            "messages": _anthropic_messages(messages),
+            "max_tokens": max_tokens,
+        }
+        if system:
+            request["system"] = system
+        if tools:
+            request["tools"] = [
+                {
+                    "name": tool.name,
+                    "description": tool.description,
+                    "input_schema": deepcopy(tool.parameters),
+                }
+                for tool in tools
+            ]
+        partial = AssistantMessage((), "pending")
+        try:
+            async with self.client.messages.stream(**request) as raw_stream:
+                yield {"type": "start", "partial": AssistantMessage((), "pending")}
+                tool_json: dict[int, str] = {}
+                stopped = False
+                async for event in raw_stream:
+                    # s05 修改：收到元数据就更新快照，即使文字还没到也能保留用量。
+                    if event.type.startswith(("message_", "content_block_")):
+                        partial = _anthropic_response(
+                            raw_stream.current_message_snapshot, partial=True
+                        )
+                    if event.type == "content_block_start":
+                        if event.content_block.type == "text":
+                            partial = _anthropic_response(
+                                raw_stream.current_message_snapshot, partial=True
+                            )
+                            yield {
+                                "type": "text_start",
+                                "content_index": event.index,
+                                "partial": partial,
+                            }
+                            if event.content_block.text:
+                                yield {
+                                    "type": "text_delta",
+                                    "content_index": event.index,
+                                    "delta": event.content_block.text,
+                                    "partial": partial,
+                                }
+                        elif event.content_block.type != "tool_use":
+                            raise ProviderError(
+                                f"当前不支持 Anthropic 内容块：{event.content_block.type}"
+                            )
+                    elif event.type == "content_block_delta":
+                        if event.delta.type == "text_delta":
+                            partial = _anthropic_response(
+                                raw_stream.current_message_snapshot, partial=True
+                            )
+                            yield {
+                                "type": "text_delta",
+                                "content_index": event.index,
+                                "delta": event.delta.text,
+                                "partial": partial,
+                            }
+                        elif event.delta.type == "input_json_delta":
+                            tool_json[event.index] = (
+                                tool_json.get(event.index, "") + event.delta.partial_json
+                            )
+                        else:
+                            raise ProviderError(f"当前不支持 Anthropic 增量：{event.delta.type}")
+                    elif event.type == "content_block_stop":
+                        snapshot = raw_stream.current_message_snapshot
+                        block = snapshot.content[event.index]
+                        if block.type == "text":
+                            yield {
+                                "type": "text_end",
+                                "content_index": event.index,
+                                "content": block.text,
+                                "partial": _anthropic_response(snapshot, partial=True),
+                            }
+                    elif event.type == "message_stop":
+                        stopped = True
+                if not stopped:
+                    raise ProviderError("Anthropic 流缺少 message_stop，回答未完成")
+                final = _anthropic_response(await raw_stream.get_final_message())
+                content = list(final.content)
+                # s05 调整：Pi 可展示宽松 JSON 快照；本章重新解析原始 JSON，解析失败交回参数校验。
+                for index, encoded in tool_json.items():
+                    call = content[index]
+                    if not isinstance(call, ToolCall):
+                        raise ProviderError("工具 JSON 片段没有对应工具调用")
+                    try:
+                        arguments = json.loads(encoded)
+                    except ValueError:
+                        arguments = encoded
+                    content[index] = ToolCall(call.id, call.name, arguments)
+                yield {
+                    "type": "done",
+                    "message": AssistantMessage(
+                        tuple(content), final.stop_reason, final.usage, final.error_message
+                    ),
+                }
+        except asyncio.CancelledError as error:
+            error.partial = partial
+            raise
+        except Exception as error:
+            raise ProviderError(
+                f"Anthropic 流式请求或响应失败：{error}", partial=partial
+            ) from error
 
     async def aclose(self) -> None:
         """仅关闭本实例创建的客户端，允许重复关闭。"""
@@ -289,6 +427,127 @@ class OpenAIModel:
             return AssistantMessage(tuple(content), reason, usage, explanation)
         except Exception as error:
             raise ProviderError(f"OpenAI 兼容请求或响应失败：{error}") from error
+
+    # s05 新增：Chat 每块使用 delta；按工具 index 拼接参数，完整 JSON 到齐前不执行。
+    async def stream(
+        self,
+        *,
+        system: str,
+        messages: Sequence[Message],
+        tools: Sequence[ToolDefinition],
+        max_tokens: int,
+    ) -> AsyncGenerator[AssistantStreamEvent, None]:
+        """打开 Chat 网络流，保留尾部用量，返回文本增量及最终工具调用。"""
+        request = {
+            "model": self.config.model,
+            "messages": _openai_messages(system, messages),
+            self.config.token_parameter: max_tokens,
+        }
+        if tools:
+            request["tools"] = [
+                {
+                    "type": "function",
+                    "function": {
+                        "name": tool.name,
+                        "description": tool.description,
+                        "parameters": deepcopy(tool.parameters),
+                    },
+                }
+                for tool in tools
+            ]
+        request["stream"] = True
+        if self.config.stream_include_usage:
+            request["stream_options"] = {"include_usage": True}
+        text, text_started, usage = "", False, None
+        try:
+            raw_stream = await self.client.chat.completions.create(**request)
+            async with raw_stream:
+                yield {"type": "start", "partial": AssistantMessage((), "pending")}
+                calls: dict[int, dict[str, str]] = {}
+                finish_reason = None
+                refusal = ""
+                async for chunk in raw_stream:
+                    if chunk.usage is not None:
+                        usage = Usage(chunk.usage.prompt_tokens, chunk.usage.completion_tokens)
+                    # s05 新增：最后的 usage 块可没有 choices，不能提前结束迭代。
+                    if not chunk.choices:
+                        continue
+                    choice = chunk.choices[0]
+                    if choice.finish_reason is not None:
+                        finish_reason = choice.finish_reason
+                    delta = choice.delta
+                    if delta.content:
+                        if not text_started:
+                            text_started = True
+                            yield {
+                                "type": "text_start",
+                                "content_index": 0,
+                                "partial": AssistantMessage((Text(""),), "pending", usage),
+                            }
+                        text += delta.content
+                        yield {
+                            "type": "text_delta",
+                            "content_index": 0,
+                            "delta": delta.content,
+                            "partial": AssistantMessage((Text(text),), "pending", usage),
+                        }
+                    refusal += getattr(delta, "refusal", None) or ""
+                    for call in delta.tool_calls or []:
+                        if call.type not in {None, "function"}:
+                            raise ProviderError("当前只支持 function 工具增量")
+                        if type(call.index) is not int or call.index < 0:
+                            raise ProviderError("工具增量缺少有效 index")
+                        current = calls.setdefault(
+                            call.index, {"id": "", "name": "", "arguments": ""}
+                        )
+                        # s05 新增：对齐 Pi，id/name 采用第一次非空值，参数才是连续 JSON 片段。
+                        current["id"] = current["id"] or call.id or ""
+                        if call.function is not None:
+                            current["name"] = current["name"] or call.function.name or ""
+                            current["arguments"] += call.function.arguments or ""
+                if finish_reason is None:
+                    raise ProviderError("OpenAI 流缺少 finish_reason，回答未完成")
+                if text_started:
+                    yield {
+                        "type": "text_end",
+                        "content_index": 0,
+                        "content": text,
+                        "partial": AssistantMessage((Text(text),), "pending", usage),
+                    }
+                content = [Text(text)] if text_started else []
+                for index in sorted(calls):
+                    call = calls[index]
+                    try:
+                        arguments = json.loads(call["arguments"])
+                    except ValueError:
+                        arguments = call["arguments"]
+                    content.append(ToolCall(call["id"], call["name"], arguments))
+                reasons = {
+                    "stop": "stop",
+                    "end": "stop",
+                    "tool_calls": "tool_use",
+                    "length": "length",
+                }
+                reason = "error" if refusal else reasons.get(finish_reason, "error")
+                explanation = (
+                    (refusal or f"Provider finish_reason: {finish_reason}")
+                    if reason == "error"
+                    else None
+                )
+                yield {
+                    "type": "done",
+                    "message": AssistantMessage(tuple(content), reason, usage, explanation),
+                }
+        except asyncio.CancelledError as error:
+            error.partial = AssistantMessage(
+                (Text(text),) if text_started else (), "pending", usage
+            )
+            raise
+        except Exception as error:
+            raise ProviderError(
+                f"OpenAI 兼容流式请求或响应失败：{error}",
+                partial=AssistantMessage((Text(text),) if text_started else (), "pending", usage),
+            ) from error
 
     async def aclose(self) -> None:
         """仅关闭本实例创建的客户端。"""

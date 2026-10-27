@@ -127,7 +127,13 @@ def test_read_tool_counts_utf8_bytes_without_skipping_lines(api, tmp_path):
 
 
 @pytest.fixture(
-    params=["pi_code_agent", "tutorials.s02_tools", "tutorials.s03_models", "tutorials.s04_events"]
+    params=[
+        "pi_code_agent",
+        "tutorials.s02_tools",
+        "tutorials.s03_models",
+        "tutorials.s04_events",
+        "tutorials.s05_streaming",
+    ]
 )
 def api(request):
     return load_runtime(request.param)

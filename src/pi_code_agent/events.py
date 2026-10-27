@@ -8,11 +8,12 @@ from inspect import isawaitable
 from typing import Any, Literal, TypedDict
 
 from pi_code_agent.messages import AssistantMessage, Message, ToolResultMessage
+from pi_code_agent.model import StreamText
 from pi_code_agent.tools import ToolResult
 
 
 # ===== s04 新增 =====
-# s04 新增：只声明当前完整响应流程实际发出的事件，不提前加入流式 update。
+# s05 修改：保留既有开始/结束事件，新增的文本更新事件在下方独立声明。
 class LifecycleStart(TypedDict):
     """表示一次运行或一个模型回合开始。"""
 
@@ -35,10 +36,19 @@ class TurnEnd(TypedDict):
 
 
 class MessageEvent(TypedDict):
-    """描述一条消息的开始或完成；s05 再加入流式更新。"""
+    """描述一条消息的开始或完成；增量变化使用 MessageUpdate。"""
 
     type: Literal["message_start", "message_end"]
     message: Message
+
+
+# s05 新增：运行事件保留对应模型事件，界面既能拿增量，也能拿当前完整快照。
+class MessageUpdate(TypedDict):
+    """描述回答中的文本变化，不等于工具完成或回答完成。"""
+
+    type: Literal["message_update"]
+    message: AssistantMessage
+    assistant_message_event: StreamText
 
 
 class ToolExecutionStart(TypedDict):
@@ -61,7 +71,13 @@ class ToolExecutionEnd(TypedDict):
 
 
 type AgentEvent = (
-    LifecycleStart | AgentEnd | TurnEnd | MessageEvent | ToolExecutionStart | ToolExecutionEnd
+    LifecycleStart
+    | AgentEnd
+    | TurnEnd
+    | MessageEvent
+    | MessageUpdate
+    | ToolExecutionStart
+    | ToolExecutionEnd
 )
 type EventListener = Callable[[AgentEvent], Awaitable[None] | None]
 

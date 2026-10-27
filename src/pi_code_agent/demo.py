@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import AsyncGenerator, Sequence
 from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, Field
 
 from pi_code_agent.messages import AssistantMessage, Message, Text, ToolCall, ToolResultMessage
-from pi_code_agent.model import ToolDefinition
+from pi_code_agent.model import AssistantStreamEvent, ToolDefinition
 from pi_code_agent.tools import Tool, ToolResult
 
 
@@ -36,6 +36,44 @@ class DemoModel:
         return AssistantMessage(
             (ToolCall(f"demo-{len(messages)}", self.tool_name, self.arguments),), "tool_use"
         )
+
+    # s05 新增：离线脚本按固定小段模拟流；真实 Provider 直接消费供应商流，不拆完整请求冒充流式。
+    async def stream(
+        self,
+        *,
+        system: str,
+        messages: Sequence[Message],
+        tools: Sequence[ToolDefinition],
+        max_tokens: int,
+    ) -> AsyncGenerator[AssistantStreamEvent, None]:
+        """模拟文本事件及最终工具调用，供无密钥教学使用，不代表网络延迟。"""
+        response = await self.complete(
+            system=system, messages=messages, tools=tools, max_tokens=max_tokens
+        )
+        partial = AssistantMessage((), "pending")
+        yield {"type": "start", "partial": partial}
+        for index, block in enumerate(response.content):
+            if not isinstance(block, Text):
+                continue
+            text = ""
+            yield {"type": "text_start", "content_index": index, "partial": partial}
+            for offset in range(0, len(block.text), 5):
+                delta = block.text[offset : offset + 5]
+                text += delta
+                partial = AssistantMessage((Text(text),), "pending")
+                yield {
+                    "type": "text_delta",
+                    "content_index": index,
+                    "delta": delta,
+                    "partial": partial,
+                }
+            yield {
+                "type": "text_end",
+                "content_index": index,
+                "content": block.text,
+                "partial": partial,
+            }
+        yield {"type": "done", "message": response}
 
 
 # s01 新增：无参数工具只返回调用方已经选择的工作目录名称。

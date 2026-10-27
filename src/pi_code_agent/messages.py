@@ -51,7 +51,7 @@ class Usage:
 
 @dataclass(frozen=True)
 class AssistantMessage:
-    """保存一轮完整模型回答，包括停止状态和可选用量。
+    """保存最终模型回答或 pending 流式快照，包括状态和可选用量。
 
     输入：文本/工具调用块、归一化停止状态；输出：不可变回答。
     流程：模型创建 → 循环记录 → 按状态执行工具或结束。
@@ -59,7 +59,8 @@ class AssistantMessage:
     """
 
     content: tuple[Text | ToolCall, ...]
-    stop_reason: Literal["stop", "tool_use", "length", "error", "aborted"] = "stop"
+    # s05 新增：pending 仅表示流中的回答快照，不能作为最终回答执行工具。
+    stop_reason: Literal["stop", "tool_use", "length", "error", "aborted", "pending"] = "stop"
     usage: Usage | None = None
     # s03 新增：保留供应商的失败原因，与模型正文分开，避免伪造回答文本。
     error_message: str | None = None
@@ -70,7 +71,7 @@ class AssistantMessage:
         content = tuple(self.content)
         if any(not isinstance(block, (Text, ToolCall)) for block in content):
             raise TypeError("当前只支持文本和工具调用块")
-        if self.stop_reason not in {"stop", "tool_use", "length", "error", "aborted"}:
+        if self.stop_reason not in {"stop", "tool_use", "length", "error", "aborted", "pending"}:
             raise ValueError("未知停止状态")
         object.__setattr__(self, "content", content)
 

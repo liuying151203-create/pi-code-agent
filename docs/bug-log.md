@@ -1,5 +1,17 @@
 # 新主线问题记录
 
+## V2-B004：流式失败快照被再次发给供应商
+
+2026-10-27，s05 首轮实现保留了网络中断前的真实文字，但旧协议投影仍把 error/aborted 回答当普通 assistant 消息重放。`test_retry_keeps_failed_snapshot_locally_without_replaying_it_to_provider` 在两种协议及 SDK/教程四种组合中复现失败：第二次请求角色实际为 user/assistant/user，预期仅 user/user。Pi `e4c75a732` 的 `packages/ai/src/api/transform-messages.ts` 明确跳过失败回答。
+
+修复只在产品和 s05 的请求投影边界过滤 error/aborted，pending 则在开请求前拒绝；本地历史和失败文本不删除，不自动重试或修复任意孤立工具消息。s01–s04 冻结源码不改。回归覆盖失败后手动续跑、历史对象保留和 pending 拒绝，修复后的全量 344 项测试通过，实际命令见交接记录。
+
+## V2-B005：首个文本片段前取消会丢失已收到的用量
+
+2026-10-27，s05 最初只靠文本事件更新循环快照；供应商先返回输入用量、文字尚未到达时取消，失败回答的 usage 仍为 None。`test_cancellation_before_first_text_keeps_received_usage` 在 SDK/教程与两种协议的四种组合中均复现 AttributeError；实际已收到 input_tokens=11。
+
+原因是供应商的最新元数据不一定产生文本事件。修复让 ProviderError 和原生 CancelledError 携带最新快照，循环在失败收口时优先使用它；异常类型及传播保持不变，流先关闭。回归核对早期取消的用量、aborted 状态及连接关闭，修复后的全量 344 项测试通过，实际命令见交接记录。
+
 ## V2-B003：教学循环快照仍依赖可变产品组件
 
 2026-10-27，在 `40e9100` 基线中，四章的 `code.py` 仍从 `pi_code_agent.messages/tools/loop` 导入组件，s03、s04 的 main 还调用产品 CLI；原边界测试要求 s04 循环始终等于最新产品。直接证据是这些导入和跨版本比较：单独冻结循环不能阻止产品组件改变旧章行为，也无法把单章目录拿出来独立运行。

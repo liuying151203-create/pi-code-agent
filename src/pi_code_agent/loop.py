@@ -1,13 +1,14 @@
-"""s04：在 s01 的完整循环中加入 Pi 风格的事件边界。"""
+"""s05：保留顺序工具循环，流式更新同一回答，完成后才执行工具。"""
 
 from __future__ import annotations
 
 import asyncio
 from collections.abc import Sequence
+from contextlib import aclosing
 
-from pi_code_agent.events import EventBus
+from pi_code_agent.events import EventBus, EventListenerError
 from pi_code_agent.messages import AssistantMessage, Message, ToolCall, ToolResultMessage
-from pi_code_agent.model import Model
+from pi_code_agent.model import Model, StreamingModel
 from pi_code_agent.tools import Tool, ToolResult, execute_tool
 
 
@@ -15,18 +16,20 @@ class TurnLimitError(RuntimeError):
     """表示显式请求的轮数上限已达到，消息保留但任务未完成。"""
 
 
-# ===== s04 修改 =====
-# s04 修改：保留顺序工具循环，加入可等待事件及明确的新输入，避免重播旧历史。
+# ===== s05 修改 =====
+# s05 修改：保留 s04 的事件边界，流式更新同一回答，等最终数据到齐再执行工具。
 async def agent_loop(
     messages: list[Message],
     *,
-    model: Model,
+    model: Model | StreamingModel,
     tools: Sequence[Tool] = (),
     system: str = "你是编程助手，完成任务后停止。",
     max_tokens: int = 8000,
     max_turns: int | None = None,
     prompts: Sequence[Message] = (),
     events: EventBus | None = None,
+    # s05 新增：保留完整响应路径，调用方明确选择流式，不猜测模型能力。
+    stream: bool = False,
 ) -> list[Message]:
     """请求模型、执行工具并回传结果，直到模型不再请求工具。
 
@@ -39,6 +42,10 @@ async def agent_loop(
         raise ValueError("max_tokens 必须为正整数")
     if max_turns is not None and (type(max_turns) is not int or max_turns < 1):
         raise ValueError("max_turns 必须为正整数或 None")
+    if type(stream) is not bool:
+        raise ValueError("stream 必须是布尔值")
+    if stream and not callable(getattr(model, "stream", None)):
+        raise ValueError("模型没有 stream()；请使用完整响应模式")
     catalog = {tool.name: tool for tool in tools}
     if len(catalog) != len(tools):
         raise ValueError("本次工具目录存在重名")
@@ -58,34 +65,117 @@ async def agent_loop(
         if turn:
             await events.emit({"type": "turn_start"})
         turn += 1
-        # s04 新增：模型边界异常仍向外抛出，同时用失败消息关闭本回合，供界面观察。
+        # s05 修改：流中的回答只占一个历史位置，每次更新替换快照，完成后才进入工具阶段。
+        message_index = None
+        partial = AssistantMessage((), "pending")
+        response = None
         try:
-            response = await model.complete(
-                system=system, messages=tuple(messages), tools=definitions, max_tokens=max_tokens
-            )
-            # s04 修改：原有响应校验纳入模型边界，坏返回值也要结束失败回合。
+            if stream:
+                # s05 新增：即使订阅器失败或任务取消，也先关闭模型生成器及底层 HTTP 流。
+                async with aclosing(
+                    model.stream(
+                        system=system,
+                        messages=tuple(messages),
+                        tools=definitions,
+                        max_tokens=max_tokens,
+                    )
+                ) as chunks:
+                    async for event in chunks:
+                        if response is not None:
+                            raise ValueError("模型流在 done 之后仍返回事件")
+                        if event["type"] == "start":
+                            if message_index is not None:
+                                raise ValueError("模型流重复 start")
+                            snapshot = event["partial"]
+                            if (
+                                not isinstance(snapshot, AssistantMessage)
+                                or snapshot.stop_reason != "pending"
+                            ):
+                                raise ValueError("模型流 start 必须携带 pending 快照")
+                            partial = snapshot
+                            message_index = len(messages)
+                            messages.append(partial)
+                            await events.emit({"type": "message_start", "message": partial})
+                        elif event["type"] in {"text_start", "text_delta", "text_end"}:
+                            if message_index is None:
+                                raise ValueError("模型流文本事件早于 start")
+                            snapshot = event["partial"]
+                            if (
+                                not isinstance(snapshot, AssistantMessage)
+                                or snapshot.stop_reason != "pending"
+                            ):
+                                raise ValueError("模型流文本事件必须携带 pending 快照")
+                            partial = snapshot
+                            messages[message_index] = partial
+                            await events.emit(
+                                {
+                                    "type": "message_update",
+                                    "message": partial,
+                                    "assistant_message_event": event,
+                                }
+                            )
+                        elif event["type"] == "done":
+                            if message_index is None:
+                                raise ValueError("模型流 done 早于 start")
+                            response = event["message"]
+                        else:
+                            raise ValueError(f"当前不支持模型流事件：{event['type']}")
+                if response is None:
+                    raise ValueError("模型流没有最终 done，回答未完成")
+            else:
+                # 来自 s04：保持；旧 Model 和完整响应调用仍然可用。
+                response = await model.complete(
+                    system=system,
+                    messages=tuple(messages),
+                    tools=definitions,
+                    max_tokens=max_tokens,
+                )
             if not isinstance(response, AssistantMessage):
                 raise TypeError("模型必须返回 AssistantMessage")
+            if response.stop_reason == "pending":
+                raise ValueError("pending 快照不能作为最终回答")
             calls = [block for block in response.content if isinstance(block, ToolCall)]
             if response.stop_reason not in {"error", "aborted"} and len(
                 {call.id for call in calls}
             ) != len(calls):
                 raise ValueError("模型返回重复的工具调用 ID，已停止执行")
+        except EventListenerError as error:
+            # s05 新增：观察失败单独传播，不伪造供应商失败，也不向坏订阅器递归通知。
+            if message_index is not None:
+                messages[message_index] = AssistantMessage(
+                    partial.content, "error", partial.usage, f"事件观察失败：{error}"
+                )
+            raise
         except (Exception, asyncio.CancelledError) as error:
+            # s05 修改：中断时保留已经收到的实际文本和用量，不追加第二条模型回答。
+            # s05 新增：Provider 还可能收到未触发文本事件的元数据，用最新快照完成失败记录。
+            received = getattr(error, "partial", None)
+            if isinstance(received, AssistantMessage):
+                partial = received
             reason = "aborted" if isinstance(error, asyncio.CancelledError) else "error"
-            failure = AssistantMessage((), reason, error_message=str(error) or "运行已取消")
-            messages.append(failure)
-            await events.emit({"type": "message_start", "message": failure})
+            failure = AssistantMessage(
+                partial.content, reason, partial.usage, str(error) or "运行已取消"
+            )
+            if message_index is None:
+                messages.append(failure)
+                await events.emit({"type": "message_start", "message": failure})
+            else:
+                messages[message_index] = failure
             await events.emit({"type": "message_end", "message": failure})
             await events.emit({"type": "turn_end", "message": failure, "tool_results": []})
             await events.emit({"type": "agent_end", "messages": messages[start:]})
             raise
-        messages.append(response)
+        if message_index is None:
+            messages.append(response)
+        else:
+            messages[message_index] = response
         tool_results: list[ToolResultMessage] = []
         tool_started = False
         try:
             # s04 新增：等待回答的 message_end 订阅器，再进入工具校验和执行。
-            await events.emit({"type": "message_start", "message": response})
+            # s05 修改：流式 start 已经通知过，只为完整响应补发一次开始事件。
+            if message_index is None:
+                await events.emit({"type": "message_start", "message": response})
             await events.emit({"type": "message_end", "message": response})
             if response.stop_reason not in {"error", "aborted"}:
                 for call in calls:
