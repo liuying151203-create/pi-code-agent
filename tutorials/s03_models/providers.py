@@ -15,6 +15,7 @@ from .messages import (
     AssistantMessage,
     Message,
     Text,
+    Thinking,
     ToolCall,
     ToolResultMessage,
     Usage,
@@ -47,6 +48,21 @@ def _anthropic_messages(messages: Sequence[Message]) -> list[dict[str, Any]]:
             for block in message.content:
                 if isinstance(block, Text):
                     blocks.append({"type": "text", "text": block.text})
+                elif isinstance(block, Thinking):
+                    # s03 修改：按 Pi 原样回传签名和脱敏数据，不能把推理当普通回答丢弃。
+                    if block.redacted:
+                        blocks.append({"type": "redacted_thinking", "data": block.signature})
+                    elif block.signature.strip():
+                        blocks.append(
+                            {
+                                "type": "thinking",
+                                "thinking": block.text,
+                                "signature": block.signature,
+                            }
+                        )
+                    elif block.text.strip():
+                        # s03 修改：沿用 Pi 对无签名块的文本回退，只改变请求投影，不改变本地类型。
+                        blocks.append({"type": "text", "text": block.text})
                 else:
                     blocks.append(
                         {
@@ -58,7 +74,8 @@ def _anthropic_messages(messages: Sequence[Message]) -> list[dict[str, Any]]:
                             else {},
                         }
                     )
-            result.append({"role": "assistant", "content": blocks})
+            if blocks:
+                result.append({"role": "assistant", "content": blocks})
         else:
             block = {
                 "type": "tool_result",
@@ -92,6 +109,9 @@ def _openai_messages(system: str, messages: Sequence[Message]) -> list[dict[str,
             content = "\n".join(block.text for block in message.content if isinstance(block, Text))
             converted = {"role": "assistant", "content": content or None}
             calls = [block for block in message.content if isinstance(block, ToolCall)]
+            # s03 修改：Chat 只投影其支持的文本和工具，推理块不能形成空 assistant 消息。
+            if not content and not calls:
+                continue
             if calls:
                 converted["tool_calls"] = [
                     {
@@ -116,7 +136,7 @@ class AnthropicModel:
 
     输入：显式配置和可选客户端；输出：complete 返回 AssistantMessage。
     流程：构造真实客户端 → 转换请求 → await API → 归一化停止状态及用量。
-    边界：只处理文本与客户端工具，不假装支持图片、服务端工具或思考块。
+    边界：支持文本、thinking 回传与客户端工具；不处理图片或服务端工具。
     """
 
     def __init__(self, config: ModelConfig, *, client: Any = None) -> None:
@@ -173,6 +193,16 @@ class AnthropicModel:
             for block in raw.content:
                 if block.type == "text":
                     content.append(Text(block.text))
+                elif block.type == "thinking":
+                    # s03 修改：空推理文本也可能有有效签名，两者分开保存，终端仍只显示 Text。
+                    content.append(
+                        Thinking(
+                            getattr(block, "thinking", "") or "",
+                            getattr(block, "signature", "") or "",
+                        )
+                    )
+                elif block.type == "redacted_thinking":
+                    content.append(Thinking("", block.data, redacted=True))
                 elif block.type == "tool_use":
                     content.append(ToolCall(block.id, block.name, block.input))
                 else:

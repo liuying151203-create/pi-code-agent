@@ -27,6 +27,129 @@ def openai(content="done", calls=None, reason="stop"):
     )
 
 
+def test_s03_anthropic_thinking_response_prints_only_final_text(tmp_path, monkeypatch, capsys):
+    from anthropic.types import ThinkingBlock
+
+    chapter = load_runtime("tutorials.s03_models")
+    config = chapter.ModelConfig("anthropic", "model", "fake")
+    stub = client(
+        anthropic(
+            [
+                ThinkingBlock(
+                    type="thinking", thinking="internal reasoning", signature="opaque signature"
+                ),
+                NS(type="text", text="你好"),
+            ]
+        )
+    )
+    model = chapter.AnthropicModel(config, client=stub)
+    monkeypatch.setattr(chapter.cli, "load_model_config", lambda path: config)
+    monkeypatch.setattr(chapter.cli, "create_model", lambda value: model)
+    assert (
+        chapter.cli.main(
+            ["--workspace", str(tmp_path), "--prompt", "你好"], loop=chapter.agent_loop
+        )
+        == 0
+    )
+    output = capsys.readouterr().out
+    assert (
+        "你好" in output and "internal reasoning" not in output and "opaque signature" not in output
+    )
+
+
+def test_s03_anthropic_thinking_and_redaction_survive_tool_round_trip():
+    from anthropic.types import RedactedThinkingBlock, ThinkingBlock
+
+    chapter = load_runtime("tutorials.s03_models")
+    blocks = [
+        ThinkingBlock(type="thinking", thinking="  keep unchanged\n", signature="signed-data"),
+        RedactedThinkingBlock(type="redacted_thinking", data="encrypted-data"),
+        NS(type="tool_use", id="call", name="add", input={"a": "2", "b": "3"}),
+    ]
+    stub = client(
+        anthropic(blocks, "tool_use"),
+        anthropic(
+            [
+                ThinkingBlock(type="thinking", thinking="", signature="empty-text-signature"),
+                NS(type="text", text="five"),
+            ]
+        ),
+        anthropic([NS(type="text", text="done")]),
+    )
+    model = chapter.AnthropicModel(chapter.ModelConfig("anthropic", "model", "fake"), client=stub)
+
+    async def run():
+        history = [chapter.UserMessage("sum")]
+        await chapter.agent_loop(history, model=model, tools=[chapter.add_tool()])
+        assert history[-2].content == "5" and not history[-2].is_error
+        replay = stub.messages.create.call_args.kwargs["messages"][1]["content"]
+        assert replay == [
+            {"type": "thinking", "thinking": "  keep unchanged\n", "signature": "signed-data"},
+            {"type": "redacted_thinking", "data": "encrypted-data"},
+            {"type": "tool_use", "id": "call", "name": "add", "input": {"a": "2", "b": "3"}},
+        ]
+        history.append(chapter.UserMessage("continue"))
+        await chapter.agent_loop(history, model=model, tools=[chapter.add_tool()])
+        replay = stub.messages.create.call_args.kwargs["messages"][-2]["content"]
+        assert replay[0] == {
+            "type": "thinking",
+            "thinking": "",
+            "signature": "empty-text-signature",
+        }
+        assert replay[1] == {"type": "text", "text": "five"}
+
+    asyncio.run(run())
+
+
+def test_s03_unsigned_thinking_uses_pi_text_fallback_only_in_request():
+    chapter = load_runtime("tutorials.s03_models")
+    stub = client(
+        anthropic(
+            [NS(type="thinking", thinking="unsigned reasoning"), NS(type="text", text="answer")]
+        ),
+        anthropic([NS(type="text", text="next answer")]),
+    )
+    model = chapter.AnthropicModel(chapter.ModelConfig("anthropic", "model", "fake"), client=stub)
+
+    async def run():
+        history = [chapter.UserMessage("first")]
+        await chapter.agent_loop(history, model=model)
+        history.append(chapter.UserMessage("next"))
+        await chapter.agent_loop(history, model=model)
+        blocks = stub.messages.create.call_args.kwargs["messages"][1]["content"]
+        assert blocks == [
+            {"type": "text", "text": "unsigned reasoning"},
+            {"type": "text", "text": "answer"},
+        ]
+        assert type(history[1].content[0]).__name__ == "Thinking"
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("with_text", [False, True])
+def test_s03_chat_projection_does_not_send_anthropic_thinking(with_text):
+    from tutorials.s03_models.messages import Thinking
+
+    chapter = load_runtime("tutorials.s03_models")
+    content = [Thinking("internal", "anthropic-signature")]
+    if with_text:
+        content.append(chapter.Text("visible answer"))
+    history = [
+        chapter.UserMessage("first"),
+        chapter.AssistantMessage(tuple(content)),
+        chapter.UserMessage("next"),
+    ]
+    stub = client(openai())
+    model = chapter.OpenAIModel(
+        chapter.ModelConfig("openai-compatible", "model", "fake"), client=stub
+    )
+    asyncio.run(model.complete(system="", messages=history, tools=[], max_tokens=100))
+    sent = stub.messages.create.call_args.kwargs["messages"]
+    assert len(sent) == (3 if with_text else 2)
+    if with_text:
+        assert sent[1] == {"role": "assistant", "content": "visible answer"}
+
+
 def test_s03_demo_requests_read_and_uses_current_workspace_file(tmp_path):
     from tutorials.s03_models.demo import DemoModel
 

@@ -60,6 +60,8 @@ Anthropic 将工具结果放入 user 消息的 `tool_result` 块；Chat Completi
 
 停止状态也会统一：正常结束、工具调用、额度截断和模型失败分别处理。失败回答留在本地历史，但后续请求会跳过它，避免重放未完成的工具调用。HTTP/协议错误抛 `ProviderError`，不会被包装成工具失败。输入/输出用量保存在回答中供入口显示，尚不计算费用。
 
+模型可能在普通文字前返回 `thinking` 或 `redacted_thinking`。它们保存在 `Thinking` 中，终端仍只打印 `Text`。后续请求保留原始签名、脱敏数据及块顺序，让工具调用和多轮对话可以继续；有签名但文字为空的块也保留。兼容服务返回无签名推理时，沿用 Pi 的请求文本回退，本地仍保持 `Thinking` 类型。
+
 ## SDK 使用同一套组装
 
 ```python
@@ -97,5 +99,5 @@ python -m pytest tests/test_s03_models.py tests/test_config_cli.py
 参考 Pi `e4c75a732` 的 `packages/ai/src/api/anthropic-messages.ts`、`openai-completions.ts` 及相关测试，解决两种供应商协议下运行同一个循环的问题；Chat 字段核对 [OpenAI 官方接口说明](https://developers.openai.com/api/reference/resources/chat/subresources/completions/methods/create)。来源与许可见 本章 [NOTICE](NOTICE.md)。
 
 - 已对齐：统一消息、工具调用关联、停止状态及协议边界；当前只实现文本和客户端 function 工具。
-- 本项目调整：配置和客户端所有权显式传入，兼容接口的额度字段由调用方选择；本章测试验证请求参数与关闭行为，真实服务仍需使用自己的配置验证。
-- 暂缓：流式在 s05 加入；推理、多模态和更多服务兼容项编号待定，届时补充对应内容块和服务测试。
+- 本项目调整：配置和客户端所有权显式传入，兼容接口的额度字段由调用方选择；本章测试验证请求参数与关闭行为，真实服务仍需使用自己的配置验证。thinking 的保留、脱敏块与无签名回退参考同版本 Pi anthropic-messages.ts 的内容转换；签名回传要求另核对 [Claude 官方说明](https://platform.claude.com/docs/en/build-with-claude/thinking)。
+- 暂缓：流式在 s05 加入；本章只兼容已经返回的 thinking，不主动配置推理预算或展示推理。推理控制、跨供应商推理字段、多模态和更多服务兼容项编号待定。

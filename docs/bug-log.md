@@ -111,3 +111,11 @@ V2-B014 补充：取消工具时同样没有正常 after_turn，四项回归证�
 - 原因与修复：把运行分支依赖提前放到模块导入阶段。仅修订 s03：dotenv 移到 load_model_config；模型 SDK 移到各自 Provider 创建自有客户端的分支，注入客户端不导入 SDK；缺少真实 SDK 时以 ProviderError 说明缺少的依赖。保持完整响应接口、客户端所有权与请求转换不变，更新 config.py/providers.py 的冻结哈希。
 - 差异依据：这是 Python 模块加载的调整，不新增 Agent 机制；离线只保留第二章已用的 Pydantic 依赖，不将项目声明的完整安装依赖说成不存在。
 - 验证：离线与帮助入口在三个模型依赖均被禁止导入时仍能运行，真实 Provider 构造与关闭行为回归；用用户当前缺少 openai 的默认 Python 重跑原始命令，全程不安装依赖、不请求模型网络。
+
+## V2-B020：第三章拒绝模型返回的 thinking 块
+
+- 用户复现：真实 Anthropic 模式输入“你好”，服务已返回内容，但解析器只接受 text/tool_use，遇到 thinking 就抛 ProviderError，正常文字也没有显示。
+- 回归证据：CLI 入口使用真实 SDK ThinkingBlock 构造响应，复现相同错误；签名工具回传、脱敏块、无签名回退和 Chat 投影共五项回归先失败。
+- 原因：将暂缓主动推理配置等同于可以拒绝模型已返回的推理内容；简单跳过也会丢失工具调用后请求所需的签名。Pi e4c75a732 的 anthropic-messages.ts 保留 ThinkingContent、签名和 redacted 标记，官方文档同样要求工具对话中保留这些块。
+- 修复：仅修订 s03，增加实际使用的 Thinking 内容类型；接收 thinking/redacted_thinking，Anthropic 请求保留签名、脱敏数据及原顺序，空文字的签名块也回传；无签名时沿用 Pi 文本回退。Chat 投影只取文本/工具，避免把 Thinking 当工具或产生空消息；CLI 继续只打印 Text。更新 messages.py/providers.py 的冻结哈希，不改核心循环或其他章节。
+- 边界与验证：不主动开启推理、不增加预算选项或推理显示，不把 Anthropic 签名用于其他服务。回归覆盖普通问候、工具执行、多轮回传、签名/脱敏数据保留和不输出推理；不请求用户真实模型或声称已经验证其服务端配置。
