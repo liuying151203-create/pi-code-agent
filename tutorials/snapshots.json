@@ -16,7 +16,7 @@
       "files": {
         "__init__.py": "b6104fd979d982dda73697b841b9d1ffaedcbb5a5834b8bb6e7f6865e5b66e7d",
         "code.py": "672c5293c973e15f020ae9459c030a28ad7dd4928559f33b7d081fceccd778b4",
-        "demo.py": "e3e16dd23d78fd5d13c4cf6726c7058079510c5e9333d8ba50a4e15cab3cc58e",
+        "demo.py": "45224a48102f4ce8781754d43035786234ebbab661fa8a069c3711d83312239e",
         "errors.py": "3c589be1891aa7f60a08bda6aef8dee7360c86e207c75cd18c5a6ed2d225e1d2",
         "messages.py": "2152c6ec0728faaae55f5036fd83bf8178799006c2cbc2870b7df780fdc464f9",
         "model.py": "5cec73384ba0ddc8aba214350e7ed8753414674ce8c3f47d36f314339dd31c4f",

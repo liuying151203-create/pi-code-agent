@@ -14,11 +14,11 @@ from .tools import Tool, ToolResult
 
 
 class DemoModel:
-    """先请求指定工具，再根据实际工具结果回答；用于离线教学和冒烟验证。"""
+    """按预设脚本模拟模型回答，工具由循环执行。
 
-    def __init__(self, tool_name: str = "project_name", arguments: dict[str, Any] | None = None):
-        self.tool_name = tool_name
-        self.arguments = arguments if arguments is not None else {}
+    输入：与真实模型相同的请求接口；输出：工具请求或包含实际结果的文字。
+    流程：先请求 project_name，收到工具结果后回答；不访问网络、不自行选择或执行工具。
+    """
 
     async def complete(
         self,
@@ -33,8 +33,9 @@ class DemoModel:
             result = messages[-1]
             label = "工具失败" if result.is_error else "工具返回"
             return AssistantMessage((Text(f"{label}：{result.content}"),))
+        # s01 修改：直接展示预设的模型回答，去掉不必要的工具名与参数配置。
         return AssistantMessage(
-            (ToolCall(f"demo-{len(messages)}", self.tool_name, self.arguments),), "tool_use"
+            (ToolCall(f"demo-{len(messages)}", "project_name", {}),), "tool_use"
         )
 
 

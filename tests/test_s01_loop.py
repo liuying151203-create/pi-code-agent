@@ -7,6 +7,50 @@ import pytest
 from conftest import ScriptedModel, load_runtime
 
 
+@pytest.mark.parametrize("registered", [True, False])
+def test_first_demo_requests_tool_without_executing_and_uses_actual_result(tmp_path, registered):
+    from dataclasses import replace
+
+    from tutorials.s01_agent_loop.code import agent_loop
+    from tutorials.s01_agent_loop.demo import DemoModel, project_name_tool
+    from tutorials.s01_agent_loop.messages import ToolCall, UserMessage
+
+    model = DemoModel()
+    tool = project_name_tool(tmp_path)
+    execute = AsyncMock(wraps=tool.execute)
+    tool = replace(tool, execute=execute)
+
+    async def run():
+        history = [UserMessage("当前项目叫什么？")]
+        request = await model.complete(
+            system="", messages=tuple(history), tools=[tool.definition()], max_tokens=100
+        )
+        assert isinstance(request.content[0], ToolCall)
+        assert request.content[0].name == tool.name
+        assert request.content[0].arguments == {}
+        execute.assert_not_awaited()
+
+        await agent_loop(history, model=model, tools=[tool] if registered else [])
+        assert [message.role for message in history] == [
+            "user",
+            "assistant",
+            "tool_result",
+            "assistant",
+        ]
+        result = history[2]
+        assert result.tool_call_id == history[1].content[0].id
+        if registered:
+            execute.assert_awaited_once_with({})
+            assert result.content == tmp_path.name
+            assert history[-1].content[0].text == f"工具返回：{tmp_path.name}"
+        else:
+            execute.assert_not_awaited()
+            assert result.is_error
+            assert history[-1].content[0].text == f"工具失败：{result.content}"
+
+    asyncio.run(run())
+
+
 def test_tool_result_reaches_the_next_model_request(api, capsys):
     execute = AsyncMock(return_value=api.ToolResult("real result"))
     tool = api.Tool("probe", "test tool", execute)

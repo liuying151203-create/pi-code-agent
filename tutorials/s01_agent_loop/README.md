@@ -12,6 +12,8 @@ python -m tutorials.s01_agent_loop.code
 
 脚本模型先请求 `project_name`，工具返回当前目录名，然后模型用实际结果回答。这里故意使用可重复的脚本模型，便于先看清闭环；第三章再接入真实模型。
 
+`DemoModel()` 不需要配置工具名。它的 `complete()` 按预设脚本返回 `ToolCall`，循环再查找并执行工具；收到 `ToolResultMessage` 后，它才生成文字回答。循环中的 `await model.complete(...)` 是请求模型的入口，第三章会在这个接口后接入真实模型 API。
+
 ## 循环怎样工作
 
 [code.py](code.py) 保留完整的 `async agent_loop()`：
