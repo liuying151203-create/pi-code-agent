@@ -292,6 +292,7 @@ class ExtensionRuntime:
         self._closed = False
         self._session = None
         self._factories = []
+        self._replay = []
         self._requested_paths = []
         self._finders = []
         self.discover = None
@@ -320,6 +321,7 @@ class ExtensionRuntime:
         api._state = "active"
         self._extensions.append(api)
         self._factories.append((factory, source))
+        self._replay.append(("factory", (factory, source)))
         return api
 
     async def load(self, paths: Sequence[Path]) -> None:
@@ -330,6 +332,7 @@ class ExtensionRuntime:
             path = path.resolve()
             if path not in self._requested_paths:
                 self._requested_paths.append(path)
+                self._replay.append(("path", path))
             if path in self._paths:
                 continue
             namespace = "_pi_code_agent_extension_" + uuid4().hex
@@ -349,6 +352,7 @@ class ExtensionRuntime:
                 # s07 调整：Pi 使用 jiti；Python 显式编译源码，入口不受旧 pyc 缓存影响。
                 exec(compile(path.read_text(encoding="utf-8"), str(path), "exec"), module.__dict__)  # noqa: S102 - 显式可信扩展加载，不提供沙箱
                 await self.register(getattr(module, "setup", None), source=str(path))
+                self._replay.pop()  # s12 修复：文件来源留在原位置，工厂仅按路径重放。
                 self._factories.pop()  # s12：文件工厂按路径重载，不重复当作内联工厂。
             except BaseException as error:
                 sys.meta_path.remove(finder)

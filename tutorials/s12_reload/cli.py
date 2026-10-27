@@ -196,11 +196,14 @@ async def run(
             if options.prompt is not None:
                 return 0
     finally:
-        if session is not None:
-            await session.aclose()
-        runtime.close()
-        if not options.demo:
-            await model.aclose()
+        # s12 修复：即使扩展关闭被取消，仍释放宿主拥有的模型和模块。
+        try:
+            if session is not None:
+                await session.aclose()
+        finally:
+            runtime.close()
+            if not options.demo:
+                await model.aclose()
 
 
 def main(

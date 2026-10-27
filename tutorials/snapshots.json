@@ -212,19 +212,19 @@
       "pi_reference": "e4c75a732",
       "files": {
         "__init__.py": "2eb23d779a3e4eaf5b1c0f116025b2ce61e10b1c89badef27e8c100c7246337c",
-        "cli.py": "85664eccfb2879c34e0c1526b64c493ce6f063b79a5bb0b69227ccf29fde913f",
+        "cli.py": "9fa8353499379756fe8ebab12fb251cc9bd7b1a93fc6ccddad8f3466834c3bfa",
         "code.py": "c2a07cf3bf745db5820a8e5ef11e92c8c81b4d1f359e17af06ad753ee8951c22",
         "config.py": "766278e1ec137d43788257c09f92d543a268fbc35df11097a5bd5b25218bb8b0",
         "demo.py": "c8bf427e56922d800d2d4e2308dcd41b2f6cb32df629ca5504b9ee9b4c525192",
         "errors.py": "c94c6bca6e2d0c3a0e9e7136777915b099175a568b46de0c3eba3b74f4c74f67",
         "events.py": "e049b742c71d5bbcdde783224ea1c1e3786d361428ca9b4471264a45be13d74e",
-        "extensions.py": "a64189b97b117b601935bcdba40ad7c39ad84ff264e2d22ce8fb044ba87f93b8",
+        "extensions.py": "b4b5f242dc984ca45ee3238ea441ae766a2c60a83e4744e4973f4c0d5c257550",
         "file_tools.py": "a981c436bf2bb57a78f5eb40f658643a567fe0cf5644a80141544f6a8ab4f9ea",
         "messages.py": "ca716a248b0696a5fd0599ef89478827b027eaa8142e0554ed2ba9212cd1f886",
         "model.py": "cc6921e941bfb120b43ddb612be862a03dd9b0389595b299d55836aab53f3ada",
         "providers.py": "8b62b4549ff55997755144c50b4d84eb5a2b462df086c06a887713d9a2e58d76",
         "resources.py": "5fbd01ef0e406f3ad1164a0fc4bfb38ada04d8311977a12f19655a58736cd6d0",
-        "session.py": "270262ca5d5befd5e30f538bdabe5e41334cb026751e7004c84bebb52bbf7546",
+        "session.py": "3d0a4db2bf7f395fe650f3315b9aa827a36670c0bd70794b76400631efae8b8f",
         "tools.py": "b7cc1f9acd282ece2fcac787de3361ed5771cf583f79438e362292930846ce3b"
       }
     }

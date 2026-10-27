@@ -231,3 +231,87 @@ def test_discovery_runs_again_for_new_extensions(api, tmp_path):
         await session.aclose()
 
     asyncio.run(scenario())
+
+
+def test_shutdown_holds_busy_barrier_and_closed_session_rejects_delivery(api):
+    async def scenario():
+        runtime = api.ExtensionRuntime()
+        entered, release = asyncio.Event(), asyncio.Event()
+
+        async def shutdown(e, c):
+            entered.set()
+            await release.wait()
+
+        await runtime.register(lambda ext: ext.on("session_shutdown", shutdown))
+        session = api.AgentSession(
+            model=ScriptedModel(api.AssistantMessage((), "stop")), extensions=runtime
+        )
+        await session.start()
+        closing = asyncio.create_task(session.aclose())
+        await entered.wait()
+        try:
+            assert session.busy
+            with pytest.raises(RuntimeError):
+                await session.prompt("during shutdown")
+        finally:
+            release.set()
+            await closing
+        with pytest.raises(RuntimeError):
+            await session.send_message("after shutdown")
+        assert session.messages == []
+
+    asyncio.run(scenario())
+
+
+def test_cli_releases_owned_model_when_shutdown_handler_cancels(api, tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    model = SimpleNamespace(aclose=AsyncMock())
+    monkeypatch.setattr(api.cli, "load_model_config", lambda *a: SimpleNamespace(max_tokens=1))
+    monkeypatch.setattr(api.cli, "create_model", lambda *a: model)
+    plugin = tmp_path / "cancel.py"
+    plugin.write_text(
+        'import asyncio\ndef setup(api):\n    async def shutdown(e,c): raise asyncio.CancelledError()\n    api.on("session_shutdown",shutdown)\n',
+        encoding="utf-8",
+    )
+    with pytest.raises(asyncio.CancelledError):
+        api.cli.main(
+            [
+                "--no-session",
+                "--no-resources",
+                "--no-extensions",
+                "-e",
+                str(plugin),
+                "--workspace",
+                str(tmp_path),
+                "--prompt",
+                "/help",
+            ],
+            loop=api.agent_loop,
+        )
+    model.aclose.assert_awaited_once()
+
+
+def test_reload_keeps_inline_before_file_registration_priority(api, tmp_path):
+    async def scenario():
+        runtime = api.ExtensionRuntime()
+
+        def inline(ext):
+            ext.register_tool(
+                api.Tool("same", "inline", AsyncMock(return_value=api.ToolResult("inline")))
+            )
+
+        await runtime.register(inline, source="sdk-inline")
+        plugin = tmp_path / "file.py"
+        plugin.write_text(
+            'def setup(api):\n    async def execute(args): return api.ToolResult("file")\n    api.register_tool(api.Tool("same","file",execute))\n',
+            encoding="utf-8",
+        )
+        await runtime.load([plugin])
+        session = api.AgentSession(model=ScriptedModel(), extensions=runtime)
+        assert session.tools[0].description == "inline"
+        await session.reload()
+        assert session.tools[0].description == "inline"
+        await session.aclose()
+
+    asyncio.run(scenario())
