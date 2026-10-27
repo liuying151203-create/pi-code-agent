@@ -475,10 +475,28 @@ class AgentSession:
             raise RuntimeError("会话运行中；运行期间投递由 s10 队列提供")
         if trigger_turn:
             return await self._run(None, message=message)
-        self._history.append(message)
-        await self._events.emit({"type": "message_start", "message": message})
-        await self._events.emit({"type": "message_end", "message": message})
-        return self.messages
+        # s09 修复：只投递也要占有会话，避免订阅器等待期间与 prompt 交错。
+        if self._storage_error or (self.store and self.store.failed):
+            raise RuntimeError("会话存储已失败")
+        self._busy = True
+        try:
+            self._history.append(message)
+            await self._events.emit({"type": "message_start", "message": message})
+            await self._events.emit({"type": "message_end", "message": message})
+            return self.messages
+        finally:
+            try:
+                # s09 修复：显示失败不能丢失已经投递的消息，也不能重复保存成功记录。
+                if (
+                    self.store
+                    and not self.store.failed
+                    and not self._storage_error
+                    and self._saved < len(self._history)
+                ):
+                    self.store.append_message(message)
+                    self._saved += 1
+            finally:
+                self._busy = False
 
     async def prompt(self, text: str) -> list[Message]:
         """新增用户输入并执行模型回合；CLI 命令先通过 run_command 分发。"""

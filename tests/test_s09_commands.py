@@ -109,3 +109,28 @@ def test_real_cli_extension_flags_and_command(api, tmp_path, capsys):
         == 0
     )
     assert "actual" in capsys.readouterr().out
+
+
+def test_message_only_delivery_is_busy_until_observers_finish(api):
+    async def scenario():
+        entered, release = asyncio.Event(), asyncio.Event()
+        session = api.AgentSession(model=ScriptedModel(api.AssistantMessage((), "stop")))
+
+        async def observer(event):
+            if event["type"] == "message_start":
+                entered.set()
+                await release.wait()
+
+        session.subscribe(observer)
+        sending = asyncio.create_task(session.send_message("context"))
+        await entered.wait()
+        try:
+            assert session.busy
+            with pytest.raises(RuntimeError):
+                await session.prompt("interleave")
+        finally:
+            release.set()
+            await sending
+        assert not session.busy
+
+    asyncio.run(scenario())
