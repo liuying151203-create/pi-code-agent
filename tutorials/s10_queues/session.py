@@ -371,7 +371,6 @@ class AgentSession:
         self._storage_error = False
         self._events = EventBus()
         self._events.subscribe(self._record)
-        self._events.subscribe(self._deliver_deferred)
         if extensions is not None:
             self._events.subscribe(self._observe_extensions)
 
@@ -481,10 +480,8 @@ class AgentSession:
         """不追加用户文本，从已有历史和排队消息继续。"""
         return await self._run(None)
 
-    async def _deliver_deferred(self, event):
+    async def _deliver_deferred(self):
         """工具结果完整后投递不触发模型的消息，不插入工具调用与结果之间。"""
-        if event["type"] != "turn_end":
-            return
         pending, self._deferred = self._deferred, []
         for message in pending:
             self._history.append(message)
@@ -613,6 +610,7 @@ class AgentSession:
             policies = {
                 "get_steering_messages": self._get_steering,
                 "get_follow_up_messages": self._get_follow_up,
+                "after_turn": self._deliver_deferred,
             }
             if self.extensions is not None and text is not None:
                 event = await self.extensions.dispatch(

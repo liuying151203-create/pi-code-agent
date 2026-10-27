@@ -145,3 +145,18 @@ def test_next_turn_is_not_delivered_until_next_prompt(api):
         assert [m.content for m in model.calls[0]["messages"]] == ["next", "go"]
 
     asyncio.run(scenario())
+
+
+def test_message_queued_by_final_turn_observer_is_not_stranded(api):
+    async def scenario():
+        session = api.AgentSession(model=ScriptedModel(api.AssistantMessage((), "stop")))
+
+        async def observer(event):
+            if event["type"] == "turn_end":
+                await session.send_message("late context", trigger_turn=False)
+
+        session.subscribe(observer)
+        await session.prompt("start")
+        assert session.messages[-1].content == "late context"
+
+    asyncio.run(scenario())

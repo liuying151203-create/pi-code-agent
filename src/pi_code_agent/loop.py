@@ -43,6 +43,7 @@ async def agent_loop(
     # s10 新增：只在完整回合边界读取消息队列。
     get_steering_messages=None,
     get_follow_up_messages=None,
+    after_turn=None,
 ) -> list[Message]:
     """请求模型、执行工具并回传结果，直到模型不再请求工具。
 
@@ -284,6 +285,9 @@ async def agent_loop(
             raise
         # s04 新增：回合包括一次回答和整批工具结果；末事件的订阅器也必须等待。
         await events.emit({"type": "turn_end", "message": response, "tool_results": tool_results})
+        # s10 修复：等待所有 turn_end 观察者后再投递，避免末回合新消息滞留。
+        if after_turn is not None:
+            await after_turn()
         if response.stop_reason in {"error", "aborted"}:
             await events.emit({"type": "agent_end", "messages": messages[start:]})
             return messages
