@@ -1,6 +1,6 @@
 # ===== 来自 s02：保持 =====
 # 来自 s02：保持；保存本章阶段的组件实现；相对导入只引用本章，不读取正式包或其他章节。
-"""s01：无需密钥的脚本模型；s02 用它验证参数转换与工具结果回传。"""
+"""s03：以预设读取请求提供离线入口，模型协议与真实 Provider 一致。"""
 
 from __future__ import annotations
 
@@ -15,11 +15,11 @@ from .tools import Tool, ToolResult
 
 
 class DemoModel:
-    """先请求指定工具，再根据实际工具结果回答；用于离线教学和冒烟验证。"""
+    """模拟读取 README 的模型回答，实际读取由循环分发给工具。
 
-    def __init__(self, tool_name: str = "project_name", arguments: dict[str, Any] | None = None):
-        self.tool_name = tool_name
-        self.arguments = arguments if arguments is not None else {}
+    输入：统一模型请求；输出：预设 read 请求或包含实际文件内容的回答。
+    流程：请求读取 README.md → 接收工具结果 → 回答；不访问模型服务。
+    """
 
     async def complete(
         self,
@@ -34,8 +34,9 @@ class DemoModel:
             result = messages[-1]
             label = "工具失败" if result.is_error else "工具返回"
             return AssistantMessage((Text(f"{label}：{result.content}"),))
+        # s03 修改：离线入口直接展示读取请求，初始化不配置工具名或工具参数。
         return AssistantMessage(
-            (ToolCall(f"demo-{len(messages)}", self.tool_name, self.arguments),), "tool_use"
+            (ToolCall(f"demo-{len(messages)}", "read", {"path": "README.md"}),), "tool_use"
         )
 
 

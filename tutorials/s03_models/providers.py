@@ -40,6 +40,9 @@ def _anthropic_messages(messages: Sequence[Message]) -> list[dict[str, Any]]:
     """在适配边界把独立工具结果转换为连续的 user/tool_result 块。"""
     result = []
     for message in messages:
+        # s03 修复：按 Pi transformMessages 跳过失败回答，保留本地历史供调用方查看。
+        if isinstance(message, AssistantMessage) and message.stop_reason in {"error", "aborted"}:
+            continue
         if isinstance(message, UserMessage):
             result.append({"role": "user", "content": message.content})
         elif isinstance(message, AssistantMessage):
@@ -77,6 +80,9 @@ def _openai_messages(system: str, messages: Sequence[Message]) -> list[dict[str,
     """把内部消息转换为 system/user/assistant/tool，保留调用 ID 和错误反馈。"""
     result = [{"role": "system", "content": system}] if system else []
     for message in messages:
+        # s03 修复：失败回答中的工具调用没有执行结果，不应作为完整对话重放。
+        if isinstance(message, AssistantMessage) and message.stop_reason in {"error", "aborted"}:
+            continue
         if isinstance(message, UserMessage):
             result.append({"role": "user", "content": message.content})
         elif isinstance(message, ToolResultMessage):

@@ -38,15 +38,15 @@
     "s03_models": {
       "files": {
         "__init__.py": "652987b8a0582c30f143b37f0c75aefe3e40e090b1fb9e2218b5486c04e77e05",
-        "cli.py": "b529c5d93afe1e6f760641d9d8456635572438be61280475f41ec237f9309672",
+        "cli.py": "63ae89c9d4fd8c0db281fad22a5cbe045fb3c31c479a83f0b1799ff6a0e7e51b",
         "code.py": "30596180ce620381bd7d2ea2b696598ea17d4499b1793ecb2ebece1343cdd013",
         "config.py": "1f4b28467191c89de4cdda68fb6f379373aea94938eaca93a2ef090e87d446f4",
-        "demo.py": "4da3efc9949a42d4875bcf3ef8b716d7cfd3a8a266cf9844c9bb8cb3bf2c2575",
+        "demo.py": "8c9043306c5be60f3d868ebf16efb8ca67cd34794da6494b106a8635f055ca4e",
         "errors.py": "c94c6bca6e2d0c3a0e9e7136777915b099175a568b46de0c3eba3b74f4c74f67",
         "file_tools.py": "99cd62ffb3e6f39ef1bc68540680a53355e68f7ba59bc84bd571719d1cd4995e",
         "messages.py": "ac9e5cb7cae96fee32b6bd9602f438bbe74caf01bc71967002c1f217c6877cd6",
         "model.py": "32b649a4eeadc82dc633294cdcdd208bcd76be138dfcc39140ac0c9d7c660695",
-        "providers.py": "4c3e1cdf8be60cde2a1cca017ffc883437674edfbc55ce01b9a99dd4e9a4a11d",
+        "providers.py": "86127441fb1758ede424347ddd089b5e57d76efffe6cb68970ad2eba1b82c38b",
         "tools.py": "ccdbb458aaece672650d22641b78249a69078b8c02efb306338ee900a147723b"
       }
     },

@@ -1,6 +1,6 @@
-# s03：统一模型接口
+# s03：真实模型接入与协议适配
 
-Anthropic 和 OpenAI 兼容接口描述工具调用的方式不同。如果循环直接读取供应商字段，每换一个模型协议，都要修改循环。这一章把差异收进 Provider，让循环继续只认识统一消息。
+第一章已定义 `model.complete()`，第二章已完成工具参数校验。这一章把同一个调用接口接到真实模型：Provider 把内部消息翻译成服务请求，再把服务回答翻译回来，核心循环继续沿用。
 
 ## 先离线运行
 
@@ -8,7 +8,7 @@ Anthropic 和 OpenAI 兼容接口描述工具调用的方式不同。如果循�
 python -m tutorials.s03_models.code --demo --workspace example_project/mini_app --prompt "读取 README.md"
 ```
 
-工具会实际读取练习项目文件，脚本模型根据结果回答。`--demo` 和 `--help` 都不需要模型配置。
+`DemoModel()` 按预设脚本请求读取 README，工具实际读取文件，再把内容交回脚本模型。`--demo` 和 `--help` 都不需要模型配置；这一模式不验证真实模型是否会选择工具。
 
 ## 接入真实模型
 
@@ -16,23 +16,49 @@ python -m tutorials.s03_models.code --demo --workspace example_project/mini_app 
 
 ```powershell
 python -m tutorials.s03_models.code --workspace example_project/mini_app
-# 正式入口提供相同能力
-python -m pi_code_agent --workspace example_project/mini_app
 ```
 
 当前支持 `anthropic` 和 `openai-compatible`。前者使用 `ANTHROPIC_API_KEY`，后者使用 `MODEL_API_KEY` 和可选 `MODEL_BASE_URL`。进程环境优先于文件，加载时不修改进程环境。
 
 ## 适配器做了什么
 
-循环只调用 `await model.complete(...)`，收到 `AssistantMessage`。Provider 将内部消息转换为供应商请求，再把完整响应转换回来：
+[cli.py](cli.py) 负责组装，真实模式读取配置后创建模型，工具单独传给循环：
+
+```python
+config = load_model_config(options.env_file)
+model = create_model(config)
+```
+
+`create_model()` 根据 provider 选择 `AnthropicModel` 或 `OpenAIModel`；模型名称、密钥等属于配置，工具名和工具参数由模型回答决定。
+
+[code.py](code.py) 的循环仍只调用统一接口：
+
+```python
+response = await model.complete(
+    system=system, messages=tuple(messages), tools=definitions, max_tokens=max_tokens
+)
+```
+
+`messages` 是对话历史，`definitions` 是工具名称、说明和参数格式，不包含执行函数。Provider 将这些数据转换为供应商请求，再把完整响应转换回来：
 
 ```text
 内部消息 → Provider 转换请求 → await SDK 请求 → Provider 转换回答 → 内部消息
 ```
 
-Anthropic 将工具结果放入 user 消息的 `tool_result` 块；Chat Completions 使用独立的 `tool` 角色和 `tool_call_id`。这些差异只出现在 本章 [providers.py](providers.py)，工具和循环保持不变。
+[providers.py](providers.py) 中真正发起模型请求的位置是：
 
-停止状态也会统一：正常结束、工具调用、额度截断和模型失败分别处理。HTTP/协议错误抛 `ProviderError`，不会被包装成工具失败。输入/输出用量保存在回答中供入口显示，尚不计算费用。
+```python
+# AnthropicModel.complete
+raw = await self.client.messages.create(**request)
+# OpenAIModel.complete
+raw = await self.client.chat.completions.create(**request)
+```
+
+以“读取 README.md”为例：用户消息与 read 的工具定义发给模型 → 模型返回读取请求 → Provider 转成 `ToolCall` → 循环校验参数并执行 read → 工具结果进入历史 → 再次请求模型生成回答。真实模型也可以直接返回文字，此时不会执行工具。
+
+Anthropic 将工具结果放入 user 消息的 `tool_result` 块；Chat Completions 使用独立的 `tool` 角色和 `tool_call_id`。适配器会将它们与原调用 ID 对应起来，循环只处理统一的 `ToolResultMessage`。
+
+停止状态也会统一：正常结束、工具调用、额度截断和模型失败分别处理。失败回答留在本地历史，但后续请求会跳过它，避免重放未完成的工具调用。HTTP/协议错误抛 `ProviderError`，不会被包装成工具失败。输入/输出用量保存在回答中供入口显示，尚不计算费用。
 
 ## SDK 使用同一套组装
 

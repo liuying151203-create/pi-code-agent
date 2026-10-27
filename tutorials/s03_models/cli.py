@@ -27,7 +27,8 @@ async def run(options: argparse.Namespace, *, loop: Callable[..., Awaitable[list
     reader = read_tool(workspace)
     tools = [reader]
     if options.demo:
-        model = DemoModel("read", {"path": "README.md"})
+        # s03 修改：离线模型使用预设回答，模型构造与工具注册各自负责自己的职责。
+        model = DemoModel()
         max_tokens = 8000
     else:
         config = load_model_config(options.env_file)

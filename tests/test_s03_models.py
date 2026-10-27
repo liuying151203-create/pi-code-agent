@@ -27,6 +27,48 @@ def openai(content="done", calls=None, reason="stop"):
     )
 
 
+def test_s03_demo_requests_read_and_uses_current_workspace_file(tmp_path):
+    from tutorials.s03_models.demo import DemoModel
+
+    chapter = load_runtime("tutorials.s03_models")
+    path = tmp_path / "README.md"
+    path.write_text("first content", encoding="utf-8")
+    model = DemoModel()
+    tool = chapter.read_tool(tmp_path)
+
+    async def run():
+        history = [chapter.UserMessage("读取 README.md")]
+        await chapter.agent_loop(history, model=model, tools=[tool])
+        assert history[1].content[0].name == tool.name
+        assert history[1].content[0].arguments == {"path": "README.md"}
+        assert history[-2].content == "first content"
+        path.write_text("updated content", encoding="utf-8")
+        history.append(chapter.UserMessage("再读一次"))
+        await chapter.agent_loop(history, model=model, tools=[tool])
+        assert history[-2].content == "updated content"
+        assert history[-1].content[0].text == "工具返回：updated content"
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("kind", ["anthropic", "openai-compatible"])
+@pytest.mark.parametrize("reason", ["error", "aborted"])
+def test_s03_failed_answers_stay_local_without_replaying_tool_calls(kind, reason):
+    chapter = load_runtime("tutorials.s03_models")
+    failed = chapter.AssistantMessage(
+        (chapter.Text("failed content"), chapter.ToolCall("unfinished", "read", {})), reason
+    )
+    history = [chapter.UserMessage("first"), failed, chapter.UserMessage("retry")]
+    stub = client(anthropic([NS(type="text", text="done")]) if kind == "anthropic" else openai())
+    factory = chapter.AnthropicModel if kind == "anthropic" else chapter.OpenAIModel
+    model = factory(chapter.ModelConfig(kind, "model", "fake"), client=stub)
+    asyncio.run(model.complete(system="", messages=history, tools=[], max_tokens=20))
+    sent = stub.messages.create.call_args.kwargs["messages"]
+    assert sent == [{"role": "user", "content": "first"}, {"role": "user", "content": "retry"}]
+    assert len(history) == 3 and history[1] is failed
+    assert history[1].content[0].text == "failed content"
+
+
 @pytest.mark.parametrize("kind", ["anthropic", "openai-compatible"])
 def test_same_loop_executes_tools_with_either_provider(api, kind):
     if kind == "anthropic":
