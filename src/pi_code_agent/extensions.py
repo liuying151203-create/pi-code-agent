@@ -225,6 +225,9 @@ class ExtensionRuntime:
     # s08 新增：按扩展/注册顺序执行；工具调用异常向外传播以阻止副作用。
     async def dispatch(self, event: dict, session) -> dict:
         """输入事件副本，输出链式修改；普通观察失败记录诊断，原生取消传播。"""
+        # s08 修复：已关闭运行时不能通过逃逸会话重新触发 Hook 副作用。
+        if self._closed:
+            raise RuntimeError("扩展运行时已关闭")
         current = deepcopy(event)
         kind = event["type"]
         context = SimpleNamespace(session=session, cwd=session.cwd)

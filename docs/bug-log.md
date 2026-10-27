@@ -43,3 +43,7 @@ s06 提交 d78cae8 后复查，加载可以接受完整但无终止换行的末�
 2026-10-27，s04 首轮实现中，自定义 Model 返回 `None` 或重复工具 ID 时，原有契约校验会正确抛错，但位于模型异常收口之外，观察者最后只收到 `turn_start`。复现命令：`python -m pytest tests/test_s04_events.py -k invalid_model_contract`，修复前正式循环和教程循环的四种组合均失败，末事件实际为 `turn_start`，而非预期的 `agent_end`。
 
 原因是新事件边界没有覆盖已有响应校验。修复将类型和重复 ID 校验纳入模型调用的异常收口：追加无正文的失败消息，发送消息/回合/运行结束事件，继续抛出原异常，不执行工具。边界不变：订阅器自身失败和二次取消不承诺后续事件完整。回归测试为 `test_invalid_model_contract_closes_failure_events`；修复后四项回归及全部 106 项测试通过，实际命令见交接记录。
+
+## V2-B008：关闭后 Hook 仍可执行
+
+提交 e3fdaa1 后复查：保留 AgentSession，再 close 扩展运行时，prompt 仍触发旧 input Hook 并请求模型。两份实现的回归先失败。dispatch 增加关闭屏障，失败在任何 Hook 副作用之前，会话 busy 仍能复位；不改变正常工具注册行为。

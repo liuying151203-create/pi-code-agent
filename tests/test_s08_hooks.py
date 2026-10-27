@@ -133,3 +133,18 @@ def test_observer_errors_are_diagnostics_and_cancel_propagates(api):
         runtime.close()
 
     asyncio.run(scenario())
+
+
+def test_closed_runtime_does_not_invoke_escaped_hooks(api):
+    async def scenario():
+        runtime = api.ExtensionRuntime()
+        effect = AsyncMock()
+        await runtime.register(lambda ext: ext.on("input", effect))
+        session = api.AgentSession(model=ScriptedModel(), extensions=runtime)
+        runtime.close()
+        with pytest.raises(RuntimeError, match="关闭"):
+            await session.prompt("late")
+        effect.assert_not_awaited()
+        assert not session.busy and session.messages == []
+
+    asyncio.run(scenario())
