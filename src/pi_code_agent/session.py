@@ -17,6 +17,7 @@ from pi_code_agent.extensions import ExtensionRuntime
 from pi_code_agent.loop import agent_loop
 from pi_code_agent.messages import (
     AssistantMessage,
+    CustomMessage,
     Message,
     Text,
     ToolCall,
@@ -32,7 +33,9 @@ from pi_code_agent.tools import Tool
 # s06 新增：持久化只写当前实际支持的数据，不反序列化 Python 对象或客户端。
 def encode_message(message: Message) -> dict[str, Any]:
     """把已完成消息转为 JSON 数据，检查编码合法性，返回独立副本。"""
-    if isinstance(message, UserMessage):
+    if isinstance(message, CustomMessage):
+        value = asdict(message)
+    elif isinstance(message, UserMessage):
         value = {"role": "user", "content": message.content}
     elif isinstance(message, ToolResultMessage):
         value = asdict(message)
@@ -64,6 +67,10 @@ def decode_message(value: dict[str, Any]) -> Message:
     if not isinstance(value, dict):
         raise ValueError("消息必须是对象")  # noqa: TRY004 - 文件数据格式错误统一报告 ValueError
     role = value.get("role")
+    if role == "custom":
+        if set(value) != {"role", "custom_type", "content", "display"}:
+            raise ValueError("自定义消息字段错误")
+        return CustomMessage(value["custom_type"], value["content"], value["display"])
     if role == "user":
         if set(value) != {"role", "content"} or not isinstance(value["content"], str):
             raise ValueError("用户消息格式错误")
@@ -213,11 +220,12 @@ class SessionStore:
                 "id",
                 "parent_id",
                 "timestamp",
-                "message",
+                "message" if entry.get("type") == "message" else "custom_type",
+                *([] if entry.get("type") == "message" else ["data"]),
             }:
                 raise ValueError("会话条目字段错误")
             if (
-                entry["type"] != "message"
+                entry["type"] not in {"message", "custom"}
                 or not isinstance(entry["id"], str)
                 or not entry["id"]
                 or entry["id"] in ids
@@ -225,7 +233,10 @@ class SessionStore:
                 raise ValueError("会话条目类型或 ID 错误")
             if entry["parent_id"] != parent or not isinstance(entry["timestamp"], str):
                 raise ValueError("本章只支持连续的线性条目链")
-            decode_message(entry["message"])
+            if entry["type"] == "message":
+                decode_message(entry["message"])
+            elif not isinstance(entry["custom_type"], str) or not entry["custom_type"]:
+                raise ValueError("扩展条目需要非空类型")
             ids.add(entry["id"])
             parent = entry["id"]
         return cls(path, header, rows[1:])
@@ -233,19 +244,42 @@ class SessionStore:
     @property
     def messages(self) -> list[Message]:
         """返回新的消息对象，调用方修改不会改变已落盘记录。"""
-        return [decode_message(entry["message"]) for entry in self._entries]
+        return [
+            decode_message(entry["message"])
+            for entry in self._entries
+            if entry["type"] == "message"
+        ]
+
+    # s09 新增：状态条目不出现在模型历史，恢复时供扩展重建自身状态。
+    @property
+    def entries(self):
+        """返回完整条目副本，避免扩展修改磁盘索引。"""
+        return deepcopy(self._entries)
+
+    def append_custom_entry(self, custom_type: str, data=None) -> str:
+        """保存 JSON 扩展状态，不产生消息事件、不触发模型。"""
+        if not isinstance(custom_type, str) or not custom_type:
+            raise ValueError("状态条目需要非空类型")
+        return self._append_entry({"type": "custom", "custom_type": custom_type, "data": data})
 
     def append_message(self, message: Message) -> str:
         """先同步落盘再更新内存索引；写入结果不确定时锁住后续追加。"""
         if self.failed:
             raise RuntimeError("会话写入已失败，请检查文件后重新打开")
+        return self._append_entry({"type": "message", "message": encode_message(message)})
+
+    # s09 修改：消息与状态共用同一追加屏障和线性 parent 链。
+    def _append_entry(self, payload: dict) -> str:
+        """序列化后写入，成功才发布内存条目；写入不确定时使存储失效。"""
+        if self.failed:
+            raise RuntimeError("会话写入已失败，请检查文件后重新打开")
         entry = {
-            "type": "message",
+            **payload,
             "id": uuid4().hex[:12],
             "parent_id": self._entries[-1]["id"] if self._entries else None,
             "timestamp": timestamp(),
-            "message": encode_message(message),
         }
+        entry = json.loads(json.dumps(entry, ensure_ascii=False, allow_nan=False))
         encoded = json.dumps(entry, ensure_ascii=False, allow_nan=False) + "\n"
         try:
             # s06 调整：Pi 为追加写；本实现拒绝文件消失或已发生的外部追加，不声称多进程事务。
@@ -290,6 +324,8 @@ class AgentSession:
         store: SessionStore | None = None,
         # s08 新增：上下文使用明确业务工作区，不从插件文件推断。
         cwd: Path | None = None,
+        # s09 新增：UI 由宿主注入，默认没有界面，不通过消息伪造提示。
+        notify: Callable | None = None,
         stream: bool = False,
         system: str = "你是编程助手，完成任务后停止。",
         max_tokens: int = 8000,
@@ -313,6 +349,8 @@ class AgentSession:
         self._loop = loop
         self._history = store.messages if store is not None else []
         self._saved = len(self._history)
+        self._notify = notify or (lambda text: None)
+        self._custom_entries = []
         self._busy = False
         self._storage_error = False
         self._events = EventBus()
@@ -383,24 +421,90 @@ class AgentSession:
         )
         return ToolResult(event["content"], event["is_error"], event["terminate"])
 
+    # s09 新增：命令先于 input Hook，不把命令文本默认交给模型。
+    async def run_command(self, text: str) -> bool:
+        """返回是否匹配命令；处理函数显式选择 UI、状态、消息和触发回合。"""
+        if not text.startswith("/"):
+            return False
+        name, _, arguments = text[1:].partition(" ")
+        if name == "help":
+            commands = self.extensions.commands() if self.extensions else {}
+            self._notify(
+                "/help\n" + "\n".join("/" + key + " " + value[1] for key, value in commands.items())
+            )
+            return True
+        command = self.extensions.commands().get(name) if self.extensions else None
+        if command is None:
+            return False
+        import inspect
+        from types import SimpleNamespace
+
+        context = SimpleNamespace(
+            session=self,
+            cwd=self.cwd,
+            ui=SimpleNamespace(notify=self._notify),
+            append_entry=self.append_entry,
+            entries=self.entries,
+            send_message=self.send_message,
+        )
+        result = command[0](arguments, context)
+        if inspect.isawaitable(result):
+            await result
+        return True
+
+    @property
+    def entries(self):
+        """读取扩展状态与消息条目副本，恢复不要求模型理解状态日志。"""
+        return self.store.entries if self.store else deepcopy(self._custom_entries)
+
+    def append_entry(self, custom_type: str, data=None):
+        """追加与模型历史隔离的 JSON 状态。"""
+        if self.store:
+            return self.store.append_custom_entry(custom_type, data)
+        if not isinstance(custom_type, str) or not custom_type:
+            raise ValueError("状态条目需要非空类型")
+        value = json.loads(json.dumps(data, ensure_ascii=False, allow_nan=False))
+        self._custom_entries.append({"type": "custom", "custom_type": custom_type, "data": value})
+
+    async def send_message(
+        self, content: str, *, custom_type="extension", display=True, trigger_turn=False
+    ):
+        """显式投递模型可见消息，display 与 trigger_turn 独立；忙时投递在 s10。"""
+        message = CustomMessage(custom_type, content, display)
+        if self.busy:
+            raise RuntimeError("会话运行中；运行期间投递由 s10 队列提供")
+        if trigger_turn:
+            return await self._run(None, message=message)
+        self._history.append(message)
+        await self._events.emit({"type": "message_start", "message": message})
+        await self._events.emit({"type": "message_end", "message": message})
+        return self.messages
+
     async def prompt(self, text: str) -> list[Message]:
+        """新增用户输入并执行模型回合；CLI 命令先通过 run_command 分发。"""
+        if not isinstance(text, str):
+            raise TypeError("用户输入必须是文本")
+        return await self._run(text)
+
+    async def _run(self, text: str | None, *, message=None) -> list[Message]:
         """加入一次用户输入并运行；结束或失败时补存尚未通知的已完成消息。"""
         if self._busy:
             raise RuntimeError("会话正在运行，请等待当前回合完成")
-        if not isinstance(text, str):
+        if text is not None and not isinstance(text, str):
             raise TypeError("用户输入必须是文本")
         if self._storage_error or (self.store is not None and self.store.failed):
             raise RuntimeError("会话存储已失败，请检查并重新打开")
         self._busy = True
         try:
             policies = {}
-            if self.extensions is not None:
+            if self.extensions is not None and text is not None:
                 event = await self.extensions.dispatch(
                     {"type": "input", "text": text, "source": "sdk"}, self
                 )
                 if event.get("action") == "handled":
                     return self.messages
                 text = event["text"]
+            if self.extensions is not None:
                 policies = {
                     "transform_context": self._transform_context,
                     "before_tool_call": self._before_tool,
@@ -413,7 +517,9 @@ class AgentSession:
                 system=self.system,
                 max_tokens=self.max_tokens,
                 max_turns=self.max_turns,
-                prompts=[UserMessage(text)],
+                prompts=[message]
+                if message is not None
+                else ([UserMessage(text)] if text is not None else []),
                 events=self._events,
                 stream=self.stream,
                 **policies,
@@ -431,8 +537,8 @@ class AgentSession:
                             and message.stop_reason == "pending"
                         )
                     ]
-                    for message in completed[self._saved :]:
-                        self.store.append_message(message)
+                    for completed_message in completed[self._saved :]:
+                        self.store.append_message(completed_message)
                         self._saved += 1
             finally:
                 self._busy = False

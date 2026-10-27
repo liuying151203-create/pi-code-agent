@@ -18,4 +18,6 @@
 
 8. [s08：Hook 拦截](s08_hooks/README.md)：输入、上下文和工具策略进入真实执行路径
 
+9. [s09：命令与参数](s09_commands/README.md)：命令分发、参数和 UI/状态/模型消息分离
+
 后续基座安排见 [章节规划](../docs/extension-foundation-plan.md)。旧版教程完整保存在 [archive/v1](../archive/README.md)。

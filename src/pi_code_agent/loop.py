@@ -7,7 +7,13 @@ from collections.abc import Sequence
 from contextlib import aclosing
 
 from pi_code_agent.events import EventBus, EventListenerError
-from pi_code_agent.messages import AssistantMessage, Message, ToolCall, ToolResultMessage
+from pi_code_agent.messages import (
+    AssistantMessage,
+    Message,
+    ToolCall,
+    ToolResultMessage,
+    convert_to_llm,
+)
 from pi_code_agent.model import Model, StreamingModel
 from pi_code_agent.tools import Tool, ToolResult, execute_tool_outcome
 
@@ -75,6 +81,7 @@ async def agent_loop(
         response = None
         try:
             request_messages = await transform_context(messages) if transform_context else messages
+            request_messages = convert_to_llm(request_messages)
             if stream:
                 # s05 新增：即使订阅器失败或任务取消，也先关闭模型生成器及底层 HTTP 流。
                 async with aclosing(

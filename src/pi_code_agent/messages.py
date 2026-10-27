@@ -87,4 +87,29 @@ class ToolResultMessage:
     role: Literal["tool_result"] = field(default="tool_result", init=False)
 
 
-type Message = UserMessage | AssistantMessage | ToolResultMessage
+# s09 新增：显示选择和模型可见性分开，自定义消息默认进入模型上下文。
+@dataclass(frozen=True)
+class CustomMessage:
+    """扩展投递的文本，display 只控制界面；状态记录使用独立 custom 条目。"""
+
+    custom_type: str
+    content: str
+    display: bool = True
+    role: Literal["custom"] = field(default="custom", init=False)
+
+    def __post_init__(self):
+        if (
+            not isinstance(self.custom_type, str)
+            or not self.custom_type
+            or not isinstance(self.content, str)
+            or type(self.display) is not bool
+        ):
+            raise ValueError("自定义消息需要类型、文本与布尔 display")
+
+
+type Message = UserMessage | AssistantMessage | ToolResultMessage | CustomMessage
+
+
+def convert_to_llm(messages: list[Message]) -> list[Message]:
+    """参考 Pi convertToLlm：自定义消息转换为用户文本，展示标记不影响模型可见性。"""
+    return [UserMessage(m.content) if isinstance(m, CustomMessage) else m for m in messages]

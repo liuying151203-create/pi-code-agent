@@ -207,6 +207,7 @@ def test_owned_client_closes_when_request_is_cancelled(api, monkeypatch):
         "tutorials.s06_sessions",
         "tutorials.s07_extensions",
         "tutorials.s08_hooks",
+        "tutorials.s09_commands",
     ]
 )
 def api(request):

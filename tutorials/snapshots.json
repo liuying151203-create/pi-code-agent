@@ -144,6 +144,27 @@
         "session.py": "2e13022760db410d046651539133353bc9244b965f4948ab8a717e2a0614ec9d",
         "tools.py": "476af5989bc66995c2f91ed2629c90dc9ad38e5d337e41baa17aa3f4edf81e3f"
       }
+    },
+    "s09_commands": {
+      "source_baseline": "990e897",
+      "pi_reference": "e4c75a732",
+      "files": {
+        "__init__.py": "18d4ff5bce155d1b804d3c4502cc026b1bdaeda44e2d4b027f1fe3682e4e06ee",
+        "cli.py": "561d5ace670a9bce20329745e4bd4907060af6631513dfc7fc9adc87b020aaf8",
+        "code.py": "a4ff7ad5bf7ebac0c96252297edfac429b26db3a8c4d0ffd5573d2df34f12ddf",
+        "config.py": "6771aa034d97bc3895814af78897b5fda1934ee0ce0a240e579ea824b24b3b89",
+        "demo.py": "c03e96fc82650519d30d063bf771ae41e84d02e016aeb10697d442c205a3ced9",
+        "errors.py": "c94c6bca6e2d0c3a0e9e7136777915b099175a568b46de0c3eba3b74f4c74f67",
+        "events.py": "fb83007a723df7c8e5b612fefdebcd165b872546f227880a9e9bc8ad8b6125f4",
+        "example_extension.py": "923fa9cd5ded197bc147d941d5afb66eb2e9ccaaff3ec6b42b1d4fb2a8d3a215",
+        "extensions.py": "b380e9a8ff823442e0bd4d95ececc68e950fceac575b53712326e799a08406bf",
+        "file_tools.py": "be5dee2a9fb1d86f609572d3bc4573d4b9404ed045f62c8cedb11b613da8a6a0",
+        "messages.py": "47bc8707cb7b183db5600213ba5eae12866b6348df601c03c4080923621de637",
+        "model.py": "e24f534fe488a22c560aa5f1a699901cd028c5dc54f06280862f12d869156c78",
+        "providers.py": "b750257dcd92a44c471332ce0992d3192a2ce77fff1782a79014e844fd4a7408",
+        "session.py": "d1c25781ae830e13f71bd94c720f2d49e2856784f7e3721f5e6fc19bdfe0263d",
+        "tools.py": "fccc616b533381ff28b0c1f6e496a84cfd56f27a0bb7dec2ca03454c2426743c"
+      }
     }
   }
 }

@@ -19,6 +19,7 @@ CHAPTERS = [
     "s06_sessions",
     "s07_extensions",
     "s08_hooks",
+    "s09_commands",
 ]
 
 

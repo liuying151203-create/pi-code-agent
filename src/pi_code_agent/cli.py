@@ -17,7 +17,7 @@ from pi_code_agent.events import AgentEvent, EventListenerError
 from pi_code_agent.extensions import ExtensionRuntime, discover_extensions
 from pi_code_agent.file_tools import read_tool
 from pi_code_agent.loop import TurnLimitError, agent_loop
-from pi_code_agent.messages import AssistantMessage, Message, Text, ToolResultMessage
+from pi_code_agent.messages import AssistantMessage, CustomMessage, Message, Text, ToolResultMessage
 from pi_code_agent.providers import ProviderError, create_model
 from pi_code_agent.session import AgentSession, SessionStore
 
@@ -48,7 +48,9 @@ class ConsoleDisplay:
                 self._text[index] = self._text.get(index, "") + delta
         elif event["type"] == "message_end":
             message = event["message"]
-            if isinstance(message, ToolResultMessage):
+            if isinstance(message, CustomMessage) and message.display:
+                print(message.content, flush=True)
+            elif isinstance(message, ToolResultMessage):
                 status = "失败" if message.is_error else "结果"
                 print(f"[{message.tool_name} {status}] {message.content}", flush=True)
             elif isinstance(message, AssistantMessage):
@@ -100,6 +102,7 @@ async def run(
             project=options.trust_project_extensions and not options.no_extensions,
         )
         await runtime.load(discovered)
+        runtime.parse_flags(options.extension_args)
         for diagnostic in runtime.diagnostics:
             print(f"扩展加载失败 {diagnostic['source']}: {diagnostic['error']}", file=sys.stderr)
         if options.no_session:
@@ -113,13 +116,14 @@ async def run(
             )
         else:
             target_id = sha256(str(workspace).encode("utf-8")).hexdigest()[:12]
-            path = Path.cwd() / ".sessions" / "s08" / target_id / (uuid4().hex + ".jsonl")
+            path = Path.cwd() / ".sessions" / "s09" / target_id / (uuid4().hex + ".jsonl")
             store = SessionStore.create(path, workspace)
         session = AgentSession(
             model=model,
             builtin_tools=tools,
             extensions=runtime,
             cwd=workspace,
+            notify=print,
             store=store,
             stream=not options.no_stream,
             max_tokens=max_tokens,
@@ -139,6 +143,15 @@ async def run(
                 if prompt.lower() in {"", "q", "exit"}:
                     return 0
             # s06 修改：状态和持久化归会话所有，CLI 不再持有独立可变历史。
+            if await session.run_command(prompt):
+                if options.prompt is not None:
+                    return 0
+                continue
+            if prompt.startswith("/"):
+                print("未知命令；使用 /help 查看命令", file=sys.stderr)
+                if options.prompt is not None:
+                    return 1
+                continue
             history = await session.prompt(prompt)
             last = history[-1] if history else None
             if isinstance(last, AssistantMessage) and last.usage is not None:
@@ -190,7 +203,7 @@ def main(
         help="允许加载工作区 .pi-code-agent/extensions",
     )
     parser.add_argument("--demo-tool", default="read", help="离线脚本模型请求的工具名称")
-    options = parser.parse_args(arguments)
+    options, options.extension_args = parser.parse_known_args(arguments)
     if options.max_turns is not None and options.max_turns < 1:
         parser.error("--max-turns 必须是正整数")
     try:

@@ -70,11 +70,50 @@ class ExtensionAPI:
     Tool = Tool
     ToolResult = ToolResult
 
-    def __init__(self, source: str) -> None:
+    def __init__(self, source: str, runtime=None) -> None:
         self.source = source
+        self._runtime = runtime
+        self._commands = {}
+        self._flags = {}
         self._state = "loading"
         self._tools: dict[str, Tool] = {}
         self._handlers: dict[str, list[Callable]] = {}
+
+    # s09 新增：命令与参数与工具分别注册，不占模型工具列表。
+    def register_command(self, name: str, handler: Callable, *, description: str = ""):
+        """注册 /name 命令，处理函数接收原始参数文本与命令上下文。"""
+        if self._state != "loading":
+            raise RuntimeError("请在 setup 中注册命令")
+        if (
+            not name
+            or not name.replace("-", "").replace("_", "").isalnum()
+            or name in {"help", "reload", "quit"}
+            or not callable(handler)
+        ):
+            raise ValueError("无效或保留的命令名称")
+        self._commands[name] = (handler, description)
+
+    def register_flag(self, name: str, *, type: str = "boolean", default=None, description=""):
+        """声明 boolean/string 参数，默认值在工厂事务内，不污染失败后的运行时。"""
+        if self._state != "loading":
+            raise RuntimeError("请在 setup 中注册参数")
+        expected = {"boolean": bool, "string": str}.get(type)
+        if (
+            not name
+            or not name.replace("-", "").isalnum()
+            or expected is None
+            or (default is not None and default.__class__ is not expected)
+        ):
+            raise ValueError("参数声明或默认值错误")
+        self._flags[name] = {"type": expected, "default": default, "description": description}
+
+    def get_flag(self, name):
+        """仅查询本扩展已声明的参数；CLI 在工厂完成后应用实际值。"""
+        if self._state not in {"loading", "active"}:
+            raise RuntimeError("扩展已失效")
+        if name not in self._flags:
+            return None
+        return self._runtime.flag_values.get(name, self._flags[name]["default"])
 
     # s08 新增：声明拦截点；工厂失败时与工具一起丢弃，不提前执行。
     def on(self, event: str, handler: Callable) -> None:
@@ -140,6 +179,7 @@ class ExtensionRuntime:
         self._namespaces: list[str] = []
         self._paths: set[Path] = set()
         self._closed = False
+        self.flag_values = {}
 
     @property
     def extensions(self) -> tuple[ExtensionAPI, ...]:
@@ -152,7 +192,7 @@ class ExtensionRuntime:
             raise RuntimeError("扩展运行时已关闭")
         if not callable(factory):
             raise TypeError("扩展必须提供 setup(api) 工厂")
-        api = ExtensionAPI(source)
+        api = ExtensionAPI(source, self)
         try:
             result = factory(api)
             if inspect.isawaitable(result):
@@ -213,6 +253,53 @@ class ExtensionRuntime:
         for tool in sdk_tools:
             catalog[tool.name] = tool
         return list(catalog.values())
+
+    # s09 新增：跨扩展同名声明首个优先，与工具注册来源顺序一致。
+    def commands(self):
+        """返回实际可调用命令表。"""
+        if self._closed:
+            raise RuntimeError("扩展运行时已关闭")
+        values = {}
+        for extension in self.extensions:
+            for name, command in extension._commands.items():
+                values.setdefault(name, command)
+        return values
+
+    def parse_flags(self, arguments):
+        """严格解析扩展声明过的 --flag、--no-flag、--name=value；未知项报错。"""
+        declarations = {}
+        for extension in self.extensions:
+            for name, flag in extension._flags.items():
+                declarations.setdefault(name, flag)
+        values = {}
+        index = 0
+        while index < len(arguments):
+            token = arguments[index]
+            if not token.startswith("--"):
+                raise ValueError("无效扩展参数：" + token)
+            name, separator, value = token[2:].partition("=")
+            negative = name.startswith("no-") and name[3:] in declarations
+            if negative:
+                name = name[3:]
+            flag = declarations.get(name)
+            if flag is None:
+                raise ValueError("未知参数：" + token)
+            if flag["type"] is bool:
+                if separator and value not in {"true", "false"}:
+                    raise ValueError("布尔参数只能为 true/false")
+                values[name] = not negative if not separator else value == "true"
+            else:
+                if negative:
+                    raise ValueError("字符串参数不能使用 no- 前缀")
+                if not separator:
+                    index += 1
+                    if index >= len(arguments) or arguments[index].startswith("--"):
+                        raise ValueError("字符串参数缺少值")
+                    value = arguments[index]
+                values[name] = value
+            index += 1
+        self.flag_values = values
+        return deepcopy(values)
 
     def tool_sources(self) -> dict[str, str]:
         """返回扩展工具最终来源，不把诊断或路径写入模型上下文。"""
