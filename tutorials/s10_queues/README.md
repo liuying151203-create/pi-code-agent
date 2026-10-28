@@ -50,6 +50,7 @@ python -m tutorials.s10_queues.code --demo --no-session --no-extensions --worksp
 ## 参考与差异
 
 - 已对齐：双队列时机、默认一轮一条/全部模式、工具批次边界、忙时投递三种选择、末事件空闲屏障。
+- 待修订：当前用户文本 steer/follow_up 直接入队，没有 Pi 的 input Hook 预处理、输入来源和扩展命令排队检查；s11 还需接入 Skill/模板展开。详见 [复核记录 A06](../../docs/pi-alignment-review.md)，上述时机对齐不代表完整用户输入路径已对齐。
 - 调整：Python 直接取消活跃 asyncio 任务；同步阻塞插件必须自行改为异步，无法强制中止 Python 同步函数。队列为运行期内存，不声称重启恢复。
 - 暂缓：资源加载在 s11，重载生命周期在 s12。Pi 的并行工具调度和完整 TUI 交互编号待定。
 

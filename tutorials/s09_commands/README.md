@@ -49,6 +49,7 @@ python -m pytest tests/test_s09_commands.py --basetemp .sessions/s09-your-random
 
 ## 参考与差异
 
-- 已对齐：命令和工具独立注册、同扩展最后注册/跨扩展首个优先、原始参数文本、独立旗标、UI/状态/模型消息/触发回合分离。
+- 已对齐：命令和工具独立注册、同扩展最后注册、原始参数文本、独立旗标、UI/状态/模型消息/触发回合分离。
+- 待修订：当前跨扩展同名命令仅保留第一个；Pi 同版本会生成 `name:1`、`name:2`，让两个命令都能调用。普通命令异常也缺少 Pi 的错误分发。详见 [复核记录 A04/A05](../../docs/pi-alignment-review.md)，本次仅更正声明，代码尚未修复。
 - 调整：Python async send_message 允许调用者等待结果；只支持文本消息，JSONL 自定义条目保持 Python 线性格式。UI 由 notify 注入，没有界面时不打印。
 - 暂缓：忙时消息投递与命令上下文等待空闲在 s10，资源命令在 s11，动态注册和 /reload 在 s12；完整 TUI 补全和消息渲染器编号待定。

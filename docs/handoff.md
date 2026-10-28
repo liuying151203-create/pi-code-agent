@@ -1,5 +1,21 @@
 # 新主线交接
 
+## 2026-10-28：规划与 Pi 对齐复核
+
+本次基线 c9d5e32，检查当前实现、章节规划和 Pi 原锁定提交 e4c75a732。Pi 工作区 HEAD 已更新为 72363383f，复核通过 git show 读取锁定版本，未升级对齐基准。完整结论和分阶段验收见 [Pi 对齐与规划复核](pi-alignment-review.md)，调整后的顺序见 [roadmap](roadmap.md)。
+
+已确认但尚未修复：用量只显示最后一次请求、thinking 修复未覆盖正式包和后续章、s04 重放失败回答、同名扩展命令丢失、命令异常没有诊断、用户排队输入绕过预处理。分别记录 V2-B021–V2-B026；s09/s10 README 已更正对齐边界。本轮只改文档，不改源码/快照、不安装依赖、不调用真实模型、不提交。
+
+现有相关测试 **312 passed in 23.16s**；另外通过 Python -B 内联脚本做离线复现，只替换网络边界，真实调用章节/产品组件。312 项不包含本次缺口的新增自动回归，不能理解为问题已解决。实际测试命令如下，复跑请换新的专用 basetemp：
+
+```powershell
+..\zero2pi\.venv\Scripts\python.exe -B -m pytest tests/test_s03_models.py tests/test_s09_commands.py tests/test_s10_queues.py tests/test_s11_resources.py tests/test_config_cli.py tests/test_boundaries.py tests/test_tutorial_snapshots.py --basetemp .sessions/aud-54eb8b51 -p no:cacheprovider --tb=short
+```
+
+下文是 2026-10-27 批次的历史验收记录；其中“s01–s05 未变”等结论限于当时批次，不代表后续 Bug 修订后的现状。当前教学已回到 s03 复核，继续按教学进度推进，不能照旧记录直接跳到 s06。
+
+## 2026-10-27：扩展基座批次
+
 2026-10-27：用户确认完成 s06–s12 扩展基座，并明确授权每章实际提交、提交后复查与独立修复。基线 be53c3b（s05）；本批代码与最终跨章修复到 6d9e6dc。没有安装依赖、初始化环境、请求真实模型或推送远端。
 
 ## 已完成与提交
