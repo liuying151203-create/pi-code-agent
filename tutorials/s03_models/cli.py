@@ -64,8 +64,20 @@ async def run(options: argparse.Namespace, *, loop: Callable[..., Awaitable[list
                         if isinstance(block, Text):
                             print(block.text)
             last = history[-1]
-            if isinstance(last, AssistantMessage) and last.usage is not None:
-                print(f"[用量] 输入 {last.usage.input_tokens}，输出 {last.usage.output_tokens}")
+            # s03 修改：按 Pi 累加每次回答用量；本章只统计本次输入，不计算缓存或费用。
+            input_tokens = output_tokens = requests = reported = 0
+            for message in history[start:]:
+                if isinstance(message, AssistantMessage):
+                    requests += 1
+                    if message.usage is not None:
+                        reported += 1
+                        input_tokens += message.usage.input_tokens
+                        output_tokens += message.usage.output_tokens
+            if reported:
+                incomplete = "（部分请求未返回用量）" if reported < requests else ""
+                print(f"[本次用量] 输入 {input_tokens}，输出 {output_tokens}{incomplete}")
+            elif requests and not options.demo:
+                print("[本次用量] 模型未返回用量")
             if isinstance(last, AssistantMessage) and last.stop_reason in {"error", "aborted"}:
                 print(last.error_message or f"模型以 {last.stop_reason} 结束", file=sys.stderr)
                 return 1

@@ -124,10 +124,24 @@ async def run(
                 if prompt.lower() in {"", "q", "exit"}:
                     return 0
             # s06 修改：状态和持久化归会话所有，CLI 不再持有独立可变历史。
+            # 来自 s03：保持；只统计本次输入新增的回答，旧会话用量不重复计入。
+            start = len(session.messages)
             history = await session.prompt(prompt)
             last = history[-1]
-            if isinstance(last, AssistantMessage) and last.usage is not None:
-                print(f"[用量] 输入 {last.usage.input_tokens}，输出 {last.usage.output_tokens}")
+            # 来自 s03：保持；只累计本次新增的最终回答，流式快照不会重复计入。
+            input_tokens = output_tokens = requests = reported = 0
+            for message in history[start:]:
+                if isinstance(message, AssistantMessage):
+                    requests += 1
+                    if message.usage is not None:
+                        reported += 1
+                        input_tokens += message.usage.input_tokens
+                        output_tokens += message.usage.output_tokens
+            if reported:
+                incomplete = "（部分请求未返回用量）" if reported < requests else ""
+                print(f"[本次用量] 输入 {input_tokens}，输出 {output_tokens}{incomplete}")
+            elif requests and not options.demo:
+                print("[本次用量] 模型未返回用量")
             if isinstance(last, AssistantMessage) and last.stop_reason in {"error", "aborted"}:
                 print(last.error_message or f"模型以 {last.stop_reason} 结束", file=sys.stderr)
                 return 1

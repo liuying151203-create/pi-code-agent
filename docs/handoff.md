@@ -1,5 +1,19 @@
 # 新主线交接
 
+## 2026-10-28：第一项——本次输入用量累计
+
+正式 CLI 与 s03–s12 在循环返回后，只累计本次新增回答的输入/输出 token；部分缺失明确标记、全部缺失提示未知、有效零值正常显示，demo 不编造统计。SDK 消息接口和核心循环不变。V2-B021 已修复；会话累计、缓存和费用仍未加入。
+
+新增 80 项完整/流式、多请求、连续输入及缺失/零用量回归通过，s03/s04 未实现流式的 8 项跳过。连同既有模型/CLI/边界/快照验证 **294 passed, 8 skipped in 25.38s**，Ruff 检查与格式检查通过。只更新 s03–s12 的 cli.py 冻结哈希。
+
+实际验证命令（basetemp 已使用，重跑换新目录）：
+
+```powershell
+..\zero2pi\.venv\Scripts\python.exe -B -m pytest tests/test_s03_models.py tests/test_config_cli.py tests/test_boundaries.py tests/test_tutorial_snapshots.py --basetemp .sessions/us-d89c3249 -p no:cacheprovider --tb=short
+..\zero2pi\.venv\Scripts\python.exe -B -m ruff check --no-cache src/pi_code_agent/cli.py tests/test_config_cli.py tutorials
+..\zero2pi\.venv\Scripts\python.exe -B -m ruff format --no-cache src/pi_code_agent/cli.py tests/test_config_cli.py tutorials
+```
+
 ## 2026-10-28：规划与 Pi 对齐复核
 
 本次基线 c9d5e32，检查当前实现、章节规划和 Pi 原锁定提交 e4c75a732。Pi 工作区 HEAD 已更新为 72363383f，复核通过 git show 读取锁定版本，未升级对齐基准。完整结论和分阶段验收见 [Pi 对齐与规划复核](pi-alignment-review.md)，调整后的顺序见 [roadmap](roadmap.md)。

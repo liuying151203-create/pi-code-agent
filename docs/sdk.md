@@ -39,6 +39,8 @@ history = asyncio.run(run())
 
 SDK 不自动读取 `.env`。如有需要，调用 `load_model_config(明确路径, environ=映射)` 后显式使用配置。客户端由 Provider 创建时，在异步上下文退出时关闭；注入的客户端由调用方管理。
 
+每个 `AssistantMessage.usage` 是一次模型请求的输入/输出 token；SDK 可遍历本次新增消息累加。CLI 的 `[本次用量]` 在循环返回后累计本次输入的全部回答，不包含旧历史；部分缺少用量会标明不完整。demo 没有真实 usage，不显示编造的消耗。目前没有会话累计、缓存或费用统计。
+
 消息格式、工具参数模型和两种协议的转换分别见 [s01](../tutorials/s01_agent_loop/README.md)、[s02](../tutorials/s02_tools/README.md)、[s03](../tutorials/s03_models/README.md)。
 
 ## 观察运行进度

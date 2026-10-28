@@ -38,7 +38,7 @@
     "s03_models": {
       "files": {
         "__init__.py": "652987b8a0582c30f143b37f0c75aefe3e40e090b1fb9e2218b5486c04e77e05",
-        "cli.py": "63ae89c9d4fd8c0db281fad22a5cbe045fb3c31c479a83f0b1799ff6a0e7e51b",
+        "cli.py": "50e3f2f46f1493eca78fc6c41082d0a33523b3ae62fbf875f9c93ea5178c90bf",
         "code.py": "30596180ce620381bd7d2ea2b696598ea17d4499b1793ecb2ebece1343cdd013",
         "config.py": "abe15ca83410f6f81c1e245e5448e6aa6b0a69b86819489f6583cc2f34a57232",
         "demo.py": "8c9043306c5be60f3d868ebf16efb8ca67cd34794da6494b106a8635f055ca4e",
@@ -53,7 +53,7 @@
     "s04_events": {
       "files": {
         "__init__.py": "c582719c308a0dec4217c842fc55fcf972bafc22a0f3414b3fd90be7ea9b65a7",
-        "cli.py": "9d4edbc294d89240a3083a0795c3511cc92d62df8021273c36d8d13760c0b3e4",
+        "cli.py": "af47b4e45decfa55c1b195cee8b9cdb559a38e7825b2abdee761ca4b9696fbe8",
         "code.py": "aa2bdb0abe52791c09a3bc7054dac32e2eac9e4f1a8f9fd4044d235d74794c5b",
         "config.py": "631f32f43177b54c45c652e4e47add812ad040f9cbbad70ac29c1fd0786f00b6",
         "demo.py": "4da3efc9949a42d4875bcf3ef8b716d7cfd3a8a266cf9844c9bb8cb3bf2c2575",
@@ -72,7 +72,7 @@
       "pi_reference": "e4c75a732",
       "files": {
         "__init__.py": "f16e7f29aff972b40c11482b6e5668398fbcd0860459687c839d7b62ce0ffb1c",
-        "cli.py": "8ff2aee9037e735886a3f2309466ea9fe99f975cce6c0de0c60a54b730863426",
+        "cli.py": "fe928ab4eb76688cfae66c0a1086af1eca4cee90c9619d189eed125ff73491ad",
         "code.py": "c72ab6f307fe693bc414babe4c6dd43996bf4fe4cc8dc7e970c604507aa1b0a2",
         "config.py": "4f398129026c57fea9a6fc46b5128c150259ddac81857d9547029b4283e20399",
         "demo.py": "19ad9f1dde187e6803c913167100594c686be36f75e23f28fa9d28f9ae356d71",
@@ -91,7 +91,7 @@
       "pi_reference": "e4c75a732",
       "files": {
         "__init__.py": "c65fb35b63fe081d1f95c9a58e8e27529ab7a1efd05d8bc688dd1dafa7a9d57a",
-        "cli.py": "6f86a5ace93ef0909cbfe5607f10f3e9aff266460fd24793e59b79559a0826f7",
+        "cli.py": "237c7d3d9f48a12d919085a843189bcc0c0fad86b56b0e51d6ff37fb911f79d4",
         "code.py": "8a65ef6f6eb4f3e9581b55cce9d2f958d9c00e007b9740a460c8814ff6bea0e2",
         "config.py": "f5289333d9c914a8b41efca72a37f16a3aacc5a99af45a131c3bb1e55afd58a1",
         "demo.py": "29098dc56cc4d108839a128ad1f12e3b5dcd9ad8705fa0eedced2a8b9f63c9fb",
@@ -110,7 +110,7 @@
       "pi_reference": "e4c75a732",
       "files": {
         "__init__.py": "429b941c349cb02de8656be7f4d18239ac012d00deb8da2412fdf5c7dc3128a0",
-        "cli.py": "58f43986e1e3ddb42868a7228ab11f479fa5407abc4cc2e7c1500f0ec8ea9d76",
+        "cli.py": "c83813d32d36219c67392aff2fbcd8e19bb15207c397499d0f1dd975b1ed06aa",
         "code.py": "ece818cdac27e0940c22149a77b878448d02062b5a90b23d71de8b55567bb445",
         "config.py": "5e0679477fbdb0ec928e7fe5917be5835486a4d2490133f42d373d992390c2d6",
         "demo.py": "4c81d8617b3b5878d41aa0e016afa87aa5917b81f0ea01a8ae3687092e8913fa",
@@ -131,7 +131,7 @@
       "pi_reference": "e4c75a732",
       "files": {
         "__init__.py": "baa2d37dea11a087dd6d4a8382e79520875f4cb131c2317b7a1dbfd9f3bb7789",
-        "cli.py": "c269ce9eee9fe5d8e391c5efe5aeda9b2877a47f4adca073aea2eeb4bdcc1dfe",
+        "cli.py": "f675e5c0050322fba4cdc2813c53f2af91585bf017c5f64f172272df61cf8dac",
         "code.py": "84bca6be98c3a73ee02dd1b712d5ed86882766b67e52714a3cc144850d3f49c0",
         "config.py": "adbce135eb37f56e788a532308dc0eaef1adb256477c943581e60903c91a7fb0",
         "demo.py": "b6353400a6b5dfbfeeba702abf3a3108a482ce7da6d2abd8d19276e02513df20",
@@ -151,7 +151,7 @@
       "pi_reference": "e4c75a732",
       "files": {
         "__init__.py": "18d4ff5bce155d1b804d3c4502cc026b1bdaeda44e2d4b027f1fe3682e4e06ee",
-        "cli.py": "561d5ace670a9bce20329745e4bd4907060af6631513dfc7fc9adc87b020aaf8",
+        "cli.py": "59ea7d63e4fbc1bccc9963959481cd38ac7878b2c402adcb754abe444976b615",
         "code.py": "a4ff7ad5bf7ebac0c96252297edfac429b26db3a8c4d0ffd5573d2df34f12ddf",
         "config.py": "6771aa034d97bc3895814af78897b5fda1934ee0ce0a240e579ea824b24b3b89",
         "demo.py": "c03e96fc82650519d30d063bf771ae41e84d02e016aeb10697d442c205a3ced9",
@@ -172,7 +172,7 @@
       "pi_reference": "e4c75a732",
       "files": {
         "__init__.py": "458647bac64e7c4decc8fc950c75a2ad4fe30cd3036f362b43ba6b816d5b14b1",
-        "cli.py": "13d5a03e1ddb34e0dccd1303c2fd103f868ab37b48858bc8ca375939bd077666",
+        "cli.py": "78bd19bd572359992126e25f64e95075057c6c2a913beddee8f1fbee061a24ca",
         "code.py": "46dbadef475ad785215c154b8bcee1896191816b188ed789d3ab928bde1468ee",
         "config.py": "ba45214c9c53ec415ebde35a6cda5338ca07dd125736a951e57d2296b3e7b4af",
         "demo.py": "bd2e5db521b29bb0e72a63d63d4861df9c789228169e33325b78ab0d5624294a",
@@ -192,7 +192,7 @@
       "pi_reference": "e4c75a732",
       "files": {
         "__init__.py": "b1d3c51ffd7dccb612f078a125c8d6dc765c95fc37a983cc624ded54cf60453f",
-        "cli.py": "ce70bc38ecf2230824a14f1a8e40a3b2216e679352cfba533411a44d641ef5f2",
+        "cli.py": "ee129be06efa0c67ea519b954500efd8dfe0bee076ebcd9e93f8f93269b76e51",
         "code.py": "c0b1632404886dc4482a1179e455c56b0bf51498b99d0727bd0a901ace9e069b",
         "config.py": "dd1a75d9386bd9ad946b39c20099d0878dc05fbd5820ae36231ccccd5e3c1d05",
         "demo.py": "665aa994784d7c2553a63cf5174058c0d529cfb2465f8f3e22545d13ce4faf4e",
@@ -213,7 +213,7 @@
       "pi_reference": "e4c75a732",
       "files": {
         "__init__.py": "2eb23d779a3e4eaf5b1c0f116025b2ce61e10b1c89badef27e8c100c7246337c",
-        "cli.py": "9fa8353499379756fe8ebab12fb251cc9bd7b1a93fc6ccddad8f3466834c3bfa",
+        "cli.py": "6f2cdb7dc7b433a98c5f9a540f71b577ab1878424e94fcceb4ad58d636b623fb",
         "code.py": "ac0de5750d1233d6c33708597c638d31f6158f8a74c9d84f9424da6e20a96a7a",
         "config.py": "766278e1ec137d43788257c09f92d543a268fbc35df11097a5bd5b25218bb8b0",
         "demo.py": "c8bf427e56922d800d2d4e2308dcd41b2f6cb32df629ca5504b9ee9b4c525192",
