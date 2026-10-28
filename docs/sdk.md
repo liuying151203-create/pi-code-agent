@@ -55,13 +55,15 @@ SDK 不自动读取 `.env`。如有需要，调用 `load_model_config(明确路�
 
 可运行示例见 [streaming_sdk.py](../examples/streaming_sdk.py)，设计与验证见 [s05](../tutorials/s05_streaming/README.md)。正式 CLI 默认流式，`--no-stream` 可切回完整响应。直接消费 `model.stream()` 时，用 `contextlib.aclosing` 管理提前退出；循环内部已经负责关闭。
 
-`ModelConfig.stream_include_usage` 控制 Chat 的用量参数，兼容服务可显式设为 False，对应环境变量 `MODEL_STREAM_INCLUDE_USAGE=false`。网络错误和取消保留已收到的内容与用量；失败快照不会重放给供应商，pending 历史拒绝请求。本章不自动重试，也不保证未实现的推理、多模态和工具增量展示。
+`ModelConfig.stream_include_usage` 控制 Chat 的用量参数，兼容服务可显式设为 False，对应环境变量 `MODEL_STREAM_INCLUDE_USAGE=false`。Anthropic 返回的推理及签名保存在 `Thinking` 中，流式失败或取消时保留已收到的快照；失败快照不会重放给供应商，pending 历史拒绝请求。当前不主动配置或展示推理，也未实现多模态、工具增量展示和自动重试。
 
 依赖声明以本轮实际验证的 Anthropic 1.6.0、OpenAI 3.19.0 为 SDK 下界；本轮复用已有环境，未执行安装，也不声称更旧 SDK 支持这些流式字段。
 
 ## 会话
 
 `AgentSession(model=..., tools=..., store=..., stream=True)` 持有当前消息，`await session.prompt(text)` 运行一次输入并返回历史副本；`session.subscribe` 订阅事件。`SessionStore.create(path, workspace)` 创建，`SessionStore.open(path, workspace)` 恢复。客户端仍由创建者关闭。CLI 默认保存到 `.sessions/<当前章>/<目标ID>/`，`--session PATH` 续接文件，`--no-session` 使用内存。见 [s06](../tutorials/s06_sessions/README.md)。
+
+会话会持久化推理块及签名以支持后续回传；既有纯文本和工具消息仍能恢复，旧版程序不识别新增的 thinking 内容块。模型 SDK 仅在创建对应的自有客户端时加载；注入客户端和离线模式不要求加载模型 SDK。
 
 ## 扩展
 

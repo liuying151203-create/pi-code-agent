@@ -15,29 +15,41 @@ from tutorials.s05_streaming import code as streaming_chapter
 
 
 @pytest.mark.parametrize("mode", ["help", "demo"])
-def test_s03_offline_entry_does_not_import_model_sdks_or_dotenv(tmp_path, mode):
+def test_offline_entry_does_not_import_model_sdks_or_dotenv(usage_api, tmp_path, mode):
     root = Path(__file__).resolve().parents[1]
     workspace = tmp_path / "project"
     workspace.mkdir()
     (workspace / "README.md").write_text("offline without model SDKs", encoding="utf-8")
     script = """
 import importlib.abc, runpy, sys
+from pathlib import Path
 class MissingModelDependencies(importlib.abc.MetaPathFinder):
     def find_spec(self, fullname, path=None, target=None):
         name = fullname.split('.')[0]
         if name in {'openai', 'anthropic', 'dotenv'}:
             raise ModuleNotFoundError('blocked dependency: ' + name, name=name)
 sys.meta_path.insert(0, MissingModelDependencies())
-sys.path.insert(0, sys.argv.pop(1))
-runpy.run_module('tutorials.s03_models.code', run_name='__main__')
+package = sys.argv.pop(2)
+root = sys.argv.pop(1)
+sys.path.insert(0, root)
+sys.path.insert(0, str(Path(root) / 'src'))
+runpy.run_module(package if package == 'pi_code_agent' else package + '.code', run_name='__main__')
 """
     arguments = (
         ["--help"]
         if mode == "help"
         else ["--demo", "--workspace", str(workspace), "--prompt", "读取 README.md"]
     )
+    if mode == "demo":
+        if hasattr(usage_api, "AgentSession"):
+            arguments.append("--no-session")
+        if hasattr(usage_api, "ExtensionRuntime"):
+            arguments.append("--no-extensions")
+        if hasattr(usage_api, "ResourceLoader"):
+            arguments.append("--no-resources")
+    package = usage_api.cli.__package__
     result = subprocess.run(
-        [sys.executable, "-I", "-X", "utf8", "-B", "-c", script, str(root), *arguments],
+        [sys.executable, "-I", "-X", "utf8", "-B", "-c", script, str(root), package, *arguments],
         cwd=tmp_path,
         text=True,
         encoding="utf-8",
@@ -50,11 +62,13 @@ runpy.run_module('tutorials.s03_models.code', run_name='__main__')
 
 
 @pytest.mark.parametrize("kind", ["anthropic", "openai-compatible"])
-def test_s03_model_construction_does_not_import_the_other_sdk(tmp_path, kind):
+def test_model_construction_does_not_import_the_other_sdk(usage_api, tmp_path, kind):
     root = Path(__file__).resolve().parents[1]
     script = """
-import asyncio, importlib.abc, sys
+import asyncio, importlib, importlib.abc, sys
+from pathlib import Path
 sys.path.insert(0, sys.argv[1])
+sys.path.insert(0, str(Path(sys.argv[1]) / 'src'))
 kind = sys.argv[2]
 blocked = 'openai' if kind == 'anthropic' else 'anthropic'
 class MissingOtherSdk(importlib.abc.MetaPathFinder):
@@ -62,8 +76,8 @@ class MissingOtherSdk(importlib.abc.MetaPathFinder):
         if fullname.split('.')[0] == blocked:
             raise ModuleNotFoundError('blocked dependency: ' + blocked, name=blocked)
 sys.meta_path.insert(0, MissingOtherSdk())
-from tutorials.s03_models.config import ModelConfig
-from tutorials.s03_models.providers import create_model
+ModelConfig = importlib.import_module(sys.argv[3] + '.config').ModelConfig
+create_model = importlib.import_module(sys.argv[3] + '.providers').create_model
 async def main():
     model = create_model(ModelConfig(kind, 'test-model', 'fake-key'))
     await model.aclose()
@@ -72,7 +86,18 @@ assert blocked not in sys.modules
 print('constructed and closed without the other SDK')
 """
     result = subprocess.run(
-        [sys.executable, "-I", "-X", "utf8", "-B", "-c", script, str(root), kind],
+        [
+            sys.executable,
+            "-I",
+            "-X",
+            "utf8",
+            "-B",
+            "-c",
+            script,
+            str(root),
+            kind,
+            usage_api.cli.__package__,
+        ],
         cwd=tmp_path,
         text=True,
         encoding="utf-8",
@@ -82,6 +107,63 @@ print('constructed and closed without the other SDK')
     )
     assert result.returncode == 0, result.stderr
     assert "constructed and closed" in result.stdout
+
+
+def test_injected_clients_need_no_model_sdks_and_missing_sdk_is_reported(usage_api, tmp_path):
+    """隔离进程禁止两个 SDK；注入可构造，创建自有客户端才报告缺失。"""
+    root = Path(__file__).resolve().parents[1]
+    script = """
+import asyncio, importlib, importlib.abc, sys
+from pathlib import Path
+class MissingModelSdk(importlib.abc.MetaPathFinder):
+    def find_spec(self, fullname, path=None, target=None):
+        name = fullname.split('.')[0]
+        if name in {'openai', 'anthropic', 'dotenv'}:
+            raise ModuleNotFoundError('blocked dependency: ' + name, name=name)
+sys.meta_path.insert(0, MissingModelSdk())
+sys.path.insert(0, sys.argv[1])
+sys.path.insert(0, str(Path(sys.argv[1]) / 'src'))
+config = importlib.import_module(sys.argv[2] + '.config')
+providers = importlib.import_module(sys.argv[2] + '.providers')
+async def main():
+    for kind, factory, name in [
+        ('anthropic', providers.AnthropicModel, 'anthropic'),
+        ('openai-compatible', providers.OpenAIModel, 'openai'),
+    ]:
+        settings = config.ModelConfig(kind, 'test-model', 'fake')
+        model = factory(settings, client=object())
+        await model.aclose()
+        try:
+            factory(settings)
+        except providers.ProviderError as error:
+            assert name in str(error)
+        else:
+            raise AssertionError('missing SDK was not reported')
+asyncio.run(main())
+assert not {'anthropic', 'openai', 'dotenv'}.intersection(sys.modules)
+print('injected clients OK; missing SDK reported')
+"""
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-I",
+            "-X",
+            "utf8",
+            "-B",
+            "-c",
+            script,
+            str(root),
+            usage_api.cli.__package__,
+        ],
+        cwd=tmp_path,
+        text=True,
+        encoding="utf-8",
+        capture_output=True,
+        timeout=20,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "injected clients OK" in result.stdout
 
 
 @pytest.mark.parametrize(

@@ -27,10 +27,10 @@ def openai(content="done", calls=None, reason="stop"):
     )
 
 
-def test_s03_anthropic_thinking_response_prints_only_final_text(tmp_path, monkeypatch, capsys):
+def test_anthropic_thinking_response_prints_only_final_text(api, tmp_path, monkeypatch, capsys):
     from anthropic.types import ThinkingBlock
 
-    chapter = load_runtime("tutorials.s03_models")
+    chapter = api
     config = chapter.ModelConfig("anthropic", "model", "fake")
     stub = client(
         anthropic(
@@ -45,22 +45,26 @@ def test_s03_anthropic_thinking_response_prints_only_final_text(tmp_path, monkey
     model = chapter.AnthropicModel(config, client=stub)
     monkeypatch.setattr(chapter.cli, "load_model_config", lambda path: config)
     monkeypatch.setattr(chapter.cli, "create_model", lambda value: model)
-    assert (
-        chapter.cli.main(
-            ["--workspace", str(tmp_path), "--prompt", "你好"], loop=chapter.agent_loop
-        )
-        == 0
-    )
+    arguments = ["--workspace", str(tmp_path), "--prompt", "你好"]
+    if hasattr(chapter.AnthropicModel, "stream"):
+        arguments.append("--no-stream")
+    if hasattr(chapter, "AgentSession"):
+        arguments.append("--no-session")
+    if hasattr(chapter, "ExtensionRuntime"):
+        arguments.append("--no-extensions")
+    if hasattr(chapter, "ResourceLoader"):
+        arguments.append("--no-resources")
+    assert chapter.cli.main(arguments, loop=chapter.agent_loop) == 0
     output = capsys.readouterr().out
     assert (
         "你好" in output and "internal reasoning" not in output and "opaque signature" not in output
     )
 
 
-def test_s03_anthropic_thinking_and_redaction_survive_tool_round_trip():
+def test_anthropic_thinking_and_redaction_survive_tool_round_trip(api):
     from anthropic.types import RedactedThinkingBlock, ThinkingBlock
 
-    chapter = load_runtime("tutorials.s03_models")
+    chapter = api
     blocks = [
         ThinkingBlock(type="thinking", thinking="  keep unchanged\n", signature="signed-data"),
         RedactedThinkingBlock(type="redacted_thinking", data="encrypted-data"),
@@ -101,8 +105,8 @@ def test_s03_anthropic_thinking_and_redaction_survive_tool_round_trip():
     asyncio.run(run())
 
 
-def test_s03_unsigned_thinking_uses_pi_text_fallback_only_in_request():
-    chapter = load_runtime("tutorials.s03_models")
+def test_unsigned_thinking_uses_pi_text_fallback_only_in_request(api):
+    chapter = api
     stub = client(
         anthropic(
             [NS(type="thinking", thinking="unsigned reasoning"), NS(type="text", text="answer")]
@@ -127,11 +131,9 @@ def test_s03_unsigned_thinking_uses_pi_text_fallback_only_in_request():
 
 
 @pytest.mark.parametrize("with_text", [False, True])
-def test_s03_chat_projection_does_not_send_anthropic_thinking(with_text):
-    from tutorials.s03_models.messages import Thinking
-
-    chapter = load_runtime("tutorials.s03_models")
-    content = [Thinking("internal", "anthropic-signature")]
+def test_chat_projection_does_not_send_anthropic_thinking(api, with_text):
+    chapter = api
+    content = [chapter.messages.Thinking("internal", "anthropic-signature")]
     if with_text:
         content.append(chapter.Text("visible answer"))
     history = [
@@ -176,8 +178,8 @@ def test_s03_demo_requests_read_and_uses_current_workspace_file(tmp_path):
 
 @pytest.mark.parametrize("kind", ["anthropic", "openai-compatible"])
 @pytest.mark.parametrize("reason", ["error", "aborted"])
-def test_s03_failed_answers_stay_local_without_replaying_tool_calls(kind, reason):
-    chapter = load_runtime("tutorials.s03_models")
+def test_failed_answers_stay_local_without_replaying_tool_calls(api, kind, reason):
+    chapter = api
     failed = chapter.AssistantMessage(
         (chapter.Text("failed content"), chapter.ToolCall("unfinished", "read", {})), reason
     )
@@ -283,11 +285,7 @@ def test_request_failure_and_cancellation_remain_model_failures(api, kind):
 def test_client_options_budget_parameter_and_ownership(api, monkeypatch):
     stub = client(openai())
     constructor = Mock(return_value=stub)
-    if hasattr(api.providers, "AsyncOpenAI"):
-        monkeypatch.setattr(api.providers, "AsyncOpenAI", constructor)
-    else:
-        # s03 修复后的快照延迟导入 SDK；旧章仍使用原有模块级绑定。
-        monkeypatch.setattr("openai.AsyncOpenAI", constructor)
+    monkeypatch.setattr("openai.AsyncOpenAI", constructor)
     config = api.ModelConfig(
         "openai-compatible",
         "explicit-model",
@@ -357,10 +355,7 @@ def test_owned_client_closes_when_request_is_cancelled(api, monkeypatch):
     stub = client()
     stub.messages.create.side_effect = asyncio.CancelledError()
     constructor = Mock(return_value=stub)
-    if hasattr(api.providers, "AsyncAnthropic"):
-        monkeypatch.setattr(api.providers, "AsyncAnthropic", constructor)
-    else:
-        monkeypatch.setattr("anthropic.AsyncAnthropic", constructor)
+    monkeypatch.setattr("anthropic.AsyncAnthropic", constructor)
 
     async def run():
         async with api.create_model(api.ModelConfig("anthropic", "m", "fake")) as model:

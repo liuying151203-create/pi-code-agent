@@ -109,6 +109,42 @@ def anthropic_events(*, tool=False, finish=True, reason=None):
     return events
 
 
+def anthropic_thinking_events(
+    *, tool=False, thinking="internal reasoning", signature="signed-data"
+):
+    """真实 SDK 流先累计推理签名和脱敏块，再接文字或工具参数。"""
+    events = anthropic_events(tool=tool)
+    prefix = [
+        events[0],
+        RawContentBlockStartEvent(
+            type="content_block_start",
+            index=0,
+            content_block={"type": "thinking", "thinking": "", "signature": ""},
+        ),
+        RawContentBlockDeltaEvent(
+            type="content_block_delta",
+            index=0,
+            delta={"type": "thinking_delta", "thinking": thinking},
+        ),
+        RawContentBlockDeltaEvent(
+            type="content_block_delta",
+            index=0,
+            delta={"type": "signature_delta", "signature": signature},
+        ),
+        RawContentBlockStopEvent(type="content_block_stop", index=0),
+        RawContentBlockStartEvent(
+            type="content_block_start",
+            index=1,
+            content_block={"type": "redacted_thinking", "data": "encrypted-data"},
+        ),
+        RawContentBlockStopEvent(type="content_block_stop", index=1),
+    ]
+    return prefix + [
+        event.model_copy(update={"index": event.index + 2}) if hasattr(event, "index") else event
+        for event in events[1:]
+    ]
+
+
 def chat(content=None, calls=None, reason=None, usage=None):
     return NS(
         choices=[
@@ -608,5 +644,65 @@ def test_cancellation_before_first_text_keeps_received_usage(api, kind):
         assert history[-1].stop_reason == "aborted"
         assert history[-1].usage.input_tokens == 11
         assert raw.closed
+
+    asyncio.run(run())
+
+
+def test_streaming_thinking_survives_tool_round_trip_without_display(api, capsys):
+    first = RawStream(anthropic_thinking_events(tool=True))
+    second = RawStream(anthropic_thinking_events(thinking="", signature="empty-text-signature"))
+    model, request, _ = model_for(api, "anthropic", [first, second])
+    bus = api.EventBus()
+    bus.subscribe(api.cli.ConsoleDisplay())
+    history = []
+    asyncio.run(
+        api.agent_loop(history, model=model, tools=[api.add_tool()], stream=True, events=bus)
+    )
+    assert first.closed and second.closed
+    assert history[1] == api.ToolResultMessage("call", "add", "5")
+    assert history[0].content[:2] == (
+        api.messages.Thinking("internal reasoning", "signed-data"),
+        api.messages.Thinking("", "encrypted-data", redacted=True),
+    )
+    assert history[-1].content[0] == api.messages.Thinking("", "empty-text-signature")
+    replay = request.call_args.kwargs["messages"][0]["content"]
+    assert replay[:2] == [
+        {"type": "thinking", "thinking": "internal reasoning", "signature": "signed-data"},
+        {"type": "redacted_thinking", "data": "encrypted-data"},
+    ]
+    assert replay[2]["type"] == "tool_use" and replay[2]["input"] == {"a": 2, "b": 3}
+    output = capsys.readouterr().out
+    assert "你好" in output and "[add 结果] 5" in output
+    assert all(
+        value not in output for value in ["internal reasoning", "signed-data", "encrypted-data"]
+    )
+
+
+@pytest.mark.parametrize("cancel", [False, True])
+def test_failure_or_cancel_during_thinking_preserves_latest_signature(api, cancel):
+    async def run():
+        events = anthropic_thinking_events()[:7]
+        waiting = asyncio.Event()
+        if not cancel:
+            events.append(OSError("thinking stream interrupted"))
+        raw = RawStream(events, waiting=waiting if cancel else None)
+        model, _, _ = model_for(api, "anthropic", [raw])
+        history = []
+        if cancel:
+            task = asyncio.create_task(api.agent_loop(history, model=model, stream=True))
+            await asyncio.wait_for(waiting.wait(), 2)
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await asyncio.wait_for(task, 2)
+        else:
+            with pytest.raises(api.ProviderError, match="thinking stream interrupted"):
+                await api.agent_loop(history, model=model, stream=True)
+        assert len(history) == 1 and raw.closed
+        assert history[0].stop_reason == ("aborted" if cancel else "error")
+        assert history[0].content[:2] == (
+            api.messages.Thinking("internal reasoning", "signed-data"),
+            api.messages.Thinking("", "encrypted-data", redacted=True),
+        )
+        assert history[0].usage.input_tokens == 11
 
     asyncio.run(run())

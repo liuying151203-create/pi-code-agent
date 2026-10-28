@@ -1,5 +1,25 @@
 # 新主线交接
 
+## 2026-10-28：第二项——基础兼容跨章修复
+
+正式包和 s04–s12 回补 s03 已有的 thinking、签名和脱敏数据处理；s05 起的真实 SDK 流能够累积这些块，错误/取消保留已收到的快照；s06 起的会话编码保存并恢复推理块，旧文本/工具记录仍可读取；s08 起 context Hook 可传递它们。公开 SDK 导出 Thinking。终端仍只展示 Text，不启用推理预算或显示推理。带新增 thinking 块的文件不能被旧版程序读取。
+
+s04 的两种协议现在跳过 error/aborted 回答，仅影响请求投影，本地失败历史保留。s04–s12 和正式包将模型 SDK 与 dotenv 移到实际使用处；help/demo、注入客户端不会加载模型 SDK，缺失对应 SDK 时报告 ProviderError。V2-B019 的跨章遗漏、V2-B022、V2-B023 已修复，s09 命令与 s10 队列问题仍待后续教学修订。
+
+全量测试 **1653 passed, 8 skipped in 61.79s**；单独的流式/保存/Hook thinking 回归 65 项通过，隔离依赖入口 55 项通过。默认 Python（Anthropic 1.5.0，未安装 openai）实际通过 s04 demo、正式包 help，以及真实 SDK 累积器的离线流式 thinking/签名回传；只替代网络，没有调用真实模型。冻结清单仅更新受影响的 34 份 s04–s12 config/messages/providers/session 文件，第一项另外更新 10 份 CLI 快照。
+
+实际验证命令（basetemp 已使用，重跑换新目录）：
+
+```powershell
+..\zero2pi\.venv\Scripts\python.exe -B -m pytest --basetemp .sessions/all-6b859e56 -p no:cacheprovider --tb=short
+..\zero2pi\.venv\Scripts\python.exe -B -m pytest tests/test_s05_streaming.py tests/test_s06_sessions.py tests/test_s08_hooks.py -k thinking --basetemp .sessions/cs-35c8ccc3 -p no:cacheprovider --tb=short
+..\zero2pi\.venv\Scripts\python.exe -B -m pytest tests/test_config_cli.py -k 'offline_entry or model_construction or injected_clients' --basetemp .sessions/dep-83932ece -p no:cacheprovider --tb=short
+python -B -m tutorials.s04_events.code --demo --workspace example_project/mini_app --prompt 'read README.md'
+$env:PYTHONPATH='src'; python -B -m pi_code_agent --help
+```
+
+两个阶段都未提交。第一项补丁保存在 `.sessions/delivery-c1e10cb7/01-usage.patch`，可先用 `git apply --cached` 应用于暂存区并提交；再暂存剩余已跟踪修改，独立提交第二项。
+
 ## 2026-10-28：第一项——本次输入用量累计
 
 正式 CLI 与 s03–s12 在循环返回后，只累计本次新增回答的输入/输出 token；部分缺失明确标记、全部缺失提示未知、有效零值正常显示，demo 不编造统计。SDK 消息接口和核心循环不变。V2-B021 已修复；会话累计、缓存和费用仍未加入。

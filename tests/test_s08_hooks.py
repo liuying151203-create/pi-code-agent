@@ -58,6 +58,37 @@ def test_handled_does_not_request_model_or_append_user(api):
     asyncio.run(scenario())
 
 
+def test_context_hook_can_keep_signed_thinking_without_diagnostics(api):
+    async def scenario():
+        runtime = api.ExtensionRuntime()
+        seen = []
+
+        def setup(ext):
+            def context(event, ctx):
+                seen.append(event["messages"])
+                return {"messages": event["messages"]}
+
+            ext.on("context", context)
+
+        await runtime.register(setup)
+        thinking = api.messages.Thinking("internal", "signed")
+        model = ScriptedModel(
+            api.AssistantMessage((thinking, api.Text("first"))),
+            api.AssistantMessage((api.Text("second"),)),
+        )
+        session = api.AgentSession(model=model, extensions=runtime)
+        try:
+            await session.prompt("first")
+            await session.prompt("second")
+            assert seen[-1][1].content[0] == thinking
+            assert model.calls[-1]["messages"][1].content[0] == thinking
+            assert runtime.diagnostics == []
+        finally:
+            runtime.close()
+
+    asyncio.run(scenario())
+
+
 @pytest.mark.parametrize("block,fail", [(True, False), (False, True), (False, False)])
 def test_tool_policy_failure_blocks_and_result_can_override(api, block, fail):
     async def scenario():

@@ -9,14 +9,12 @@ from collections.abc import AsyncGenerator, Sequence
 from copy import deepcopy
 from typing import Any, Self
 
-from anthropic import AsyncAnthropic
-from openai import AsyncOpenAI
-
 from pi_code_agent.config import ModelConfig
 from pi_code_agent.messages import (
     AssistantMessage,
     Message,
     Text,
+    Thinking,
     ToolCall,
     ToolResultMessage,
     Usage,
@@ -26,7 +24,7 @@ from pi_code_agent.model import AssistantStreamEvent, ToolDefinition
 
 
 class ProviderError(RuntimeError):
-    """表示网络请求或供应商响应无法完成当前统一协议，不包装为工具错误。"""
+    """表示模型依赖加载、网络请求或响应转换失败，不包装为工具执行错误。"""
 
     # s05 新增：异常可携带最新快照，包含尚未触发文本事件的已收到用量。
     def __init__(self, message: str, *, partial: AssistantMessage | None = None) -> None:
@@ -57,6 +55,21 @@ def _anthropic_messages(messages: Sequence[Message]) -> list[dict[str, Any]]:
             for block in message.content:
                 if isinstance(block, Text):
                     blocks.append({"type": "text", "text": block.text})
+                elif isinstance(block, Thinking):
+                    # s03 修改：按 Pi 原样回传签名和脱敏数据，不能把推理当普通回答丢弃。
+                    if block.redacted:
+                        blocks.append({"type": "redacted_thinking", "data": block.signature})
+                    elif block.signature.strip():
+                        blocks.append(
+                            {
+                                "type": "thinking",
+                                "thinking": block.text,
+                                "signature": block.signature,
+                            }
+                        )
+                    elif block.text.strip():
+                        # s03 修改：沿用 Pi 对无签名块的文本回退，只改变请求投影，不改变本地类型。
+                        blocks.append({"type": "text", "text": block.text})
                 else:
                     blocks.append(
                         {
@@ -68,7 +81,9 @@ def _anthropic_messages(messages: Sequence[Message]) -> list[dict[str, Any]]:
                             else {},
                         }
                     )
-            result.append({"role": "assistant", "content": blocks})
+            # 来自 s03：保持；没有可投影内容时不发送空模型消息。
+            if blocks:
+                result.append({"role": "assistant", "content": blocks})
         else:
             block = {
                 "type": "tool_result",
@@ -105,6 +120,9 @@ def _openai_messages(system: str, messages: Sequence[Message]) -> list[dict[str,
             content = "\n".join(block.text for block in message.content if isinstance(block, Text))
             converted = {"role": "assistant", "content": content or None}
             calls = [block for block in message.content if isinstance(block, ToolCall)]
+            # 来自 s03：保持；Chat 不重放 Anthropic 推理签名，也不产生空回答。
+            if not content and not calls:
+                continue
             if calls:
                 converted["tool_calls"] = [
                     {
@@ -130,6 +148,17 @@ def _anthropic_response(raw: Any, *, partial: bool = False) -> AssistantMessage:
     for block in raw.content:
         if block.type == "text":
             content.append(Text(block.text))
+        # 来自 s03：保持；保留推理签名与脱敏数据，避免后续请求丢失信息。
+        elif block.type == "thinking":
+            # s03 修改：空推理文本也可能有有效签名，两者分开保存，终端仍只显示 Text。
+            content.append(
+                Thinking(
+                    getattr(block, "thinking", "") or "",
+                    getattr(block, "signature", "") or "",
+                )
+            )
+        elif block.type == "redacted_thinking":
+            content.append(Thinking("", block.data, redacted=True))
         elif block.type == "tool_use":
             content.append(ToolCall(block.id, block.name, block.input))
         else:
@@ -159,24 +188,31 @@ class AnthropicModel:
 
     输入：显式配置和可选客户端；输出：complete 返回 AssistantMessage。
     流程：构造真实客户端 → 转换请求 → await API → 归一化停止状态及用量。
-    边界：只处理文本与客户端工具，不假装支持图片、服务端工具或思考块。
+    边界：保留文本、推理及签名与客户端工具，不处理图片或服务端工具。
     """
 
     def __init__(self, config: ModelConfig, *, client: Any = None) -> None:
+        """接收配置和可选客户端，校验协议后创建或借用客户端，记录关闭责任。"""
         if config.provider != "anthropic":
             raise ValueError("AnthropicModel 需要 anthropic 配置")
         self.config = config
         self._owns_client = client is None
-        self.client = (
-            client
-            if client is not None
-            else AsyncAnthropic(
+        # 来自 s03：保持；仅创建自有客户端时导入对应 SDK，注入与离线模式不触发导入。
+        if client is None:
+            try:
+                from anthropic import AsyncAnthropic
+            except ModuleNotFoundError as error:
+                raise ProviderError(
+                    f"当前 Python 环境缺少模型依赖 {error.name}，请按项目 README 配置依赖"
+                ) from error
+            self.client = AsyncAnthropic(
                 api_key=config.api_key,
                 base_url=config.base_url,
                 timeout=config.timeout_seconds,
                 max_retries=config.max_retries,
             )
-        )
+        else:
+            self.client = client
 
     async def complete(
         self,
@@ -264,7 +300,12 @@ class AnthropicModel:
                                     "delta": event.content_block.text,
                                     "partial": partial,
                                 }
-                        elif event.content_block.type != "tool_use":
+                        # s05 修改：推理只更新内部快照，不向终端新增推理展示事件。
+                        elif event.content_block.type not in {
+                            "tool_use",
+                            "thinking",
+                            "redacted_thinking",
+                        }:
                             raise ProviderError(
                                 f"当前不支持 Anthropic 内容块：{event.content_block.type}"
                             )
@@ -283,7 +324,8 @@ class AnthropicModel:
                             tool_json[event.index] = (
                                 tool_json.get(event.index, "") + event.delta.partial_json
                             )
-                        else:
+                        # s05 修改：SDK 已累积推理与签名，保留最新快照供完成、失败或取消使用。
+                        elif event.delta.type not in {"thinking_delta", "signature_delta"}:
                             raise ProviderError(f"当前不支持 Anthropic 增量：{event.delta.type}")
                     elif event.type == "content_block_stop":
                         snapshot = raw_stream.current_message_snapshot
@@ -347,20 +389,27 @@ class OpenAIModel:
     """
 
     def __init__(self, config: ModelConfig, *, client: Any = None) -> None:
+        """接收配置和可选客户端，校验协议后创建或借用客户端，记录关闭责任。"""
         if config.provider != "openai-compatible":
             raise ValueError("OpenAIModel 需要 openai-compatible 配置")
         self.config = config
         self._owns_client = client is None
-        self.client = (
-            client
-            if client is not None
-            else AsyncOpenAI(
+        # s03 修改：OpenAI SDK 在对应客户端真正被选中时才加载，不影响 Anthropic。
+        if client is None:
+            try:
+                from openai import AsyncOpenAI
+            except ModuleNotFoundError as error:
+                raise ProviderError(
+                    f"当前 Python 环境缺少模型依赖 {error.name}，请按项目 README 配置依赖"
+                ) from error
+            self.client = AsyncOpenAI(
                 api_key=config.api_key,
                 base_url=config.base_url,
                 timeout=config.timeout_seconds,
                 max_retries=config.max_retries,
             )
-        )
+        else:
+            self.client = client
 
     async def complete(
         self,

@@ -23,6 +23,7 @@ from .messages import (
     CustomMessage,
     Message,
     Text,
+    Thinking,
     ToolCall,
     ToolResultMessage,
     Usage,
@@ -46,17 +47,23 @@ def encode_message(message: Message) -> dict[str, Any]:
         if message.stop_reason == "pending":
             raise ValueError("pending 快照不能落盘")
         value = asdict(message)
-        value["content"] = [
-            {"type": "text", "text": block.text}
-            if isinstance(block, Text)
-            else {
-                "type": "tool_call",
-                "id": block.id,
-                "name": block.name,
-                "arguments": deepcopy(block.arguments),
-            }
-            for block in message.content
-        ]
+        # s06 修改：持久化推理、签名和脱敏标记，恢复后仍能完整重放供应商协议。
+        blocks = []
+        for block in message.content:
+            if isinstance(block, Text):
+                blocks.append({"type": "text", "text": block.text})
+            elif isinstance(block, Thinking):
+                blocks.append({"type": "thinking", **asdict(block)})
+            else:
+                blocks.append(
+                    {
+                        "type": "tool_call",
+                        "id": block.id,
+                        "name": block.name,
+                        "arguments": deepcopy(block.arguments),
+                    }
+                )
+        value["content"] = blocks
     else:
         raise TypeError("不支持的会话消息")
     # 来自 s06：保持；验证读写契约一致，NaN 等非 JSON 数据不进入日志。
@@ -121,6 +128,15 @@ def decode_message(value: dict[str, Any]) -> Message:
             and isinstance(block["text"], str)
         ):
             blocks.append(Text(block["text"]))
+        # s06 修改：只接受明确字段的推理块；旧版纯文本/工具消息继续按原格式恢复。
+        elif (
+            block.get("type") == "thinking"
+            and set(block) == {"type", "text", "signature", "redacted"}
+            and isinstance(block["text"], str)
+            and isinstance(block["signature"], str)
+            and type(block["redacted"]) is bool
+        ):
+            blocks.append(Thinking(block["text"], block["signature"], block["redacted"]))
         elif block.get("type") == "tool_call" and set(block) == {"type", "id", "name", "arguments"}:
             blocks.append(ToolCall(block["id"], block["name"], block["arguments"]))
         else:

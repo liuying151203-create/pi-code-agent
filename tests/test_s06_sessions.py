@@ -257,3 +257,43 @@ def test_valid_final_record_without_newline_can_be_appended_without_corruption(a
         api.UserMessage("完整但没有终止换行"),
         api.AssistantMessage((api.Text("继续"),)),
     ]
+
+
+def test_streamed_thinking_is_saved_restored_and_replayed_with_signatures(api, tmp_path):
+    from test_s05_streaming import RawStream, anthropic_thinking_events, model_for
+
+    file = tmp_path / "thinking.jsonl"
+    first = RawStream(anthropic_thinking_events(thinking="", signature="empty-text-signature"))
+    model, _, _ = model_for(api, "anthropic", [first])
+    store = api.SessionStore.create(file, tmp_path)
+    session = api.AgentSession(model=model, store=store, stream=True)
+    asyncio.run(session.prompt("first"))
+    assert first.closed
+    saved = api.SessionStore.open(file, tmp_path)
+    assert saved.messages == session.messages
+    assert saved.header["version"] == 1
+    second = RawStream(anthropic_thinking_events())
+    next_model, request, _ = model_for(api, "anthropic", [second])
+    restored = api.AgentSession(model=next_model, store=saved, stream=True)
+    asyncio.run(restored.prompt("second"))
+    assert second.closed
+    assert request.call_args.kwargs["messages"][1]["content"] == [
+        {"type": "thinking", "thinking": "", "signature": "empty-text-signature"},
+        {"type": "redacted_thinking", "data": "encrypted-data"},
+        {"type": "text", "text": "你好"},
+    ]
+    assert api.SessionStore.open(file, tmp_path).messages == restored.messages
+
+
+@pytest.mark.parametrize("bad", ["signature", "redacted", "extra"])
+def test_invalid_persisted_thinking_is_rejected(api, bad):
+    message = api.AssistantMessage((api.messages.Thinking("reason", "signature"),))
+    data = api.encode_message(message)
+    if bad == "signature":
+        data["content"][0]["signature"] = None
+    elif bad == "redacted":
+        data["content"][0]["redacted"] = 1
+    else:
+        data["content"][0]["unknown"] = True
+    with pytest.raises(ValueError):
+        api.decode_message(data)

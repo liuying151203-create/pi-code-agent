@@ -36,6 +36,8 @@ ConsoleDisplay ── subscribe(listener) ──> AgentSession
 
 `SessionStore` 写头记录和带 id/parent_id 的消息条目。写入失败时停止后续追加；加载遇到损坏、版本不符、工作区不匹配或非线性链时直接报错，不覆盖、不静默跳过。完整的末条记录即使没有终止换行，也会在续写时补上分隔符；损坏 JSON 仍拒绝。当前格式是本项目 version=1，不直接导入 Pi 的 JSONL。
 
+完成的模型消息会保存 thinking 文本、签名和脱敏数据，恢复后可继续向 Anthropic 回传；旧的文本与工具消息仍按原格式读取。较早的程序版本不能识别新增的 thinking 内容块。
+
 ## SDK
 
 ```python

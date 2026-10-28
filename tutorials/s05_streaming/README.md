@@ -48,6 +48,8 @@ EventBus ── events ──> agent_loop
 
 Anthropic 使用 SDK 的流上下文和消息累积器，把原始文本块事件转换为统一事件；最后校验 `message_stop`。SDK 可能宽松解析工具参数快照，本章会对原始 JSON 片段再做完整解析，解析失败交回已有工具校验，不借不完整快照执行。
 
+流中收到 thinking、签名和脱敏块时，Provider 把它们保存在回答快照里；这些内容不会作为文本增量打印。最终回答会带着签名交给下一次请求；推理期间发生错误或取消，也保留已经收到的快照。
+
 Chat Completions 从 `delta` 取文字，按工具 `index` 累积参数，校验 `finish_reason`，并继续读取末尾可能没有 choices 的用量块。字段核对见 [OpenAI 官方流式接口说明](https://developers.openai.com/api/reference/resources/chat/subresources/completions/streaming-events)。
 
 兼容服务不支持 `stream_options` 时，可配置 `MODEL_STREAM_INCLUDE_USAGE=false`；SDK 对应 `ModelConfig(stream_include_usage=False)`。这只关闭用量请求参数，不关闭流式。额度字段继续由 `token_parameter` 明确选择。
@@ -100,6 +102,6 @@ python -m pytest tests/test_s05_streaming.py tests/test_config_cli.py tests/test
 
 - 已对齐：Pi 的开始/更新/完成顺序，增量携带当前快照，最终回答后执行工具，失败状态不执行，失败回答不重放。另参考 `packages/ai/src/api/anthropic-messages.ts`、`openai-completions.ts`、`transform-messages.ts` 及相关测试。
 - 扩展与调整：Python 用异步生成器和 `aclosing` 代替 Pi 的 EventStream；网络异常和原生取消携带最新快照并继续传播。保留完整响应接口，CLI 可明确关闭流式；沿用 s04 的观察副本隔离。严格完整 JSON 校验与公开工具增量展示分开处理，本章不实现后者。
-- 暂缓：工具增量、推理、多模态、并行和自动恢复编号待定。本章保留当前上下文里的完整消息，会话与状态将在 s06 继续展开；不会自动迁入旧版会话功能。
+- 暂缓：工具增量展示、主动配置和展示推理、多模态、并行和自动恢复编号待定。本章保留当前上下文里的完整消息，会话与状态将在 s06 继续展开；不会自动迁入旧版会话功能。
 
 来源与 MIT 声明见本章 [NOTICE](NOTICE.md)。

@@ -12,8 +12,6 @@ from pathlib import Path
 from typing import Literal
 from urllib.parse import urlsplit
 
-from dotenv import dotenv_values
-
 
 # 来自 s03：保持；超时、重试和额度经过统一校验，真正传到请求组件。
 @dataclass(frozen=True)
@@ -70,6 +68,9 @@ def load_model_config(env_file: Path, *, environ: Mapping[str, str] | None = Non
     输入：明确的 .env 路径和可选进程环境映射；输出：ModelConfig。
     流程：解析无插值文件 → 合并环境 → 读取协议对应密钥 → 构造并校验。
     """
+    # 来自 s03：保持；仅真实配置加载时需要 dotenv，帮助与离线运行不依赖它。
+    from dotenv import dotenv_values
+
     values = {
         key: value
         for key, value in dotenv_values(env_file, interpolate=False).items()
