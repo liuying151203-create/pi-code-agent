@@ -12,9 +12,9 @@
 
 6. [s06：会话与状态](s06_sessions/README.md)：谁持有历史，何时落盘，怎样恢复。
 
-以下按调整后的章节顺序列出。s07 正在实现；扩展章节已顺延编号，但尚未接入压缩能力，逐章接续方式见 [上下文压缩设计](../docs/context-compaction-design.md)。
+以下按调整后的章节顺序列出。s07 已完成手动压缩，自动压缩待实现；扩展章节已顺延编号，但尚未接入压缩能力，逐章接续方式见 [上下文压缩设计](../docs/context-compaction-design.md)。
 
-7. [s07：上下文压缩](s07_compaction/README.md)，分阶段学习手动、自动和溢出恢复（开发中）
+7. [s07：上下文压缩](s07_compaction/README.md)，手动压缩已实现，自动和溢出恢复待实现
 
 8. s08：扩展加载与工具注册（[现有快照](s08_extensions/README.md)，待接续压缩）
 

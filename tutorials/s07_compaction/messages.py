@@ -18,6 +18,16 @@ class UserMessage:
     role: Literal["user"] = field(default="user", init=False)
 
 
+# ===== s07 新增 =====
+# s07 新增：摘要只存在于请求上下文，不伪装成真实用户输入。
+@dataclass(frozen=True)
+class CompactionSummary:
+    """保存压缩摘要，在供应商请求前转换为支持的用户文本。"""
+
+    content: str
+    role: Literal["compaction_summary"] = field(default="compaction_summary", init=False)
+
+
 @dataclass(frozen=True)
 class Text:
     """保存模型回答中的一个文本块。"""
@@ -112,4 +122,16 @@ class ToolResultMessage:
     role: Literal["tool_result"] = field(default="tool_result", init=False)
 
 
-type Message = UserMessage | AssistantMessage | ToolResultMessage
+# s07 修改：把内部摘要加入请求上下文类型，但不改变用户输入类型。
+type Message = UserMessage | AssistantMessage | ToolResultMessage | CompactionSummary
+
+
+# s07 新增：供应商只接收常规消息，真实历史仍保持原始类型。
+def convert_to_llm(messages: list[Message]) -> list[Message]:
+    """将临时摘要投影为用户文本，输入列表和历史记录保持不变。"""
+    return [
+        UserMessage("以下是之前会话的摘要：\n" + message.content)
+        if isinstance(message, CompactionSummary)
+        else message
+        for message in messages
+    ]

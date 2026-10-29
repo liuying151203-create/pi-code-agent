@@ -108,18 +108,18 @@
     "s07_compaction": {
       "files": {
         "__init__.py": "c65fb35b63fe081d1f95c9a58e8e27529ab7a1efd05d8bc688dd1dafa7a9d57a",
-        "cli.py": "237c7d3d9f48a12d919085a843189bcc0c0fad86b56b0e51d6ff37fb911f79d4",
-        "code.py": "8a65ef6f6eb4f3e9581b55cce9d2f958d9c00e007b9740a460c8814ff6bea0e2",
-        "compaction.py": "5326e51541cd42690a2e4dfb9e0409381a2eeb930b74b6123f57deeac81cbe5d",
+        "cli.py": "2869e6e7e6dbbfb1877c1530a6d88e1e659bc7ef6588f17cb738c093abeef7ff",
+        "code.py": "dad1b4c53bca5dd8bcc7ea2af38b70c7657cd14919d5d7ebe664eb6c10ce0866",
+        "compaction.py": "9d0e505f5c5d81b1a1fa6eae07511197b20b662286270eab26329bb44d2ceb28",
         "config.py": "39ad9536ca3728f7e0217a24c857bdee1d3e93c6615fe59400f39ec5d69671b8",
-        "demo.py": "29098dc56cc4d108839a128ad1f12e3b5dcd9ad8705fa0eedced2a8b9f63c9fb",
+        "demo.py": "63aeba7d7ea139a3e9a20fb4b3a32ebe32f685a1beae7c16d9936c58c826c290",
         "errors.py": "c94c6bca6e2d0c3a0e9e7136777915b099175a568b46de0c3eba3b74f4c74f67",
-        "events.py": "1ea58e098df2c29e17891430299b2c404cc2e8cc4175ba1017b0245ac6c89248",
+        "events.py": "f3307d4d327305e31df9351a45b5fe4171fe1e225a9a8e7db3d5479fb6bf8b84",
         "file_tools.py": "21925b7ee6f524036e9bf50d2cb8087dcc3f5f85b68cc5390ab0fdd3d6a913e3",
-        "messages.py": "6c94c652c18cf760d077c9adc58a278685795922741f5a723d649189bbe32a00",
+        "messages.py": "01f57b8ef82705b2cc226cb223f9788ae385090d497b837ae19d4321c4edae84",
         "model.py": "f991166f96ad1b740fb146fa449645be75e212f44da1ce69380b585f5525c047",
         "providers.py": "98410a4f960b3fa0b0071a654b7e08c7449234d48b9d5b8af180fb5cf5e52bd2",
-        "session.py": "2f7d68005d1211008e5f56a911fbedd8b26f16a4931bd977bdb383c7e9025135",
+        "session.py": "6528312c9fcb1091d8dcc860f79927ffa131e7701ec9882eb8e47566d3919c13",
         "tools.py": "285f101c35986b6c2b7c36af07a4ba8a87a0d6451e9f6ceb44022feee263073e"
       }
     },

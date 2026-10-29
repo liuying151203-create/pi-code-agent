@@ -10,7 +10,7 @@ from contextlib import aclosing
 
 from .errors import TurnLimitError
 from .events import EventBus, EventListenerError
-from .messages import AssistantMessage, Message, ToolCall, ToolResultMessage
+from .messages import AssistantMessage, Message, ToolCall, ToolResultMessage, convert_to_llm
 from .model import Model, StreamingModel
 from .tools import Tool, ToolResult, execute_tool
 
@@ -29,6 +29,8 @@ async def agent_loop(
     events: EventBus | None = None,
     # 来自 s05：保持；保留完整响应路径，调用方明确选择流式，不猜测模型能力。
     stream: bool = False,
+    # s07 新增：会话在每次请求前构建临时上下文，低层循环仍能独立使用。
+    transform_context=None,
 ) -> list[Message]:
     """请求模型、执行工具并回传结果，直到模型不再请求工具。
 
@@ -69,12 +71,15 @@ async def agent_loop(
         partial = AssistantMessage((), "pending")
         response = None
         try:
+            # s07 新增：先选择压缩后的内容，再转换成供应商能够识别的消息。
+            request_messages = transform_context(messages) if transform_context else messages
+            request_messages = convert_to_llm(request_messages)
             if stream:
                 # 来自 s05：保持；即使订阅器失败或任务取消，也先关闭模型生成器及底层 HTTP 流。
                 async with aclosing(
                     model.stream(
                         system=system,
-                        messages=tuple(messages),
+                        messages=tuple(request_messages),
                         tools=definitions,
                         max_tokens=max_tokens,
                     )
@@ -125,7 +130,7 @@ async def agent_loop(
                 # 来自 s04：保持；旧 Model 和完整响应调用仍然可用。
                 response = await model.complete(
                     system=system,
-                    messages=tuple(messages),
+                    messages=tuple(request_messages),
                     tools=definitions,
                     max_tokens=max_tokens,
                 )

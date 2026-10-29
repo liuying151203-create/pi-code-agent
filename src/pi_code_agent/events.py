@@ -7,6 +7,7 @@ from copy import deepcopy
 from inspect import isawaitable
 from typing import Any, Literal, TypedDict
 
+from pi_code_agent.compaction import CompactionResult
 from pi_code_agent.messages import AssistantMessage, Message, ToolResultMessage
 from pi_code_agent.model import StreamText
 from pi_code_agent.tools import ToolResult
@@ -70,8 +71,24 @@ class ToolExecutionEnd(TypedDict):
     is_error: bool
 
 
+# s07 新增：通知宿主压缩开始和成功，摘要结果不作为普通对话消息。
+class CompactionStart(TypedDict):
+    """表示摘要请求即将开始。"""
+
+    type: Literal["compaction_start"]
+
+
+class CompactionEnd(TypedDict):
+    """携带已保存的摘要结果。"""
+
+    type: Literal["compaction_end"]
+    result: CompactionResult
+
+
 type AgentEvent = (
     LifecycleStart
+    | CompactionStart
+    | CompactionEnd
     | AgentEnd
     | TurnEnd
     | MessageEvent

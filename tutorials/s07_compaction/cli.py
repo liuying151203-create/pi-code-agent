@@ -100,7 +100,7 @@ async def run(
             )
         else:
             target_id = sha256(str(workspace).encode("utf-8")).hexdigest()[:12]
-            path = Path.cwd() / ".sessions" / "s06" / target_id / (uuid4().hex + ".jsonl")
+            path = Path.cwd() / ".sessions" / "s07" / target_id / (uuid4().hex + ".jsonl")
             store = SessionStore.create(path, workspace)
         session = AgentSession(
             model=model,
@@ -109,6 +109,7 @@ async def run(
             stream=not options.no_stream,
             max_tokens=max_tokens,
             max_turns=options.max_turns,
+            keep_recent_tokens=options.keep_recent_tokens,
             loop=loop,
         )
         display = ConsoleDisplay()
@@ -123,6 +124,20 @@ async def run(
                     return 0
                 if prompt.lower() in {"", "q", "exit"}:
                     return 0
+            # s07 新增：简单识别压缩命令，不把命令正文发给普通模型回合。
+            name, _, arguments = prompt.partition(" ")
+            if name == "/compact":
+                result = await session.compact(arguments or None)
+                print("上下文已压缩。")
+                if result.usage is None:
+                    print("[摘要用量] 模型未返回用量")
+                else:
+                    print(
+                        f"[摘要用量] 输入 {result.usage.input_tokens}，输出 {result.usage.output_tokens}"
+                    )
+                if options.prompt is not None:
+                    return 0
+                continue
             # s06 修改：状态和持久化归会话所有，CLI 不再持有独立可变历史。
             # 来自 s03：保持；只统计本次输入新增的回答，旧会话用量不重复计入。
             start = len(session.messages)
@@ -168,17 +183,29 @@ def main(
     parser.add_argument("--demo", action="store_true", help="用离线脚本模型读取 README，无需密钥")
     parser.add_argument("--max-turns", type=int, help="可选模型轮数保护；省略时不限制")
     parser.add_argument("--no-stream", action="store_true", help="使用完整响应，关闭流式输出")
+    parser.add_argument(
+        "--keep-recent-tokens", type=int, default=20000, help="压缩时保留近期内容的估算预算"
+    )
     storage = parser.add_mutually_exclusive_group()
     storage.add_argument("--session", type=Path, help="打开已有会话或创建指定文件")
     storage.add_argument("--no-session", action="store_true", help="纯内存运行，不保存会话")
     options = parser.parse_args(arguments)
     if options.max_turns is not None and options.max_turns < 1:
         parser.error("--max-turns 必须是正整数")
+    if options.keep_recent_tokens < 1:
+        parser.error("--keep-recent-tokens 必须是正整数")
     try:
         return asyncio.run(run(options, loop=loop))
     except KeyboardInterrupt:
         print("已取消", file=sys.stderr)
         return 130
-    except (OSError, ValueError, ProviderError, TurnLimitError, EventListenerError) as error:
+    except (
+        OSError,
+        ValueError,
+        RuntimeError,
+        ProviderError,
+        TurnLimitError,
+        EventListenerError,
+    ) as error:
         print(str(error), file=sys.stderr)
         return 1

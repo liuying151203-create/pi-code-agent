@@ -30,6 +30,9 @@ class DemoModel:
         max_tokens: int,
     ) -> AssistantMessage:
         """根据末条消息生成工具调用或包含实际结果的回答，不访问网络。"""
+        # s07 新增：离线演示只返回固定摘要，不代表真实模型的归纳能力。
+        if system == "你负责整理对话摘要，不执行任务。" and not tools:
+            return AssistantMessage((Text("演示摘要：已收到需要压缩的历史。"),))
         if messages and isinstance(messages[-1], ToolResultMessage):
             result = messages[-1]
             label = "工具失败" if result.is_error else "工具返回"

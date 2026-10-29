@@ -157,6 +157,7 @@ async def run(
             stream=not options.no_stream,
             max_tokens=max_tokens,
             max_turns=options.max_turns,
+            keep_recent_tokens=options.keep_recent_tokens,
             loop=loop,
         )
         display = ConsoleDisplay()
@@ -231,6 +232,9 @@ def main(
     parser.add_argument("--demo", action="store_true", help="用离线脚本模型读取 README，无需密钥")
     parser.add_argument("--max-turns", type=int, help="可选模型轮数保护；省略时不限制")
     parser.add_argument("--no-stream", action="store_true", help="使用完整响应，关闭流式输出")
+    parser.add_argument(
+        "--keep-recent-tokens", type=int, default=20000, help="压缩时保留近期内容的估算预算"
+    )
     storage = parser.add_mutually_exclusive_group()
     storage.add_argument("--session", type=Path, help="打开已有会话或创建指定文件")
     storage.add_argument("--no-session", action="store_true", help="纯内存运行，不保存会话")
@@ -267,11 +271,20 @@ def main(
     options, options.extension_args = parser.parse_known_args(arguments)
     if options.max_turns is not None and options.max_turns < 1:
         parser.error("--max-turns 必须是正整数")
+    if options.keep_recent_tokens < 1:
+        parser.error("--keep-recent-tokens 必须是正整数")
     try:
         return asyncio.run(run(options, loop=loop))
     except KeyboardInterrupt:
         print("已取消", file=sys.stderr)
         return 130
-    except (OSError, ValueError, ProviderError, TurnLimitError, EventListenerError) as error:
+    except (
+        OSError,
+        ValueError,
+        RuntimeError,
+        ProviderError,
+        TurnLimitError,
+        EventListenerError,
+    ) as error:
         print(str(error), file=sys.stderr)
         return 1

@@ -192,7 +192,7 @@ class ExtensionAPI:
         if (
             not name
             or not name.replace("-", "").replace("_", "").isalnum()
-            or name in {"help", "reload", "quit"}
+            or name in {"help", "reload", "quit", "compact"}
             or not callable(handler)
         ):
             raise ValueError("无效或保留的命令名称")

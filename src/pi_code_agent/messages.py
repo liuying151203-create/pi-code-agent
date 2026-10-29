@@ -16,6 +16,15 @@ class UserMessage:
     role: Literal["user"] = field(default="user", init=False)
 
 
+# s07 新增：摘要是运行时投影，不冒充真实用户消息或重复写入会话。
+@dataclass(frozen=True)
+class CompactionSummary:
+    """保存上次压缩摘要；只在请求前转换成供应商支持的用户文本。"""
+
+    content: str
+    role: Literal["compaction_summary"] = field(default="compaction_summary", init=False)
+
+
 @dataclass(frozen=True)
 class Text:
     """保存模型回答中的一个文本块。"""
@@ -130,9 +139,18 @@ class CustomMessage:
             raise ValueError("自定义消息需要类型、文本与布尔 display")
 
 
-type Message = UserMessage | AssistantMessage | ToolResultMessage | CustomMessage
+type Message = (
+    UserMessage | AssistantMessage | ToolResultMessage | CustomMessage | CompactionSummary
+)
 
 
 def convert_to_llm(messages: list[Message]) -> list[Message]:
     """参考 Pi convertToLlm：自定义消息转换为用户文本，展示标记不影响模型可见性。"""
-    return [UserMessage(m.content) if isinstance(m, CustomMessage) else m for m in messages]
+    return [
+        UserMessage("以下是之前会话的摘要：\n" + m.content)
+        if isinstance(m, CompactionSummary)
+        else UserMessage(m.content)
+        if isinstance(m, CustomMessage)
+        else m
+        for m in messages
+    ]

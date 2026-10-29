@@ -65,6 +65,12 @@ SDK 不自动读取 `.env`。如有需要，调用 `load_model_config(明确路�
 
 会话会持久化推理块及签名以支持后续回传；既有纯文本和工具消息仍能恢复，旧版程序不识别新增的 thinking 内容块。模型 SDK 仅在创建对应的自有客户端时加载；注入客户端和离线模式不要求加载模型 SDK。
 
+## 手动压缩
+
+`await session.compact(instructions=None)` 返回 `CompactionResult`。完整历史仍由 `session.messages` 返回，后续模型请求使用摘要和近期消息；`AgentSession(..., keep_recent_tokens=20000)` 可调整估算预算。`store=None` 时也能使用内存记录。CLI 输入 `/compact`，或者 `/compact 保留任务目标`。
+
+第一次压缩 v1 文件时会保留同目录 `.v1.bak` 备份并迁移为 v2；旧程序不能读取 v2。摘要失败、取消或截断不会追加压缩记录。自动阈值与溢出恢复将在 s07 第二阶段实现，详见 [s07](../tutorials/s07_compaction/README.md)。
+
 ## 扩展
 
 `ExtensionRuntime` 可 `await register(factory)` 或 `await load(paths)`；工厂接收 `ExtensionAPI`，调用 `register_tool`。传入 `AgentSession(extensions=runtime, builtin_tools=..., tools=...)` 后按 Pi 优先级组装工具，使用结束调用 `runtime.close()`。插件是可信代码，不是沙箱；项目自动加载需 --trust-project-extensions，--no-extensions 仍保留显式 -e。见 [s08](../tutorials/s08_extensions/README.md)。

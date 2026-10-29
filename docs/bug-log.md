@@ -1,5 +1,17 @@
 # 新主线问题记录
 
+## V2-B028：摘要请求携带了推理签名和完整大工具结果
+
+s07 开发时最初直接把会话 JSON 当作摘要输入，连同推理签名、脱敏内容及完整工具输出一起发送。对照 Pi `compaction/utils.ts::serializeConversation` 后，改为保留可读推理、去掉签名与脱敏内容，并将单条工具输出限制为 2000 字符。`test_summary_excludes_thinking_signatures_and_limits_tool_output` 对产品与 s07 快照验证；完整历史仍保留原始消息。
+
+## V2-B029：压缩记录校验遗漏非 tool_use 状态的工具调用
+
+s07 开发时工具完整性校验只识别 `tool_use` 回答；现有循环也会为 `stop` 和 `length` 回答中的工具请求写入结果。遗漏会把这些合法结果误判为孤立结果，或放过缺失结果。修复按现有循环语义识别除 error/aborted 外的调用，`test_compaction_rejects_incomplete_tool_pairs_on_persistence` 覆盖三种结束状态及两份实现。
+
+## V2-B027：压缩摘要未通过扩展上下文校验
+
+s07 手动压缩开发中，产品 context Hook 能收到 `CompactionSummary`，但返回原消息时，旧 `encode_message` 不认识该类型，运行时记录“不支持的会话消息”并丢弃 Hook 的返回值。修复只允许摘要作为临时上下文通过校验，普通会话消息仍拒绝保存摘要；它在供应商请求前转换为文本。`test_product_context_hook_observes_summary_and_recent_messages` 验证 Hook 收到摘要和近期消息、无诊断且模型收到摘要；旧章节快照不回补。
+
 ## V2-B007：扩展缺少原生 ModuleSpec
 
 s07 提交 d423a36 后复查，手工 ModuleType 缺少 __spec__/loader 等元数据；普通相对导入可以运行，但插件调用 find_spec 或 importlib.resources 时失败。`test_extension_has_native_module_spec_and_can_read_its_package_resources` 在产品/s07 均复现 __spec__ is None。修复用 spec_from_file_location(..., submodule_search_locations=...) 和 module_from_spec 构建完整包，再显式编译入口，保留新鲜源码与命名空间清理。回归核对 origin、包内资源和工具实际输出；不把此修复等同于 s12 的热重载。

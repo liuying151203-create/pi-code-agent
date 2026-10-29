@@ -12,7 +12,7 @@ s05 继续参考上述提交的 `agent-loop.ts::streamAssistantResponse`、`pack
 
 s06 参考同一版本的 `packages/agent/src/agent.ts`、`packages/coding-agent/src/core/agent-session.ts`、`session-manager.ts` 及会话相关测试。采用状态/存储分工、完成消息落盘、条目关联及默认持久化选择。Python SessionStore 使用自己的 version=1 线性文件，不直接导入 Pi 文件；树与分支尚未迁入。
 
-s07 切点计算参考同一版本 `packages/coding-agent/src/core/compaction/compaction.ts::findCutPoint`；Python 按现有文本、工具调用和结果消息实现，尚未接入摘要、存储或自动压缩。
+s07 手动压缩参考同一版本 `packages/coding-agent/src/core/compaction/compaction.ts` 的切点、拆分回合及摘要过程、`compaction/utils.ts` 的摘要序列化和 `agent-session.ts` 的手动入口；Python 按现有消息类型、线性 JSONL v2 与 asyncio 取消语义实现。自动压缩与溢出恢复留在 s07 第二阶段。
 
 s08 参考 `packages/coding-agent/src/core/extensions/loader.ts` 的工厂事务与发现顺序、`runner.ts::getAllRegisteredTools` 的跨扩展首个优先，以及 `agent-session.ts::_refreshToolRegistry` 的内置/扩展/SDK 分层。Python 用独立模块命名空间加载可信工厂，不声称支持 npm 包或操作系统沙箱；动态注册留在 s13。
 
