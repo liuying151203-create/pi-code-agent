@@ -67,7 +67,7 @@ SDK 不自动读取 `.env`。如有需要，调用 `load_model_config(明确路�
 
 ## 扩展
 
-`ExtensionRuntime` 可 `await register(factory)` 或 `await load(paths)`；工厂接收 `ExtensionAPI`，调用 `register_tool`。传入 `AgentSession(extensions=runtime, builtin_tools=..., tools=...)` 后按 Pi 优先级组装工具，使用结束调用 `runtime.close()`。插件是可信代码，不是沙箱；项目自动加载需 --trust-project-extensions，--no-extensions 仍保留显式 -e。见 [s07](../tutorials/s07_extensions/README.md)。
+`ExtensionRuntime` 可 `await register(factory)` 或 `await load(paths)`；工厂接收 `ExtensionAPI`，调用 `register_tool`。传入 `AgentSession(extensions=runtime, builtin_tools=..., tools=...)` 后按 Pi 优先级组装工具，使用结束调用 `runtime.close()`。插件是可信代码，不是沙箱；项目自动加载需 --trust-project-extensions，--no-extensions 仍保留显式 -e。见 [s08](../tutorials/s08_extensions/README.md)。
 
 
 ## 扩展基座（s08–s12）

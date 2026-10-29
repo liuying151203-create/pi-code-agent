@@ -110,7 +110,7 @@ class ToolResultMessage:
     role: Literal["tool_result"] = field(default="tool_result", init=False)
 
 
-# s09 新增：显示选择和模型可见性分开，自定义消息默认进入模型上下文。
+# s10 新增：显示选择和模型可见性分开，自定义消息默认进入模型上下文。
 @dataclass(frozen=True)
 class CustomMessage:
     """扩展投递的文本，display 只控制界面；状态记录使用独立 custom 条目。"""

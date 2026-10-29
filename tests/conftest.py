@@ -23,7 +23,7 @@ def load_runtime(package: str) -> SimpleNamespace:
     输入：正式包或单个章节包名；输出：该版本实际拥有的类、方法和适配器。
     流程：加载本包消息/工具/循环 → 按章节阶段加载真实存在的组件；不做类型桥接。
     """
-    stage = int(package.split(".")[-1][1:3]) if package.startswith("tutorials.") else 12
+    stage = int(package.split(".")[-1][1:3]) if package.startswith("tutorials.") else 13
     loop_module = "code" if package.startswith("tutorials.") else "loop"
     exports = {}
     components = {
@@ -42,9 +42,9 @@ def load_runtime(package: str) -> SimpleNamespace:
         components["events"] = ("EventBus", "EventListenerError")
     if stage >= 6:
         components["session"] = ("AgentSession", "SessionStore", "encode_message", "decode_message")
-    if stage >= 7:
+    if stage >= 8:
         components["extensions"] = ("ExtensionAPI", "ExtensionRuntime", "discover_extensions")
-    if stage >= 9:
+    if stage >= 10:
         components["messages"] = (
             "UserMessage",
             "AssistantMessage",
@@ -53,7 +53,7 @@ def load_runtime(package: str) -> SimpleNamespace:
             "ToolResultMessage",
             "CustomMessage",
         )
-    if stage >= 11:
+    if stage >= 12:
         components["resources"] = (
             "ResourceLoader",
             "Skill",

@@ -12,9 +12,11 @@ s05 继续参考上述提交的 `agent-loop.ts::streamAssistantResponse`、`pack
 
 s06 参考同一版本的 `packages/agent/src/agent.ts`、`packages/coding-agent/src/core/agent-session.ts`、`session-manager.ts` 及会话相关测试。采用状态/存储分工、完成消息落盘、条目关联及默认持久化选择。Python SessionStore 使用自己的 version=1 线性文件，不直接导入 Pi 文件；树与分支尚未迁入。
 
-s07 参考 `packages/coding-agent/src/core/extensions/loader.ts` 的工厂事务与发现顺序、`runner.ts::getAllRegisteredTools` 的跨扩展首个优先，以及 `agent-session.ts::_refreshToolRegistry` 的内置/扩展/SDK 分层。Python 用独立模块命名空间加载可信工厂，不声称支持 npm 包或操作系统沙箱；动态注册留在 s12。
+s07 切点计算参考同一版本 `packages/coding-agent/src/core/compaction/compaction.ts::findCutPoint`；Python 按现有文本、工具调用和结果消息实现，尚未接入摘要、存储或自动压缩。
 
-s08–s12 继续参考同一版本的 `extensions/runner.ts`、`loader.ts`、`agent-session.ts`、`session-manager.ts`、`agent.ts`、`agent-loop.ts`、`resource-loader.ts`、`skills.ts`、`prompt-templates.ts` 及对应测试。输入/上下文/工具 Hook、命令四种效果分离、双队列与代次失效按 Python 移植；模板参数解析和单次替换语义参照原实现改写。Python 使用 PyYAML safe_load、asyncio 原生取消和独立模块包；默认业务上下文范围更窄，重载先验证候选以保留失败前的可用代次。完整范围与差异见各章 README。第三方声明随每份独立快照保留。
+s08 参考 `packages/coding-agent/src/core/extensions/loader.ts` 的工厂事务与发现顺序、`runner.ts::getAllRegisteredTools` 的跨扩展首个优先，以及 `agent-session.ts::_refreshToolRegistry` 的内置/扩展/SDK 分层。Python 用独立模块命名空间加载可信工厂，不声称支持 npm 包或操作系统沙箱；动态注册留在 s13。
+
+s09–s13 继续参考同一版本的 `extensions/runner.ts`、`loader.ts`、`agent-session.ts`、`session-manager.ts`、`agent.ts`、`agent-loop.ts`、`resource-loader.ts`、`skills.ts`、`prompt-templates.ts` 及对应测试。输入/上下文/工具 Hook、命令四种效果分离、双队列与代次失效按 Python 移植；模板参数解析和单次替换语义参照原实现改写。Python 使用 PyYAML safe_load、asyncio 原生取消和独立模块包；默认业务上下文范围更窄，重载先验证候选以保留失败前的可用代次。完整范围与差异见各章 README。第三方声明随每份独立快照保留。
 
 以下 Pi MIT 声明适用于相关复用与移植部分，不代表归档之外的全部原创内容另行更换许可。
 

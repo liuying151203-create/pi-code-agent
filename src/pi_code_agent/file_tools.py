@@ -57,7 +57,7 @@ def read_tool(workspace: Path, *, resource_roots=()) -> Tool:
     if not root.is_dir():
         raise ValueError("workspace 必须是已有目录")
 
-    # s11 新增：只放行明确加载 Skill 的资源目录，正文和引用可读，其他边界保留。
+    # s12 新增：只放行明确加载 Skill 的资源目录，正文和引用可读，其他边界保留。
     allowed = tuple(Path(path).resolve(strict=True) for path in resource_roots)
 
     # s02 新增：处理函数有独立读文件职责，闭包只捕获本工具的工作区实例。

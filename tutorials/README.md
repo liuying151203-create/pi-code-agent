@@ -12,16 +12,20 @@
 
 6. [s06：会话与状态](s06_sessions/README.md)：谁持有历史，何时落盘，怎样恢复。
 
-7. [s07：扩展加载与工具注册](s07_extensions/README.md)：可信工厂事务、注册优先级和来源进入实际会话
+以下按调整后的章节顺序列出。s07 正在实现；扩展章节已顺延编号，但尚未接入压缩能力，逐章接续方式见 [上下文压缩设计](../docs/context-compaction-design.md)。
 
-8. [s08：Hook 拦截](s08_hooks/README.md)：输入、上下文和工具策略进入真实执行路径
+7. [s07：上下文压缩](s07_compaction/README.md)，分阶段学习手动、自动和溢出恢复（开发中）
 
-9. [s09：命令与参数](s09_commands/README.md)：命令分发、参数和 UI/状态/模型消息分离
+8. s08：扩展加载与工具注册（[现有快照](s08_extensions/README.md)，待接续压缩）
 
-10. [s10：取消与消息队列](s10_queues/README.md)：活跃任务取消、等待空闲和完整回合边界投递
+9. s09：Hook 拦截与压缩扩展（[现有快照](s09_hooks/README.md)，待接续压缩）
 
-11. [s11：资源加载](s11_resources/README.md)：业务上下文、Skill 元数据和提示模板进入实际输入
+10. s10：命令与参数（[现有快照](s10_commands/README.md)，待接续压缩）
 
-12. [s12：动态工具与重载](s12_reload/README.md)：工具按请求刷新，扩展和资源验证后切换代次
+11. s11：取消与消息队列（[现有快照](s11_queues/README.md)，待接续压缩）
+
+12. s12：资源加载（[现有快照](s12_resources/README.md)，待接续压缩）
+
+13. s13：动态工具与重载（[现有快照](s13_reload/README.md)，待接续压缩）
 
 已完成范围和暂缓专题见 [章节规划](../docs/extension-foundation-plan.md)。旧版教程完整保存在 [archive/v1](../archive/README.md)。

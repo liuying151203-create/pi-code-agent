@@ -26,7 +26,7 @@ class ToolResult:
 
     content: str
     is_error: bool = False
-    # s08 新增：整批工具都要求终止时停止自动模型续轮，不写入消息协议。
+    # s09 新增：整批工具都要求终止时停止自动模型续轮，不写入消息协议。
     terminate: bool = False
 
     def __post_init__(self) -> None:
@@ -76,7 +76,7 @@ async def execute_tool(call: ToolCall, tools: Mapping[str, Tool]) -> ToolResultM
     return ToolResultMessage(call.id, call.name, result.content, result.is_error)
 
 
-# s08 新增：结果策略与模型消息分开，保留 Pi 的 terminate 批处理语义。
+# s09 新增：结果策略与模型消息分开，保留 Pi 的 terminate 批处理语义。
 async def execute_tool_outcome(
     call: ToolCall, tools: Mapping[str, Tool], *, before=None, after=None
 ) -> ToolResult:
@@ -101,7 +101,7 @@ async def execute_tool_outcome(
                 except ValidationError:
                     arguments.pop(name)
         validated = tool.parameters.model_validate(arguments).model_dump()
-        # s08 新增：Hook 只能在完整参数校验之后介入；异常不会执行工具。
+        # s09 新增：Hook 只能在完整参数校验之后介入；异常不会执行工具。
         decision = await before(call, deepcopy(validated)) if before is not None else None
         if decision and decision.get("block"):
             result = ToolResult(
@@ -113,7 +113,7 @@ async def execute_tool_outcome(
             raise TypeError("工具处理函数必须返回 ToolResult")
     except Exception as error:  # noqa: BLE001 - Pi 的普通工具异常回传模型；不吞取消异常
         result = ToolResult(str(error), is_error=True)
-    # s08 新增：成功、执行失败和校验失败均可观察/覆盖结果，取消不会伪装成结果。
+    # s09 新增：成功、执行失败和校验失败均可观察/覆盖结果，取消不会伪装成结果。
     if after is not None:
         try:
             result = await after(call, result)

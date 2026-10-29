@@ -1,4 +1,4 @@
-"""s12：离线串起工厂、命令、状态、Hook、模型工具和安全重载。"""
+"""s13：离线串起工厂、命令、状态、Hook、模型工具和安全重载。"""
 
 import asyncio
 from pathlib import Path
@@ -10,7 +10,7 @@ from pi_code_agent.demo import DemoModel
 
 def setup(api):
     """声明工具、命令和参数；命令只保存状态，工具结果明确交给模型。"""
-    # s12 新增：使用当前宿主类型，重载时重新创建工厂闭包。
+    # s13 新增：使用当前宿主类型，重载时重新创建工厂闭包。
     api.register_flag("prefix", type="string", default="你好")
 
     async def greet(arguments):
@@ -27,13 +27,13 @@ def setup(api):
 
 async def main():
     """基础路径 → 功能组件 → 会话组装 → 运行及恢复验证；不访问真实模型。"""
-    # s12 新增：基础依赖使用独立业务项目，临时状态留在 .sessions。
+    # s13 新增：基础依赖使用独立业务项目，临时状态留在 .sessions。
     workspace = Path("example_project/mini_app").resolve(strict=True)
     temporary_root = Path(".sessions")
     temporary_root.mkdir(exist_ok=True)
     model = DemoModel("greet", {})
 
-    # s12 新增：先完成工厂和资源，再把实际组件交给会话。
+    # s13 新增：先完成工厂和资源，再把实际组件交给会话。
     extensions = ExtensionRuntime()
     await extensions.register(setup)
     extensions.parse_flags(["--prefix=你好"])

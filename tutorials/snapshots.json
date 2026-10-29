@@ -105,128 +105,146 @@
         "tools.py": "285f101c35986b6c2b7c36af07a4ba8a87a0d6451e9f6ceb44022feee263073e"
       }
     },
-    "s07_extensions": {
+    "s07_compaction": {
+      "files": {
+        "__init__.py": "c65fb35b63fe081d1f95c9a58e8e27529ab7a1efd05d8bc688dd1dafa7a9d57a",
+        "cli.py": "237c7d3d9f48a12d919085a843189bcc0c0fad86b56b0e51d6ff37fb911f79d4",
+        "code.py": "8a65ef6f6eb4f3e9581b55cce9d2f958d9c00e007b9740a460c8814ff6bea0e2",
+        "compaction.py": "5326e51541cd42690a2e4dfb9e0409381a2eeb930b74b6123f57deeac81cbe5d",
+        "config.py": "39ad9536ca3728f7e0217a24c857bdee1d3e93c6615fe59400f39ec5d69671b8",
+        "demo.py": "29098dc56cc4d108839a128ad1f12e3b5dcd9ad8705fa0eedced2a8b9f63c9fb",
+        "errors.py": "c94c6bca6e2d0c3a0e9e7136777915b099175a568b46de0c3eba3b74f4c74f67",
+        "events.py": "1ea58e098df2c29e17891430299b2c404cc2e8cc4175ba1017b0245ac6c89248",
+        "file_tools.py": "21925b7ee6f524036e9bf50d2cb8087dcc3f5f85b68cc5390ab0fdd3d6a913e3",
+        "messages.py": "6c94c652c18cf760d077c9adc58a278685795922741f5a723d649189bbe32a00",
+        "model.py": "f991166f96ad1b740fb146fa449645be75e212f44da1ce69380b585f5525c047",
+        "providers.py": "98410a4f960b3fa0b0071a654b7e08c7449234d48b9d5b8af180fb5cf5e52bd2",
+        "session.py": "2f7d68005d1211008e5f56a911fbedd8b26f16a4931bd977bdb383c7e9025135",
+        "tools.py": "285f101c35986b6c2b7c36af07a4ba8a87a0d6451e9f6ceb44022feee263073e"
+      }
+    },
+    "s08_extensions": {
       "source_baseline": "3859d21",
       "pi_reference": "e4c75a732",
       "files": {
-        "__init__.py": "429b941c349cb02de8656be7f4d18239ac012d00deb8da2412fdf5c7dc3128a0",
-        "cli.py": "c83813d32d36219c67392aff2fbcd8e19bb15207c397499d0f1dd975b1ed06aa",
-        "code.py": "ece818cdac27e0940c22149a77b878448d02062b5a90b23d71de8b55567bb445",
-        "config.py": "a125af4a21787b3bce9de3b703c9243c8235a5046e09414477fc9a33cabd7c48",
-        "demo.py": "4c81d8617b3b5878d41aa0e016afa87aa5917b81f0ea01a8ae3687092e8913fa",
+        "__init__.py": "baa2d37dea11a087dd6d4a8382e79520875f4cb131c2317b7a1dbfd9f3bb7789",
+        "cli.py": "7339681149cbc6372426421fe253b7783e0323753534e2aeb606e4ad74e53f28",
+        "code.py": "85fa692014c6792aa6582088294e6fe6d769cc564c7bcb5f679ef8c0c1499b66",
+        "config.py": "45d2111e9385b6b138332eaece97479b0fb39d8f86ee0bbc6e14b463d702a385",
+        "demo.py": "31e1acc29f3c31497468f80113eb80957ab69179dc47e2986040331d4f0e8f9d",
         "errors.py": "c94c6bca6e2d0c3a0e9e7136777915b099175a568b46de0c3eba3b74f4c74f67",
-        "events.py": "f6303283bfc7a2f0d39f577b5394b39b37a4e56b7faf8208bd70d26aa8979b34",
-        "example_extension.py": "1f2ceebcd417d605d791730806a38182ea57e98495112f0f6250f291f41d16d0",
-        "extensions.py": "5b7e68ad2a7a484ece9b71faa5c25287bb97de6c6553905b36edca03b9c3e640",
-        "file_tools.py": "09fb7b405471fc494638551c32248c510feab115c298b70ec9ab22ea7c2aa6e3",
-        "messages.py": "ae8e99f579e755a772cf228c39832f04689b83d852c6a1414ce443565706af05",
-        "model.py": "ec346326a1a159994ef4c7c6054077533e9c533b798f938df62aeaab6cad15b8",
-        "providers.py": "e52450868444d5b631afcdc4842cc926366b7607dc5c53f251fc33874e97342f",
-        "session.py": "af7b2ebd3ed3fde732abb2e6881d3ffdaf7fe124af4deac60ee50923ecd199a7",
-        "tools.py": "ad8ec1ebbb978f01f0c7d14bd138e52e80cdd4fd02ad8eb88bc36d29a11fb6b4"
+        "events.py": "a12221b0d90e7ab2352fbb5934336fda7aaae48695943dfb79405b2903eb4e90",
+        "example_extension.py": "41233d1e2a6c5440d75ad51445a379ad695dcae5f7c9d17706af7534ead57319",
+        "extensions.py": "0855034797f65e896df77d8af53e1d393cd8f144be68de8bf667c2b2213fbafb",
+        "file_tools.py": "828e6bbb552627042ba09a6d6761e10b557c56db255c23fdcc084cd194b757cf",
+        "messages.py": "708036af6134689a94b0983b676901fab6bf3b178dc3778bdcc684b3ecd2561d",
+        "model.py": "c01cbb2918eeb1d4dbc29266ceb0866f43a318e14ed167156622c1e013b5c320",
+        "providers.py": "81c988c38f8dd3eac4e012c7e18f5489089dc4c24d59dc6ba8a54f9170cebfb0",
+        "session.py": "876d55885a0db92c8b3c2070c83db4fe5b0e3de5bd4c91551adb7766bc2e5cc0",
+        "tools.py": "667e63b063f7cebf3dc39b8574ee8243ff4a5b1f4b16f26b513ffbdb7423fa0f"
       }
     },
-    "s08_hooks": {
+    "s09_hooks": {
       "source_baseline": "27cdd3a",
       "pi_reference": "e4c75a732",
       "files": {
-        "__init__.py": "baa2d37dea11a087dd6d4a8382e79520875f4cb131c2317b7a1dbfd9f3bb7789",
-        "cli.py": "f675e5c0050322fba4cdc2813c53f2af91585bf017c5f64f172272df61cf8dac",
-        "code.py": "84bca6be98c3a73ee02dd1b712d5ed86882766b67e52714a3cc144850d3f49c0",
-        "config.py": "80904a79f6e82cc5a5b08bc80377f3911e23035a66671f34990e5db078cd1b19",
-        "demo.py": "b6353400a6b5dfbfeeba702abf3a3108a482ce7da6d2abd8d19276e02513df20",
-        "errors.py": "c94c6bca6e2d0c3a0e9e7136777915b099175a568b46de0c3eba3b74f4c74f67",
-        "events.py": "b96d483240a59b1691ddb7a4b14747733111aec016f6b2aefd744d388b860fd7",
-        "extensions.py": "81ff45a41fff683d93848d7bec19b9f2c3dac0550e5a251cacfcc4ea5feaf433",
-        "file_tools.py": "804b584810a8a25cafce331935480e006781ed4a78d879c6325ac20e42f18b1f",
-        "messages.py": "1dccbc2128bc3a39b1aaaa8e3fdf3da6313c6615c4bcbad958f1a4bfbb9cb30b",
-        "model.py": "ebf45b5cb0ce8aa3200d90ba75180d68bb218125711b9e9911530a8ca7c21bdc",
-        "providers.py": "5b604cb54b94fab18f713beb0903625a30f112cbc1f5dfab5df90b264d0a1782",
-        "session.py": "1de546b13fe86f5fdfbb2f12bcb49bcec9aa1df00d3fd256776f9fc8015e3b1c",
-        "tools.py": "476af5989bc66995c2f91ed2629c90dc9ad38e5d337e41baa17aa3f4edf81e3f"
-      }
-    },
-    "s09_commands": {
-      "source_baseline": "990e897",
-      "pi_reference": "e4c75a732",
-      "files": {
         "__init__.py": "18d4ff5bce155d1b804d3c4502cc026b1bdaeda44e2d4b027f1fe3682e4e06ee",
-        "cli.py": "59ea7d63e4fbc1bccc9963959481cd38ac7878b2c402adcb754abe444976b615",
-        "code.py": "a4ff7ad5bf7ebac0c96252297edfac429b26db3a8c4d0ffd5573d2df34f12ddf",
+        "cli.py": "4727fef0acb04493d3f87a343df477f06b36fc5c3dd9abd37aea8d3c331c85b2",
+        "code.py": "652181c7eea4512dbdbcb36666e97f3ee89df445dd2e9ff56e0a46629c11845b",
         "config.py": "02157f14f0a83b7b68cc466f228edc49900fc0ea1808792c7c2f4486618f141e",
         "demo.py": "c03e96fc82650519d30d063bf771ae41e84d02e016aeb10697d442c205a3ced9",
         "errors.py": "c94c6bca6e2d0c3a0e9e7136777915b099175a568b46de0c3eba3b74f4c74f67",
         "events.py": "fb83007a723df7c8e5b612fefdebcd165b872546f227880a9e9bc8ad8b6125f4",
-        "example_extension.py": "923fa9cd5ded197bc147d941d5afb66eb2e9ccaaff3ec6b42b1d4fb2a8d3a215",
-        "extensions.py": "b380e9a8ff823442e0bd4d95ececc68e950fceac575b53712326e799a08406bf",
+        "extensions.py": "1e57e15fb6514a43e1609c4f93bcbd93c76818b477adc55e48e8fb746af681c9",
         "file_tools.py": "be5dee2a9fb1d86f609572d3bc4573d4b9404ed045f62c8cedb11b613da8a6a0",
-        "messages.py": "54558a457b6455890316ac5531be3d28f2bc27510a26d504f8eb2b6c8196c15b",
+        "messages.py": "20b0307bf398bfd93ff9b862310467a323aa5a84e03e04b7a5cc452ed5a8c902",
         "model.py": "e24f534fe488a22c560aa5f1a699901cd028c5dc54f06280862f12d869156c78",
         "providers.py": "3b5752ae3f64dd358acbedac3545c1049360b5ea4b31d6f1b759c0c7bfe7fdb8",
-        "session.py": "c13e8ba8e45bbe57a46f158ef60a9a1e4eefb943307c6c4edbbf0d141674cb38",
-        "tools.py": "fccc616b533381ff28b0c1f6e496a84cfd56f27a0bb7dec2ca03454c2426743c"
+        "session.py": "7f0c53bbf72c81524f9f40e20588ae3b139ec71451f4b3508386b3115d9b3533",
+        "tools.py": "859d33de6d70b4af7b4eb72d454c5628d318035881a682b64ea0ba1cdc2e3acf"
       }
     },
-    "s10_queues": {
-      "source_baseline": "a519e69",
+    "s10_commands": {
+      "source_baseline": "990e897",
       "pi_reference": "e4c75a732",
       "files": {
         "__init__.py": "458647bac64e7c4decc8fc950c75a2ad4fe30cd3036f362b43ba6b816d5b14b1",
         "cli.py": "78bd19bd572359992126e25f64e95075057c6c2a913beddee8f1fbee061a24ca",
-        "code.py": "46dbadef475ad785215c154b8bcee1896191816b188ed789d3ab928bde1468ee",
+        "code.py": "678cc9d2356903f7ecbdbe349b27676c91f383625f6722edbad4c93191d27be8",
         "config.py": "d27130026e10ad60cf8d4434b6f16590757e42feea3818b4f4d9b4950de8c47e",
         "demo.py": "bd2e5db521b29bb0e72a63d63d4861df9c789228169e33325b78ab0d5624294a",
         "errors.py": "c94c6bca6e2d0c3a0e9e7136777915b099175a568b46de0c3eba3b74f4c74f67",
         "events.py": "e0fbd6f3498ba0c3af897fb2f135f2f8ba24f3d2471bacc69085c36724ace48a",
-        "extensions.py": "c52b5fc11fedb3184d7ce92b751f7f8edfa872c336f991a66bdd387ff9abc779",
+        "example_extension.py": "9704f6fd35389bdf3e22d38b318f32e6e24523414d0be4f23f30d573977f2726",
+        "extensions.py": "bd0ad88196c1c8916072e8fbf88a09707a1bdf4820a7d6e4b9fa5b857b5365fd",
         "file_tools.py": "bc6d41cfd91a61f15d7e4ac3a6810b820bd8b2a2c2c889015dd3fdcd58bf7ce3",
-        "messages.py": "e7427551db1e68c47f395cae716bb2d5af2502b4a60d5211f5107e411f42e357",
+        "messages.py": "6aa8a0abe0ff40792afc5468ee15209d092e93be99b661e62bce65be579b79dc",
         "model.py": "8c0eb30aa19f991cce69a7d588ac49b1880370d5b818f42bd5149dc50ce82188",
         "providers.py": "301f02fd1b0b5e905613f5e1d65278ac2a044d177d863653b4f1201437fa1042",
-        "session.py": "8fec0afadbb14b567e37e45b5a52c47635e8eb6f2fcc4cd4bf85451b4b4ed0db",
-        "tools.py": "001de9f42bdc184d162f7c89a0ebd1eb8e843584ac390e7cb4249f83cef22c2a"
+        "session.py": "dd41ef22c93a318cb44421332f528b014bebe9e8695cda27f351ae04b85a41a5",
+        "tools.py": "62f204dc0d8cf7907780e4f3cbea240e19d87a89033632e86d7c71c209d11bac"
       }
     },
-    "s11_resources": {
-      "source_baseline": "9023750",
+    "s11_queues": {
+      "source_baseline": "a519e69",
       "pi_reference": "e4c75a732",
       "files": {
         "__init__.py": "b1d3c51ffd7dccb612f078a125c8d6dc765c95fc37a983cc624ded54cf60453f",
-        "cli.py": "ee129be06efa0c67ea519b954500efd8dfe0bee076ebcd9e93f8f93269b76e51",
-        "code.py": "c0b1632404886dc4482a1179e455c56b0bf51498b99d0727bd0a901ace9e069b",
+        "cli.py": "092d1b7a2e0ee9e5685274f19cff9a6ab197707b88f5f9845208d46e20c1c4b8",
+        "code.py": "38eebe57b068eaf5c7c33a0d9fab4d368ac8933648190fe6da4ae946a04ab157",
         "config.py": "d2d286e4eca0972f5b792756e2dd86b2e119c15aedca6b07bab1bf035dfbb182",
         "demo.py": "665aa994784d7c2553a63cf5174058c0d529cfb2465f8f3e22545d13ce4faf4e",
         "errors.py": "c94c6bca6e2d0c3a0e9e7136777915b099175a568b46de0c3eba3b74f4c74f67",
         "events.py": "1326fa24e095c71f7e835826de17e10823a54f85658f4820bfdd3aec5b37d8d6",
-        "extensions.py": "4d9e4ae28924d4f855d0616db5db9c1b34af4071c8b0ebbc4f4d8aca799448af",
-        "file_tools.py": "78127fb34af4449cb0ddac15359f59ffc8f76a5c04675d48f0e1c07e5cd6c927",
-        "messages.py": "a5798318ce610b0e738549de5a9051ecf557bc84099c9f071f3c5689168be5bb",
+        "extensions.py": "e962587399ddbdc3bfbf31417ec36183eb387b4ae5df42cc7512605abec88759",
+        "file_tools.py": "fe8577b6b9971d9c09a7c58e35297a556b11418d8f8bcf5b0feae4a30ad99003",
+        "messages.py": "9e531a493efd3d76a6554f0eca71b853c63b68b1af024dc97a7bc6012b6a71f1",
         "model.py": "a0bd81bc4e29021f4969aed224b2aefe2611606949e8a47b7ad0b13563cea353",
         "providers.py": "5dc85df56ce9237c1b817cff38150a5fa934dc6dfc0ab2da533d3043b86c38c6",
-        "resources.py": "8e99c48ad538882e4dc5b0e3b90953b38270540017c2f096801271dd3a7dbc74",
-        "session.py": "3c8231df2b234d7d89a209776d9320ab700d706fcbce44a67070439bab54ece0",
-        "tools.py": "c8d2f6db429a1ab5da082b03b960df0c2afba70d5562ef6c6471917b9c8d9d5d"
+        "session.py": "c046f133ffb7f29a7ed202a3e5e26985ef89eb3f23aa1544f69615c66752e397",
+        "tools.py": "d9b15b145da2af54de6288001a0a4d9864d74afc5124e84780c9d4c6070067d2"
       }
     },
-    "s12_reload": {
-      "source_baseline": "5860514",
+    "s12_resources": {
+      "source_baseline": "9023750",
       "pi_reference": "e4c75a732",
       "files": {
         "__init__.py": "2eb23d779a3e4eaf5b1c0f116025b2ce61e10b1c89badef27e8c100c7246337c",
-        "cli.py": "6f2cdb7dc7b433a98c5f9a540f71b577ab1878424e94fcceb4ad58d636b623fb",
-        "code.py": "ac0de5750d1233d6c33708597c638d31f6158f8a74c9d84f9424da6e20a96a7a",
+        "cli.py": "0906c46e8d85cbac82442b14ddd2b9617a2ca80d8c241003823c0b69b81b9e2d",
+        "code.py": "4afca225888ab9ca895ac86b7efd4404ca186542d9e93d6b2a6529ec26bc16cc",
         "config.py": "27928f0048756f5285d7f1871488eb2ff1af1cfe34f98dde0326ac61af8fd29c",
         "demo.py": "c8bf427e56922d800d2d4e2308dcd41b2f6cb32df629ca5504b9ee9b4c525192",
         "errors.py": "c94c6bca6e2d0c3a0e9e7136777915b099175a568b46de0c3eba3b74f4c74f67",
         "events.py": "e049b742c71d5bbcdde783224ea1c1e3786d361428ca9b4471264a45be13d74e",
-        "extensions.py": "45d1cd3b943b1485701c1de9e823621d90042c22a14e7735c8a5bb3f71fafda2",
-        "file_tools.py": "a981c436bf2bb57a78f5eb40f658643a567fe0cf5644a80141544f6a8ab4f9ea",
-        "messages.py": "21f0d192098953ea20063f5799381656d46888a6099d73c2fda34306c1810a91",
+        "extensions.py": "59fcc9b1144447d4996496f73d59e77067d9c1202426d72abcc771b014d9043e",
+        "file_tools.py": "53abec9765ff56f5b6626541ff5e3e3bcf5ffef51a1f5323c225d823b9a931f5",
+        "messages.py": "5a65e678ea07818dd1ab21d1bf54b73fca373ba3bbf29fe173016b677e051aec",
         "model.py": "cc6921e941bfb120b43ddb612be862a03dd9b0389595b299d55836aab53f3ada",
         "providers.py": "81e3423b45f5c66dbf9cb8dad35ee603d89e675d7f44018c6fb4407a423e890b",
-        "resources.py": "5fbd01ef0e406f3ad1164a0fc4bfb38ada04d8311977a12f19655a58736cd6d0",
-        "session.py": "81d298efeb2e7126ef53c0d42be12e1679b9fde12fda600bf9eeaa161b8d36ae",
-        "tools.py": "b7cc1f9acd282ece2fcac787de3361ed5771cf583f79438e362292930846ce3b"
+        "resources.py": "61c81bca9b02e3139693d51e984987f9cd5dcead7df7da5fb17bfe938ae5b0fd",
+        "session.py": "6857f9738b6ee8af83b77f7c41384e143ef5519e75df109369c41fae81a168c5",
+        "tools.py": "f16218d3f10367e79fc6dc37df52700947a05c3e3150ef74cff25351a1aed2f9"
+      }
+    },
+    "s13_reload": {
+      "source_baseline": "5860514",
+      "pi_reference": "e4c75a732",
+      "files": {
+        "__init__.py": "2b6ddab445330f956170170f5ff166ba3ccdee9539d53e50c97f24637d558f44",
+        "cli.py": "ef676508c130947dcca7193be2e7be2a982f22865583ea24c76dbe878d9e52fe",
+        "code.py": "d1c6ef376e7aa2fcb2ab582ec32b7267316939c02edfcaff750f889c398977ae",
+        "config.py": "29dba486a0b61f32b9a81a6f4227b9193a43d5a33fd48da072aea021e32b388a",
+        "demo.py": "6dd48e1db59f65f0e004ce4526e0dbe2cc2fcf5faa2a277b420454fe1048ed7e",
+        "errors.py": "c94c6bca6e2d0c3a0e9e7136777915b099175a568b46de0c3eba3b74f4c74f67",
+        "events.py": "94583dd43c516b23b01f50da9d529a4523783e458f6e2e14d9f38ef934212bd3",
+        "extensions.py": "d41d7a582b3a4f9e8e50983b8ec47e68657aec6eb450193e5f44a6b43d161c12",
+        "file_tools.py": "c2ef9ffdbf8463a85d78f14aa95bd3283868ebed5c8ee625d3945203d50937d4",
+        "messages.py": "5b767bfa6088499ee197e54ddafcc738d49445e4a747b35a8059f605669e959c",
+        "model.py": "b4c4959b27bacc5de5e791449862d1b41b025dd45b4905fc164545a109bf31ad",
+        "providers.py": "cc05de9eb20594c989f432f0f20d3cd4841b995846ec236f0b942ee78c015a4c",
+        "resources.py": "c8722ded2cbc3b3f190c76d11e5c624d90b063a32eae20c47bae7f341580149c",
+        "session.py": "397fa362fbc3379d79da335f33c2426c11b58eb901b3fad6f5871199359b0a01",
+        "tools.py": "bc713d68bc654af27165fa78adcc95b6d09edd81cde2bb422d18c104def1b9c4"
       }
     }
   }

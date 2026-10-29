@@ -64,6 +64,6 @@ python -m pytest tests/test_s06_sessions.py tests/test_config_cli.py tests/test_
 
 - 已对齐：运行状态与记录存储分工、完成消息事件落盘、条目 ID 与父引用、默认保存及纯内存选择、末事件等待。
 - 扩展与调整：Python 使用单个 `AgentSession` 封装运行状态，不复制 Pi 的完整 Agent 外壳；格式为 Python version=1，失败保留并继续抛原异常。模型设置和工具由外部显式重建。未完成的工具结果在运行收口时补存，避免观察者失败丢失真实执行结果。
-- 暂缓：扩展注册在 s07，Hook 在 s08，自定义扩展状态条目在 s09，取消与队列在 s10；会话树、分支、压缩和损坏恢复编号待定。
+- 暂缓：上下文压缩（含手动、自动与溢出恢复）安排在 s07；扩展注册在 s08，Hook 和压缩扩展在 s09，自定义扩展状态条目在 s10，取消与队列在 s11。会话树、分支和损坏文件修复编号待定；[压缩设计](../../docs/context-compaction-design.md) 说明旧章节迁移及教学顺序。
 
 来源与 MIT 声明见 [NOTICE](NOTICE.md)。

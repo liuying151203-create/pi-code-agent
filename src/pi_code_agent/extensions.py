@@ -1,4 +1,4 @@
-"""s07：可信扩展工厂的发现、加载和工具注册，参考 Pi loader/runner。"""
+"""s08：可信扩展工厂的发现、加载和工具注册，参考 Pi loader/runner。"""
 
 from __future__ import annotations
 
@@ -17,8 +17,8 @@ from uuid import uuid4
 from pi_code_agent.tools import Tool, ToolResult
 
 
-# ===== s07 新增 =====
-# s07 新增：发现只返回路径，不执行项目代码；本地、全局、显式路径保持稳定顺序。
+# ===== s08 新增 =====
+# s08 新增：发现只返回路径，不执行项目代码；本地、全局、显式路径保持稳定顺序。
 def discover_extensions(
     workspace: Path,
     *,
@@ -60,7 +60,7 @@ def discover_extensions(
     return found
 
 
-# s12 新增：只拦截本运行时唯一命名空间，依赖模块也读取新源码，避免同秒同长度 pyc。
+# s13 新增：只拦截本运行时唯一命名空间，依赖模块也读取新源码，避免同秒同长度 pyc。
 class FreshSourceLoader(SourceFileLoader):
     """保留原生 ModuleSpec/资源读取，只绕开所属 Python 源文件的字节码缓存。"""
 
@@ -84,7 +84,7 @@ class ExtensionModuleFinder(MetaPathFinder):
         elif base.with_suffix(".py").is_file():
             source, locations = base.with_suffix(".py"), None
         elif base.is_dir():
-            # s12 新增：无 __init__ 的命名空间包也允许继续发现子模块。
+            # s13 新增：无 __init__ 的命名空间包也允许继续发现子模块。
             from importlib.machinery import ModuleSpec
 
             spec = ModuleSpec(fullname, loader=None, is_package=True)
@@ -154,10 +154,10 @@ class ExtensionAPI:
 
     输入：Tool 声明；输出：工厂成功后可用的工具。
     流程：loading 收集 → active 提交；失败时清空、失效。
-    边界：s12 允许活跃期动态注册，关闭/失败后禁止。原生 Python 扩展不是沙箱。
+    边界：s13 允许活跃期动态注册，关闭/失败后禁止。原生 Python 扩展不是沙箱。
     """
 
-    # s07 新增：工厂可使用当前宿主的类型，独立教学快照不必导入正式包。
+    # s08 新增：工厂可使用当前宿主的类型，独立教学快照不必导入正式包。
     Tool = Tool
     ToolResult = ToolResult
 
@@ -170,7 +170,7 @@ class ExtensionAPI:
         self._tools: dict[str, Tool] = {}
         self._handlers: dict[str, list[Callable]] = {}
 
-    # s12 新增：注册可以在 active 期间发生，工具选择仍在下一次请求生效。
+    # s13 新增：注册可以在 active 期间发生，工具选择仍在下一次请求生效。
     def set_active_tools(self, names):
         """切换已注册工具的可见集合，未知名称按 Pi 忽略。"""
         if self._state != "active" or self._runtime._session is None:
@@ -183,10 +183,10 @@ class ExtensionAPI:
             raise RuntimeError("扩展尚未绑定活跃会话")
         return ExtensionContext(self._runtime, self._runtime._session).get_active_tools()
 
-    # s09 新增：命令与参数与工具分别注册，不占模型工具列表。
+    # s10 新增：命令与参数与工具分别注册，不占模型工具列表。
     def register_command(self, name: str, handler: Callable, *, description: str = ""):
         """注册 /name 命令，处理函数接收原始参数文本与命令上下文。"""
-        # s12 修改：允许活跃期注册，失效代次仍拒绝，变化在下一请求取快照。
+        # s13 修改：允许活跃期注册，失效代次仍拒绝，变化在下一请求取快照。
         if self._state not in {"loading", "active"}:
             raise RuntimeError("请在 setup 中注册命令")
         if (
@@ -200,7 +200,7 @@ class ExtensionAPI:
 
     def register_flag(self, name: str, *, type: str = "boolean", default=None, description=""):
         """声明 boolean/string 参数，默认值在工厂事务内，不污染失败后的运行时。"""
-        # s12 修改：允许活跃期注册，失效代次仍拒绝，变化在下一请求取快照。
+        # s13 修改：允许活跃期注册，失效代次仍拒绝，变化在下一请求取快照。
         if self._state not in {"loading", "active"}:
             raise RuntimeError("请在 setup 中注册参数")
         expected = {"boolean": bool, "string": str}.get(type)
@@ -215,17 +215,17 @@ class ExtensionAPI:
 
     def get_flag(self, name):
         """仅查询本扩展已声明的参数；CLI 在工厂完成后应用实际值。"""
-        # s12 修改：允许活跃期注册，失效代次仍拒绝，变化在下一请求取快照。
+        # s13 修改：允许活跃期注册，失效代次仍拒绝，变化在下一请求取快照。
         if self._state not in {"loading", "active"}:
             raise RuntimeError("扩展已失效")
         if name not in self._flags:
             return None
         return self._runtime.flag_values.get(name, self._flags[name]["default"])
 
-    # s08 新增：声明拦截点；工厂失败时与工具一起丢弃，不提前执行。
+    # s09 新增：声明拦截点；工厂失败时与工具一起丢弃，不提前执行。
     def on(self, event: str, handler: Callable) -> None:
         """注册同步或异步 Hook，输入事件与实时会话上下文，返回对应修改。"""
-        # s12 修改：允许活跃期注册，失效代次仍拒绝，变化在下一请求取快照。
+        # s13 修改：允许活跃期注册，失效代次仍拒绝，变化在下一请求取快照。
         if self._state not in {"loading", "active"}:
             raise RuntimeError("请在 setup 中注册 Hook")
         if event not in {
@@ -252,7 +252,7 @@ class ExtensionAPI:
 
     def register_tool(self, tool: Tool) -> None:
         """绑定声明与处理函数；同一工厂内同名工具替换前一项，保留 Pi 语义。"""
-        # s12 修改：允许活跃期注册，失效代次仍拒绝，变化在下一请求取快照。
+        # s13 修改：允许活跃期注册，失效代次仍拒绝，变化在下一请求取快照。
         if self._state not in {"loading", "active"}:
             raise RuntimeError("扩展已失效，不能注册工具")
         if not isinstance(tool, Tool):
@@ -261,7 +261,7 @@ class ExtensionAPI:
             raise ValueError("工具参数必须声明为对象 schema")
 
         async def execute(arguments):
-            # s07 新增：关闭或失败后的旧处理函数不再产生工具副作用。
+            # s08 新增：关闭或失败后的旧处理函数不再产生工具副作用。
             if self._state != "active":
                 raise RuntimeError("扩展已失效")
             return await tool.execute(arguments)
@@ -290,7 +290,7 @@ class ExtensionRuntime:
         self._namespaces: list[str] = []
         self._paths: set[Path] = set()
         self._closed = False
-        # s12 新增：绑定、来源重放和自有模块加载器共同管理可失效的代次。
+        # s13 新增：绑定、来源重放和自有模块加载器共同管理可失效的代次。
         self._session = None
         self._factories = []
         self._replay = []
@@ -342,7 +342,7 @@ class ExtensionRuntime:
             try:
                 if not path.is_file() or path.suffix != ".py":
                     raise ValueError("扩展入口必须是已有 Python 文件")
-                # s07 修复：原生 ModuleSpec 提供完整包语义，支持资源读取与模块内省。
+                # s08 修复：原生 ModuleSpec 提供完整包语义，支持资源读取与模块内省。
                 spec = spec_from_file_location(
                     namespace, path, submodule_search_locations=[str(path.parent)]
                 )
@@ -350,11 +350,11 @@ class ExtensionRuntime:
                     raise ImportError("无法构建扩展模块定义")
                 module = module_from_spec(spec)
                 sys.modules[namespace] = module
-                # s07 调整：Pi 使用 jiti；Python 显式编译源码，入口不受旧 pyc 缓存影响。
+                # s08 调整：Pi 使用 jiti；Python 显式编译源码，入口不受旧 pyc 缓存影响。
                 exec(compile(path.read_text(encoding="utf-8"), str(path), "exec"), module.__dict__)  # noqa: S102 - 显式可信扩展加载，不提供沙箱
                 await self.register(getattr(module, "setup", None), source=str(path))
-                self._replay.pop()  # s12 修复：文件来源留在原位置，工厂仅按路径重放。
-                self._factories.pop()  # s12：文件工厂按路径重载，不重复当作内联工厂。
+                self._replay.pop()  # s13 修复：文件来源留在原位置，工厂仅按路径重放。
+                self._factories.pop()  # s13：文件工厂按路径重载，不重复当作内联工厂。
             except BaseException as error:
                 sys.meta_path.remove(finder)
                 _unload_namespace(namespace)
@@ -383,7 +383,7 @@ class ExtensionRuntime:
             catalog[tool.name] = tool
         return list(catalog.values())
 
-    # s09 新增：跨扩展同名声明首个优先，与工具注册来源顺序一致。
+    # s10 新增：跨扩展同名声明首个优先，与工具注册来源顺序一致。
     def commands(self):
         """返回实际可调用命令表。"""
         if self._closed:
@@ -438,10 +438,10 @@ class ExtensionRuntime:
                 sources.setdefault(name, extension.source)
         return sources
 
-    # s08 新增：按扩展/注册顺序执行；工具调用异常向外传播以阻止副作用。
+    # s09 新增：按扩展/注册顺序执行；工具调用异常向外传播以阻止副作用。
     async def dispatch(self, event: dict, session) -> dict:
         """输入事件副本，输出链式修改；普通观察失败记录诊断，原生取消传播。"""
-        # s08 修复：已关闭运行时不能通过逃逸会话重新触发 Hook 副作用。
+        # s09 修复：已关闭运行时不能通过逃逸会话重新触发 Hook 副作用。
         if self._closed:
             raise RuntimeError("扩展运行时已关闭")
         current = deepcopy(event)
@@ -470,7 +470,7 @@ class ExtensionRuntime:
                             candidate["action"] = "handled"
                             return candidate
                     elif kind == "context" and "messages" in result:
-                        # s08 新增：使用同一消息编解码器检查修改，临时上下文不落盘。
+                        # s09 新增：使用同一消息编解码器检查修改，临时上下文不落盘。
                         from pi_code_agent.session import encode_message
 
                         values = list(result["messages"])

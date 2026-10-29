@@ -17,12 +17,13 @@ CHAPTERS = [
     "s04_events",
     "s05_streaming",
     "s06_sessions",
-    "s07_extensions",
-    "s08_hooks",
-    "s09_commands",
-    "s10_queues",
-    "s11_resources",
-    "s12_reload",
+    "s07_compaction",
+    "s08_extensions",
+    "s09_hooks",
+    "s10_commands",
+    "s11_queues",
+    "s12_resources",
+    "s13_reload",
 ]
 
 

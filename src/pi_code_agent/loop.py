@@ -36,15 +36,15 @@ async def agent_loop(
     events: EventBus | None = None,
     # s05 新增：保留完整响应路径，调用方明确选择流式，不猜测模型能力。
     stream: bool = False,
-    # s08 新增：核心只接收可调用策略，不依赖扩展加载器。
+    # s09 新增：核心只接收可调用策略，不依赖扩展加载器。
     transform_context=None,
     before_tool_call=None,
     after_tool_call=None,
-    # s10 新增：只在完整回合边界读取消息队列。
+    # s11 新增：只在完整回合边界读取消息队列。
     get_steering_messages=None,
     get_follow_up_messages=None,
     after_turn=None,
-    # s12 新增：请求前固定当前工具快照，批次中不替换分发目录。
+    # s13 新增：请求前固定当前工具快照，批次中不替换分发目录。
     get_tools=None,
 ) -> list[Message]:
     """请求模型、执行工具并回传结果，直到模型不再请求工具。
@@ -82,7 +82,7 @@ async def agent_loop(
         if turn:
             await events.emit({"type": "turn_start"})
         turn += 1
-        # s10 新增：一轮只消费一次队列，保持 one-at-a-time 语义。
+        # s11 新增：一轮只消费一次队列，保持 one-at-a-time 语义。
         for queued in pending:
             messages.append(queued)
             await events.emit({"type": "message_start", "message": queued})
@@ -93,7 +93,7 @@ async def agent_loop(
         partial = AssistantMessage((), "pending")
         response = None
         try:
-            # s12 新增：同一请求的定义与执行目录来自同一快照，批次中保持不变。
+            # s13 新增：同一请求的定义与执行目录来自同一快照，批次中保持不变。
             if get_tools is not None:
                 current_tools = tuple(await get_tools())
                 catalog = {tool.name: tool for tool in current_tools}
@@ -294,7 +294,7 @@ async def agent_loop(
             raise
         # s04 新增：回合包括一次回答和整批工具结果；末事件的订阅器也必须等待。
         await events.emit({"type": "turn_end", "message": response, "tool_results": tool_results})
-        # s10 修复：等待所有 turn_end 观察者后再投递，避免末回合新消息滞留。
+        # s11 修复：等待所有 turn_end 观察者后再投递，避免末回合新消息滞留。
         if after_turn is not None:
             await after_turn()
         if response.stop_reason in {"error", "aborted"}:
@@ -307,7 +307,7 @@ async def agent_loop(
             if not pending:
                 await events.emit({"type": "agent_end", "messages": messages[start:]})
                 return messages
-    # s10 修复：达到轮数保护时，已经出队的输入仍保存到历史，后续 continue_ 不丢消息。
+    # s11 修复：达到轮数保护时，已经出队的输入仍保存到历史，后续 continue_ 不丢消息。
     for queued in pending:
         messages.append(queued)
         await events.emit({"type": "message_start", "message": queued})

@@ -81,10 +81,10 @@ async def run(
     边界：demo 不加载密钥；模型/工具正文仅在本入口打印，循环本身不打印。
     """
     workspace = options.workspace.resolve(strict=True)
-    # s11 修改：先验证真实模型配置，配置缺失时不扫描任何全局资源。
+    # s12 修改：先验证真实模型配置，配置缺失时不扫描任何全局资源。
     if not options.demo:
         config = load_model_config(options.env_file)
-    # s11 新增：资源先加载，明确的 Skill 路径交给只读工具，而不是放开整个主目录。
+    # s12 新增：资源先加载，明确的 Skill 路径交给只读工具，而不是放开整个主目录。
     home = Path(os.environ.get("PI_CODE_AGENT_HOME", str(Path.home() / ".pi-code-agent")))
     resources = ResourceLoader(
         workspace,
@@ -106,7 +106,7 @@ async def run(
         model = create_model(config)
         max_tokens = config.max_tokens
 
-    # s12 新增：同一发现入口供初始加载和重载使用，可以发现新增插件文件。
+    # s13 新增：同一发现入口供初始加载和重载使用，可以发现新增插件文件。
     def extension_paths():
         return discover_extensions(
             workspace,
@@ -143,7 +143,7 @@ async def run(
             )
         else:
             target_id = sha256(str(workspace).encode("utf-8")).hexdigest()[:12]
-            path = Path.cwd() / ".sessions" / "s12" / target_id / (uuid4().hex + ".jsonl")
+            path = Path.cwd() / ".sessions" / "s13" / target_id / (uuid4().hex + ".jsonl")
             store = SessionStore.create(path, workspace)
         session = AgentSession(
             model=model,
@@ -208,7 +208,7 @@ async def run(
             if options.prompt is not None:
                 return 0
     finally:
-        # s12 修复：即使扩展关闭被取消，仍释放宿主拥有的模型和模块。
+        # s13 修复：即使扩展关闭被取消，仍释放宿主拥有的模型和模块。
         try:
             if session is not None:
                 await session.aclose()

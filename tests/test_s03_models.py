@@ -373,12 +373,12 @@ def test_owned_client_closes_when_request_is_cancelled(api, monkeypatch):
         "tutorials.s04_events",
         "tutorials.s05_streaming",
         "tutorials.s06_sessions",
-        "tutorials.s07_extensions",
-        "tutorials.s08_hooks",
-        "tutorials.s09_commands",
-        "tutorials.s10_queues",
-        "tutorials.s11_resources",
-        "tutorials.s12_reload",
+        "tutorials.s08_extensions",
+        "tutorials.s09_hooks",
+        "tutorials.s10_commands",
+        "tutorials.s11_queues",
+        "tutorials.s12_resources",
+        "tutorials.s13_reload",
     ]
 )
 def api(request):

@@ -1,4 +1,4 @@
-"""s11：只读资源发现、Skill 渐进加载与模板参数展开，参考 Pi resource-loader。"""
+"""s12：只读资源发现、Skill 渐进加载与模板参数展开，参考 Pi resource-loader。"""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from pathlib import Path
 import yaml
 
 
-# s11 新增：PyYAML safe_load 负责完整 YAML，不用手工拆行冒充解析器。
+# s12 新增：PyYAML safe_load 负责完整 YAML，不用手工拆行冒充解析器。
 def parse_frontmatter(text: str) -> tuple[dict, str]:
     """输入 Markdown，输出元数据和正文；无头信息原样返回，坏 YAML 报错。"""
     text = text.removeprefix("\ufeff").replace("\r\n", "\n")
@@ -27,7 +27,7 @@ def parse_frontmatter(text: str) -> tuple[dict, str]:
     return metadata, text[4 + match.end() :].lstrip("\n")
 
 
-# s11 新增：按 Pi 单次替换，参数中的 $1 不会再被解释。
+# s12 新增：按 Pi 单次替换，参数中的 $1 不会再被解释。
 def parse_command_args(text: str) -> list[str]:
     """按 Pi 规则拆引号参数；不执行 shell、不处理反斜杠转义。"""
     result, current, quote = [], "", None
@@ -92,7 +92,7 @@ class PromptTemplate:
     path: Path
 
 
-# s11 新增：资源只从明确业务根和配置根发现，不扫描 Harness 项目。
+# s12 新增：资源只从明确业务根和配置根发现，不扫描 Harness 项目。
 class ResourceLoader:
     """加载上下文、Skills 和模板；产生系统提示与显式展开文本。
 
@@ -128,7 +128,7 @@ class ResourceLoader:
 
     def _skill_candidates(self, root: Path, seen: set[Path], *, include_root_files=True):
         """只遍历资源根；技能目录存在 SKILL.md 时停止下探，防止链接循环。"""
-        # s11 修复：仅资源根接受松散 Markdown，子目录只认 SKILL.md，防止引用误注册。
+        # s12 修复：仅资源根接受松散 Markdown，子目录只认 SKILL.md，防止引用误注册。
         root = root.resolve()
         if root in seen:
             return
@@ -163,7 +163,7 @@ class ResourceLoader:
             roots.extend(ancestors)
         seen_context = set()
         for root in roots:
-            # s11 保留：Pi 每层只取第一个存在的候选文件；Python Windows 同名大小写去重。
+            # s12 保留：Pi 每层只取第一个存在的候选文件；Python Windows 同名大小写去重。
             for name in ("AGENTS.override.md", "AGENTS.md", "AGENTS.MD", "CLAUDE.md", "CLAUDE.MD"):
                 path = root / name
                 if path.is_file():

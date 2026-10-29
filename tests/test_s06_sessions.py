@@ -13,12 +13,12 @@ from conftest import ScriptedModel, load_runtime
     params=[
         "pi_code_agent",
         "tutorials.s06_sessions",
-        "tutorials.s07_extensions",
-        "tutorials.s08_hooks",
-        "tutorials.s09_commands",
-        "tutorials.s10_queues",
-        "tutorials.s11_resources",
-        "tutorials.s12_reload",
+        "tutorials.s08_extensions",
+        "tutorials.s09_hooks",
+        "tutorials.s10_commands",
+        "tutorials.s11_queues",
+        "tutorials.s12_resources",
+        "tutorials.s13_reload",
     ]
 )
 def api(request):
